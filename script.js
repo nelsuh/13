@@ -274,7 +274,7 @@ function renderOpponents() {
     const seat = (mySeat + i) % numPlayers;
     const p = players[seat];
     const act = lastAction[seat];
-    const cnt = hands[seat].length;
+    const cnt = (hands[seat] || []).length;   // hands may be empty before the first deal
     const pos = positions[i - 1] || "top";
     const div = document.createElement("div");
     div.className = "opp opp--" + pos + (turn === seat && dealActive ? " turn" : "") + (cnt === 0 ? " done" : "");
@@ -427,6 +427,7 @@ function startDeal(seed) {
   turn = starter;
   firstPlay = true;
   handOverlay.classList.remove("show");
+  onlineOverlay.classList.remove("show");   // cards are in — clear the "Dealing…" cover
   render();
   if (dragon >= 0) { toast(players[dragon].name + " — DRAGON! 🐉"); dealActive = false; endHand(dragon, true); return; }
   beginTurn();
@@ -671,8 +672,10 @@ function startOnlineGame(data) {
     color: PLAYER_COLORS[i], isBot: false, total: 0
   }));
   meNameEl.textContent = players[mySeat].name;
-  onlineOverlay.classList.remove("show");
   setupOverlay.classList.remove("show");
+  const os = document.getElementById("onlineStatus");
+  if (os) os.textContent = "Dealing…";
+  onlineOverlay.classList.add("show");   // keep covering the table until the first deal lands
   render();
   Usion.game.requestSync(0);   // catch any actions (e.g. the deal) we missed
 }
