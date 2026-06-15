@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Mongolian Poker</title>
+<link rel="stylesheet" href="https://usions.com/usion-design-system.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div class="game-container">
+
+  <!-- Opponents (seats other than mine) -->
+  <div class="opponents" id="opponents"></div>
+
+  <!-- Center table: the current combination on the table + turn info -->
+  <div class="table-area">
+    <div class="turn-line" id="turnLine">—</div>
+    <div class="table-combo" id="tableCombo"></div>
+    <div class="table-label" id="tableLabel"></div>
+  </div>
+
+  <!-- My seat -->
+  <div class="me-area">
+    <div class="me-bar">
+      <span class="me-name" id="meName">You</span>
+      <span class="me-status" id="meStatus"></span>
+    </div>
+    <div class="hand" id="hand"></div>
+    <div class="controls">
+      <button id="sortBtn" class="ctrl-btn">Sort</button>
+      <button id="passBtn" class="ctrl-btn" disabled>Pass</button>
+      <button id="playBtn" class="ctrl-btn primary" disabled>Play</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Setup Overlay -->
+<div id="setupOverlay" class="overlay show">
+  <div class="overlay-card setup-card">
+    <h1 class="setup-title">🀄 MONGOLIAN POKER</h1>
+    <p class="setup-sub">2–4 players, 13 cards each — be first to empty your hand. Play singles, pairs, triples, fours, or 5-card poker hands (straight, flush, full house, four+1, straight flush). Beat the table with a bigger combo of the same size, or pass. ♠&gt;♥&gt;♣&gt;♦.</p>
+
+    <div class="count-label">PLAYERS</div>
+    <div class="count-row" id="countRow">
+      <button class="count-btn" data-count="2">2</button>
+      <button class="count-btn" data-count="3">3</button>
+      <button class="count-btn selected" data-count="4">4</button>
+    </div>
+
+    <label class="name-label">YOUR NAME
+      <input id="nameInput" class="ps-name" value="You" maxlength="10">
+    </label>
+
+    <button class="btn-confirm" id="startBtn">START GAME</button>
+    <p class="setup-foot">You vs bots offline. Online, everyone at the table plays.</p>
+  </div>
+</div>
+
+<!-- Online connecting / waiting overlay -->
+<div id="onlineOverlay" class="overlay">
+  <div class="overlay-card waiting-card">
+    <div class="spinner"></div>
+    <p class="overlay-text" id="onlineStatus">Connecting…</p>
+  </div>
+</div>
+
+<!-- Hand-over (results of one deal) -->
+<div id="handOverlay" class="overlay">
+  <div class="overlay-card result-card">
+    <h2 class="result-title" id="handTitle">Round Over</h2>
+    <div class="scoreboard" id="handScoreboard"></div>
+    <div class="countdown" id="handCountdown"></div>
+    <div class="reveal-actions" id="handActions"></div>
+  </div>
+</div>
+
+<!-- Game over (someone reached the target) -->
+<div id="winnerOverlay" class="overlay">
+  <div class="overlay-card winner-card">
+    <div class="winner-emoji">🏆</div>
+    <div class="winner-label">WINNER</div>
+    <div class="winner-name" id="winnerName">You</div>
+    <div class="scoreboard" id="finalScoreboard"></div>
+    <button class="btn-confirm" id="playAgainBtn">PLAY AGAIN</button>
+  </div>
+</div>
+
+<!-- Floating toast -->
+<div class="toast" id="toast"></div>
+
+<script src="https://usions.com/usion-sdk.js"></script>
+<script src="script.js?v=1"></script>
+
+</body>
+</html>
