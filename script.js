@@ -221,6 +221,7 @@ let lastAction = {};
 let botTimer = null;
 let dealActive = false;
 let lastWinner = -1;
+let loseAt = 30;            // a player who reaches this many penalty points is eliminated
 let mySeat = 0;
 
 // ── DOM ──────────────────────────────────────────────────
@@ -409,27 +410,31 @@ function humanPass() {
 }
 
 // ── Engine ───────────────────────────────────────────────
+function activeSeats() { return players.map((p, s) => s).filter(s => !players[s].out); }
 function startDeal(seed) {
   if (botTimer) { clearTimeout(botTimer); botTimer = null; }
-  hands = dealHands(seed, numPlayers);
+  // deal 13 only to players still in the game; eliminated seats sit out
+  const active = activeSeats();
+  const dealt = dealHands(seed, active.length);
+  hands = players.map(() => []);
+  active.forEach((s, i) => { hands[s] = dealt[i]; });
   table = null;
   passed = new Set();
   lastAction = {};
   selected.clear();
   dealActive = true;
-  // auto-win: a hand with all 13 distinct ranks (3→A + 2)
-  const dragon = hands.findIndex(h => new Set(h.map(c => c.r)).size === 13);
-  // starter = holder of the lowest card
-  const lows = hands.map(h => lowestCard(h));
-  let starter = 0;
-  for (let s = 1; s < numPlayers; s++) if (cardStrength(lows[s]) < cardStrength(lows[starter])) starter = s;
-  lowCard = lows[starter];
+  // auto-win: an active hand with all 13 distinct ranks (3→A + 2)
+  const dragon = active.find(s => new Set(hands[s].map(c => c.r)).size === 13);
+  // starter = active holder of the lowest card
+  let starter = active[0];
+  active.forEach(s => { if (cardStrength(lowestCard(hands[s])) < cardStrength(lowestCard(hands[starter]))) starter = s; });
+  lowCard = lowestCard(hands[starter]);
   turn = starter;
   firstPlay = true;
   handOverlay.classList.remove("show");
   onlineOverlay.classList.remove("show");   // cards are in — clear the "Dealing…" cover
   render();
-  if (dragon >= 0) { toast(players[dragon].name + " — DRAGON! 🐉"); dealActive = false; endHand(dragon, true); return; }
+  if (dragon !== undefined) { toast(players[dragon].name + " — DRAGON! 🐉"); dealActive = false; endHand(dragon, true); return; }
   beginTurn();
 }
 
@@ -467,7 +472,7 @@ function advanceTurn() {
   for (let i = 1; i <= numPlayers; i++) {
     const s = (turn + i) % numPlayers;
     if (s === owner) { clearTrick(owner); return; }   // looped back to owner → trick won
-    if (passed.has(s)) continue;
+    if (passed.has(s) || players[s].out) continue;    // skip passers and eliminated seats
     turn = s; beginTurn(); return;
   }
   clearTrick(owner);
@@ -483,36 +488,47 @@ function clearTrick(winnerSeat) {
 function endHand(winnerSeat, dragon) {
   if (botTimer) { clearTimeout(botTimer); botTimer = null; }
   lastWinner = winnerSeat;
+  // losers ADD their leftover-card penalty toward the lose-at threshold
   const deltas = Array(numPlayers).fill(0);
   for (let s = 0; s < numPlayers; s++) {
-    if (s === winnerSeat) continue;
+    if (players[s].out || s === winnerSeat) continue;
     const n = hands[s].length;
     const ded = dragon ? 3 * n : deduction(n);
-    deltas[s] = -ded;
-    players[s].total += deltas[s];
+    deltas[s] = ded;
+    players[s].total += ded;
+  }
+  // eliminate anyone who reached the threshold (the round winner added 0, stays safe)
+  const newlyOut = [];
+  for (let s = 0; s < numPlayers; s++) {
+    if (!players[s].out && players[s].total >= loseAt) { players[s].out = true; newlyOut.push(s); }
   }
   render();
-  showHandOver(winnerSeat, deltas);
+  if (activeSeats().length <= 1) showGameOver();
+  else showHandOver(winnerSeat, deltas, newlyOut);
 }
 
 // ── Hand-over overlay ────────────────────────────────────
 let handCdInterval = null, handCdTimeout = null;
-function showHandOver(winnerSeat, deltas) {
+function showHandOver(winnerSeat, deltas, newlyOut) {
+  newlyOut = newlyOut || [];
   document.getElementById("handTitle").textContent = winnerSeat === mySeat ? "You win the round!" : players[winnerSeat].name + " wins the round!";
   const sb = document.getElementById("handScoreboard");
   sb.innerHTML = "";
-  const order = players.map((p, s) => s).sort((a, b) => players[b].total - players[a].total);
+  // lower total is safer → list best (lowest) first
+  const order = players.map((p, s) => s).sort((a, b) => players[a].total - players[b].total);
+  const best = Math.min(...players.filter(p => !p.out).map(p => p.total));
   order.forEach(seat => {
     const p = players[seat];
+    const justOut = newlyOut.includes(seat);
     const row = document.createElement("div");
-    row.className = "sb-row" + (seat === winnerSeat ? " lead" : "");
-    const left = seat === winnerSeat ? "🏆 won" : hands[seat].length + " left";
+    row.className = "sb-row" + (!p.out && p.total === best ? " lead" : "");
+    const tag = p.out ? '<span class="rv-foul">OUT</span>' : (seat === winnerSeat ? "🏆 won" : hands[seat].length + " left");
     row.innerHTML =
-      '<div class="sb-dot" style="background:' + p.color + '"></div>' +
-      '<div class="sb-name">' + escapeHtml(p.name) + "</div>" +
-      '<div class="sb-rank" style="width:auto;opacity:.7">' + left + "</div>" +
-      '<div class="sb-delta" style="color:' + (deltas[seat] < 0 ? "#ff9aa2" : "#7be8a8") + '">' + (deltas[seat] ? deltas[seat] : "—") + "</div>" +
-      '<div class="sb-score">' + p.total + "</div>";
+      '<div class="sb-dot" style="background:' + p.color + (p.out ? ";opacity:.4" : "") + '"></div>' +
+      '<div class="sb-name"' + (p.out ? ' style="opacity:.55"' : "") + '>' + escapeHtml(p.name) + "</div>" +
+      '<div class="sb-rank" style="width:auto;opacity:.7">' + tag + "</div>" +
+      '<div class="sb-delta" style="color:' + (deltas[seat] ? "#ff9aa2" : "#7be8a8") + '">' + (deltas[seat] ? "+" + deltas[seat] : "—") + "</div>" +
+      '<div class="sb-score">' + p.total + '<small> / ' + loseAt + "</small></div>";
     sb.appendChild(row);
   });
   const cd = document.getElementById("handCountdown");
@@ -550,6 +566,39 @@ function backToSetup() {
   setupOverlay.classList.add("show");
 }
 
+// Game over: only one player has avoided the lose-at threshold — they win.
+function showGameOver() {
+  if (botTimer) { clearTimeout(botTimer); botTimer = null; }
+  if (handCdInterval) clearInterval(handCdInterval);
+  if (handCdTimeout) clearTimeout(handCdTimeout);
+  handOverlay.classList.remove("show");
+  dealActive = false;
+  const survivors = activeSeats();
+  const ranked = players.map((p, s) => s).sort((a, b) => players[a].total - players[b].total);
+  const champ = survivors.length ? survivors[0] : ranked[0];
+  document.getElementById("winnerName").textContent = champ === mySeat ? "You" : players[champ].name;
+  const sb = document.getElementById("finalScoreboard");
+  sb.innerHTML = "";
+  ranked.forEach(seat => {
+    const p = players[seat];
+    const row = document.createElement("div");
+    row.className = "sb-row" + (seat === champ ? " lead" : "");
+    row.innerHTML =
+      '<div class="sb-dot" style="background:' + p.color + '"></div>' +
+      '<div class="sb-name">' + escapeHtml(p.name) + "</div>" +
+      '<div class="sb-rank" style="width:auto;opacity:.7">' + (seat === champ ? "survivor" : "out") + "</div>" +
+      '<div class="sb-score">' + p.total + "</div>";
+    sb.appendChild(row);
+  });
+  document.getElementById("winnerOverlay").classList.add("show");
+}
+document.getElementById("playAgainBtn").addEventListener("click", () => {
+  document.getElementById("winnerOverlay").classList.remove("show");
+  if (online) { location.reload(); return; }   // fresh room/seed online
+  players.forEach(p => { p.total = 0; p.out = false; });
+  startDeal(randomSeed());
+});
+
 // ── Setup (local) ────────────────────────────────────────
 document.querySelectorAll("#countRow .count-btn").forEach(btn => {
   btn.addEventListener("click", () => {
@@ -558,11 +607,18 @@ document.querySelectorAll("#countRow .count-btn").forEach(btn => {
     numPlayers = +btn.dataset.count;
   });
 });
+document.querySelectorAll("#loseRow .count-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#loseRow .count-btn").forEach(b => b.classList.remove("selected"));
+    btn.classList.add("selected");
+    loseAt = +btn.dataset.lose;
+  });
+});
 document.getElementById("startBtn").addEventListener("click", () => {
   const myName = (document.getElementById("nameInput").value || "You").slice(0, 10);
   players = [];
   for (let i = 0; i < numPlayers; i++) {
-    players.push({ name: i === 0 ? myName : BOT_NAMES[i], color: PLAYER_COLORS[i], isBot: i !== 0, total: 0 });
+    players.push({ name: i === 0 ? myName : BOT_NAMES[i], color: PLAYER_COLORS[i], isBot: i !== 0, total: 0, out: false });
   }
   online = false;
   mySeat = 0;
@@ -669,7 +725,7 @@ function startOnlineGame(data) {
   isHost = roomPlayerIds[0] === myId;
   players = roomPlayerIds.map((id, i) => ({
     name: (playerMeta[id] && playerMeta[id].name) || (id === myId ? myName : "Player " + (i + 1)),
-    color: PLAYER_COLORS[i], isBot: false, total: 0
+    color: PLAYER_COLORS[i], isBot: false, total: 0, out: false
   }));
   meNameEl.textContent = players[mySeat].name;
   setupOverlay.classList.remove("show");
