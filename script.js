@@ -222,6 +222,8 @@ let botTimer = null;
 let dealActive = false;
 let lastWinner = -1;
 let loseAt = 30;            // a player who reaches this many penalty points is eliminated
+let firstDeal = true;       // first deal of the game: lowest card (3♦) leads; later deals: winner leads
+let trickPlays = [];        // plays in the current trick: [{ seat, combo }] (for the table history)
 let mySeat = 0;
 
 // ── DOM ──────────────────────────────────────────────────
@@ -234,7 +236,6 @@ const meStatusEl = document.getElementById("meStatus");
 const handEl = document.getElementById("hand");
 const playBtn = document.getElementById("playBtn");
 const passBtn = document.getElementById("passBtn");
-const sortBtn = document.getElementById("sortBtn");
 const setupOverlay = document.getElementById("setupOverlay");
 const onlineOverlay = document.getElementById("onlineOverlay");
 const handOverlay = document.getElementById("handOverlay");
@@ -286,16 +287,25 @@ function renderOpponents() {
         '<span class="opp-score">' + p.total + "</span>" +
       "</div>" +
       '<div class="opp-fan">' + '<div class="mini-back"></div>'.repeat(cnt) + "</div>" +
-      '<div class="opp-count">' + cnt + " cards</div>" +
       (act ? '<div class="opp-action ' + act.kind + '">' + act.text + "</div>" : "");
     oppEl.appendChild(div);
   }
 }
 function renderTable() {
   tableComboEl.innerHTML = "";
-  if (table) {
-    table.combo.cards.forEach(c => tableComboEl.appendChild(makeCardEl(c)));
-    tableLabelEl.textContent = players[table.seat].name + " played " + comboName(table.combo);
+  if (trickPlays.length) {
+    tableLabelEl.textContent = "";
+    const shown = trickPlays.slice(-4);   // current trick's recent plays, oldest → newest
+    shown.forEach((tp, idx) => {
+      const latest = idx === shown.length - 1;
+      const row = document.createElement("div");
+      row.className = "tp-play" + (latest ? " latest" : "");
+      const cards = document.createElement("div");
+      cards.className = "tp-cards";
+      tp.combo.cards.forEach(c => cards.appendChild(makeCardEl(c)));
+      row.appendChild(cards);   // cards only — no name, no colour
+      tableComboEl.appendChild(row);
+    });
   } else {
     tableLabelEl.textContent = dealActive ? "Table is clear — lead any combo" : "";
   }
@@ -384,15 +394,10 @@ function toggleCard(i) {
   if (selected.has(i)) selected.delete(i);
   else if (selected.size >= 5) { toast("Max 5 cards"); return; }   // never select/raise more than 5
   else selected.add(i);
-  renderHand(); renderControls();
-  if (table) {       // following: auto-play once the selection is a legal beat
-    const combo = classify(selectedCards());
-    if (isLegalPlay(combo)) humanPlay();
-  }
+  renderHand(); renderControls();   // selection only — playing happens via the Play button
 }
 playBtn.addEventListener("click", humanPlay);
 passBtn.addEventListener("click", () => { if (!passBtn.disabled) humanPass(); });
-sortBtn.addEventListener("click", () => { selected.clear(); render(); });
 
 function humanPlay() {
   if (turn !== mySeat) return;
@@ -420,17 +425,25 @@ function startDeal(seed) {
   active.forEach((s, i) => { hands[s] = dealt[i]; });
   table = null;
   passed = new Set();
+  trickPlays = [];
   lastAction = {};
   selected.clear();
   dealActive = true;
   // auto-win: an active hand with all 13 distinct ranks (3→A + 2)
   const dragon = active.find(s => new Set(hands[s].map(c => c.r)).size === 13);
-  // starter = active holder of the lowest card
-  let starter = active[0];
-  active.forEach(s => { if (cardStrength(lowestCard(hands[s])) < cardStrength(lowestCard(hands[starter]))) starter = s; });
+  // first deal of the game → lowest-card (3♦) holder leads; later deals → the
+  // previous round's winner leads. No mandatory 3♦-inclusion on the first move.
+  let starter;
+  if (firstDeal) {
+    starter = active[0];
+    active.forEach(s => { if (cardStrength(lowestCard(hands[s])) < cardStrength(lowestCard(hands[starter]))) starter = s; });
+  } else {
+    starter = (lastWinner >= 0 && !players[lastWinner].out) ? lastWinner : active[0];
+  }
   lowCard = lowestCard(hands[starter]);
   turn = starter;
-  firstPlay = true;
+  firstPlay = false;
+  firstDeal = false;
   handOverlay.classList.remove("show");
   onlineOverlay.classList.remove("show");   // cards are in — clear the "Dealing…" cover
   render();
@@ -455,6 +468,7 @@ function doPlay(seat, combo) {
   const hand = hands[seat];
   combo.cards.forEach(pc => { const idx = hand.findIndex(c => sameCard(c, pc)); if (idx >= 0) hand.splice(idx, 1); });
   table = { combo, seat };
+  trickPlays.push({ seat, combo });
   firstPlay = false;
   lastAction[seat] = { kind: "play", text: comboName(combo) };
   if (hand.length === 0) { lastAction[seat] = { kind: "win", text: "OUT! 🎉" }; dealActive = false; endHand(seat, false); return; }
@@ -480,6 +494,7 @@ function advanceTurn() {
 function clearTrick(winnerSeat) {
   table = null;
   passed = new Set();
+  trickPlays = [];
   for (const k in lastAction) if (lastAction[k] && lastAction[k].kind !== "win") delete lastAction[k];
   turn = winnerSeat;
   beginTurn();
@@ -596,6 +611,7 @@ document.getElementById("playAgainBtn").addEventListener("click", () => {
   document.getElementById("winnerOverlay").classList.remove("show");
   if (online) { location.reload(); return; }   // fresh room/seed online
   players.forEach(p => { p.total = 0; p.out = false; });
+  firstDeal = true; lastWinner = -1;
   startDeal(randomSeed());
 });
 
@@ -622,6 +638,7 @@ document.getElementById("startBtn").addEventListener("click", () => {
   }
   online = false;
   mySeat = 0;
+  firstDeal = true; lastWinner = -1;
   setupOverlay.classList.remove("show");
   meNameEl.textContent = myName;
   startDeal(randomSeed());
@@ -723,6 +740,7 @@ function startOnlineGame(data) {
   numPlayers = roomPlayerIds.length;
   mySeat = roomPlayerIds.indexOf(myId);
   isHost = roomPlayerIds[0] === myId;
+  firstDeal = true; lastWinner = -1;
   players = roomPlayerIds.map((id, i) => ({
     name: (playerMeta[id] && playerMeta[id].name) || (id === myId ? myName : "Player " + (i + 1)),
     color: PLAYER_COLORS[i], isBot: false, total: 0, out: false

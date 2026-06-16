@@ -129,7 +129,7 @@ body {
   border-color: var(--gold-hi);
   box-shadow: 0 4px 16px rgba(212,175,55,.4);
 }
-.table-combo { position: relative; display: flex; gap: 6px; justify-content: center; align-items: center; min-height: 96px; flex-wrap: wrap; max-width: 100%; }
+.table-combo { position: relative; display: flex; flex-direction: column; gap: 6px; justify-content: center; align-items: center; min-height: 96px; max-width: 94%; max-height: 48vh; overflow: hidden; }
 .table-label { position: relative; font-size: 12px; font-weight: 600; color: var(--text-dim); min-height: 16px; letter-spacing: .2px; }
 
 /* ── Playing cards ── */
@@ -152,6 +152,24 @@ body {
 .card .pip { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 2.5em; opacity: .9; }
 
 .table-combo .card { width: 52px; height: 74px; font-size: 13px; }
+
+/* trick history — each play in the current trick, older ones faded + colour-tinted */
+.tp-play {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center;
+  transition: opacity .2s;
+}
+/* previous plays pile up behind the latest one (only their tops peek out) */
+.tp-play:not(:first-child) { margin-top: -40px; }
+.tp-play:not(.latest) { filter: grayscale(0.6) brightness(0.82); }   /* previous plays: subtle gray tone */
+.tp-play.latest { z-index: 3; }
+.tp-play:first-child { margin-top: 0; }
+.tp-meta { font-size: 10px; font-weight: 700; color: var(--text-dim); display: flex; align-items: center; gap: 5px; }
+.tp-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(255,255,255,.4); }
+.tp-cards { display: flex; }
+/* all plays use the same readable card size; they stack via the vertical overlap above */
+.tp-cards .card { width: 38px; height: 53px; font-size: 10px; margin-left: -12px; }
+.tp-cards .card:first-child { margin-left: 0; }
 
 /* ── My hand (fanned) ── */
 .me-area { margin-top: 8px; }
@@ -198,7 +216,6 @@ body {
   box-shadow: 0 4px 14px rgba(212,175,55,.35);
 }
 .ctrl-btn:disabled { background: rgba(255,255,255,.06); color: rgba(243,234,210,.32); border-color: rgba(255,255,255,.08); box-shadow: none; cursor: default; }
-#sortBtn { flex: 0 0 72px; }
 
 /* ── Overlays ── */
 .overlay {
