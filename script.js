@@ -459,6 +459,7 @@ function startDeal(seed) {
 
 function beginTurn() {
   render();
+  maybeNotifyTurn();
   if (!dealActive || online) return;
   if (players[turn].isBot) botTimer = setTimeout(botAct, 750 + Math.floor(Math.random() * 500));
 }
@@ -602,6 +603,7 @@ function showGameOver() {
   const survivors = activeSeats();
   const ranked = players.map((p, s) => s).sort((a, b) => players[a].total - players[b].total);
   const champ = survivors.length ? survivors[0] : ranked[0];
+  recordOutcome(champ === mySeat);   // multiplayer-only, idempotent per match
   document.getElementById("winnerName").textContent = champ === mySeat ? "You" : players[champ].name;
   const sb = document.getElementById("finalScoreboard");
   sb.innerHTML = "";
@@ -678,6 +680,93 @@ let curSeed = 0;
 let moveLog = [];
 const playerMeta = {};
 
+// ── Usion capabilities: cloud stats · leaderboard · notify · checkpoint ──
+// All wrappers are defensive: missing modules / standalone preview must never
+// throw (a thrown error in init blanks the game). They no-op gracefully.
+let myStats = { wins: 0, losses: 0, games: 0 };
+let statsRecordedThisGame = false;
+let lastTurnNotified = false;
+const STATS_KEY = "mp13:stats";
+
+function isHostPlayer() {
+  return online && Array.isArray(roomPlayerIds) && roomPlayerIds.length > 0 && roomPlayerIds[0] === myId;
+}
+
+// Cross-device stats: prefer Cloud KV, fall back to localStorage cache.
+async function loadStats() {
+  try {
+    if (window.Usion && Usion.cloud) {
+      const remote = await Usion.cloud.get(STATS_KEY);
+      if (remote && typeof remote === "object") {
+        myStats = Object.assign(myStats, remote);
+        try { localStorage.setItem(STATS_KEY, JSON.stringify(myStats)); } catch (_) {}
+        return;
+      }
+    }
+  } catch (_) {}
+  try {
+    const raw = localStorage.getItem(STATS_KEY);
+    if (raw) myStats = Object.assign(myStats, JSON.parse(raw));
+  } catch (_) {}
+}
+
+function persistStats() {
+  try { localStorage.setItem(STATS_KEY, JSON.stringify(myStats)); } catch (_) {}
+  try { if (window.Usion && Usion.cloud) Usion.cloud.set(STATS_KEY, myStats); } catch (_) {}
+}
+
+function submitLeaderboard() {
+  try {
+    if (window.Usion && Usion.leaderboard) {
+      // Score = total cumulative wins; ranked highest-first. (Needs leaderboard.enabled on the service.)
+      Usion.leaderboard.submit(myStats.wins, { games: myStats.games });
+    }
+  } catch (_) {}
+}
+
+function notifySelf(title, body) {
+  // Only fires when the app is backgrounded (banner if online elsewhere, OS push if offline).
+  try { if (window.Usion && Usion.notify && document.hidden) Usion.notify.send({ title, body }); } catch (_) {}
+}
+
+// Record MY outcome exactly once per multiplayer match (idempotent across paths).
+function recordOutcome(iWon) {
+  if (statsRecordedThisGame || !online) return;
+  statsRecordedThisGame = true;
+  myStats.games += 1;
+  if (iWon) {
+    myStats.wins += 1;
+    notifySelf("You won! 🎉", "You won your Mongolian Poker match");
+  } else {
+    myStats.losses += 1;
+    notifySelf("Match over", "Your Mongolian Poker match ended");
+  }
+  persistStats();
+  submitLeaderboard();
+  try { if (window.Usion && Usion.cloud && Usion.cloud.shared) Usion.cloud.shared.incr("games_total", 1); } catch (_) {}
+}
+
+function maybeNotifyTurn() {
+  if (!online || !dealActive) { lastTurnNotified = false; return; }
+  const myTurn = turn === mySeat;
+  if (myTurn && document.hidden && !lastTurnNotified) {
+    lastTurnNotified = true;
+    notifySelf("Your turn", "It's your move in Mongolian Poker");
+  }
+  if (!myTurn) lastTurnNotified = false;
+}
+
+// Host (playerIds[0]) checkpoints authoritative state so reconnecting clients
+// receive it as game_state instead of replaying the whole turn-log from zero.
+function hostCheckpoint() {
+  if (!isHostPlayer()) return;
+  try {
+    if (window.Usion && Usion.game && Usion.game.setState) {
+      Usion.game.setState({ seed: curSeed, order: roomPlayerIds, moves: moveLog.slice(), version: Date.now() });
+    }
+  } catch (_) {}
+}
+
 if (window.Usion && Usion.init) {
   try {
     Usion.init(async function (config) {
@@ -686,6 +775,7 @@ if (window.Usion && Usion.init) {
       if (config.userAvatar) myAvatar = config.userAvatar;
       if (config.playerIds) roomPlayerIds = config.playerIds.slice();   // platform-provided roster (playerIds[0] = host)
       playerMeta[myId] = { name: myName, avatar: myAvatar };
+      loadStats(); // fire-and-forget; never block init/render
       if (config.roomId) {
         online = true;
         setupOverlay.classList.remove("show");
@@ -745,6 +835,7 @@ function onPlayerLeft(data) {
   if (seat < 0 || !players[seat] || players[seat].out) { render(); return; }
   players[seat].out = true;
   lastAction[seat] = { kind: "pass", text: "Left" };
+  if (activeSeats().length > 1) notifySelf("Opponent left", "A player left your Mongolian Poker match");
   if (dealActive && turn === seat) {
     if (table) doPass(seat);                              // was following → pass & advance
     else { turn = nextActiveAfter(seat); beginTurn(); }   // was leading → hand the lead to the next active seat
@@ -778,6 +869,8 @@ function maybeStart() {
 function startOnlineGame(data) {
   if (gameStarted) return;
   gameStarted = true; online = true;
+  statsRecordedThisGame = false;   // new match → allow recording its outcome once
+  lastTurnNotified = false;
   roomPlayerIds = data.order;
   numPlayers = roomPlayerIds.length;
   mySeat = roomPlayerIds.indexOf(myId);
@@ -810,12 +903,13 @@ function hostDeal() {
   Usion.game.action("deal", d).catch(() => {});
   onDeal(d);   // deal locally immediately — don't wait for our own action to echo back
 }
-function sendMove(move) { moveLog.push(move); Usion.game.action("move", move).catch(() => {}); }
+function sendMove(move) { moveLog.push(move); Usion.game.action("move", move).catch(() => {}); hostCheckpoint(); }
 function applyRemoteMove(move) {
   if (!dealActive) return;
   const seat = turn;
   if (move.kind === "pass") doPass(seat);
   else { const combo = classify(move.cards.map(wireCard)); if (combo) doPlay(seat, combo); }
+  hostCheckpoint();   // host only: snapshot after applying the authoritative move
 }
 function onNetAction(data) {
   if (data.sequence !== undefined) lastSeq = Math.max(lastSeq, data.sequence);
@@ -848,6 +942,7 @@ function onDeal(d) {
   handOverlay.classList.remove("show");
   numPlayers = d.order.length;
   startDeal(d.seed);
+  hostCheckpoint();   // host only: snapshot the fresh deal for reconnecting clients
 }
 function refreshNames() {
   roomPlayerIds.forEach((id, i) => { if (players[i] && playerMeta[id] && playerMeta[id].name) players[i].name = playerMeta[id].name; });
