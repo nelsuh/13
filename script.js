@@ -276,7 +276,6 @@ function renderOpponents() {
   for (let i = 1; i < numPlayers; i++) {
     const seat = (mySeat + i) % numPlayers;
     const p = players[seat];
-    const act = lastAction[seat];
     const cnt = (hands[seat] || []).length;   // hands may be empty before the first deal
     const pos = positions[i - 1] || "top";
     const div = document.createElement("div");
@@ -287,8 +286,7 @@ function renderOpponents() {
         '<span class="opp-pname">' + escapeHtml(p.name) + "</span>" +
         '<span class="opp-score">' + p.total + "</span>" +
       "</div>" +
-      '<div class="opp-fan">' + '<div class="mini-back"></div>'.repeat(cnt) + "</div>" +
-      (act ? '<div class="opp-action ' + act.kind + '">' + act.text + "</div>" : "");
+      '<div class="opp-fan">' + '<div class="mini-back"></div>'.repeat(cnt) + "</div>";
     oppEl.appendChild(div);
   }
 }
