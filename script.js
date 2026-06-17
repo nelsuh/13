@@ -227,6 +227,14 @@ let trickPlays = [];        // plays in the current trick: [{ seat, combo }] (fo
 let endTimer = null;        // brief pause after the winning play before the results overlay
 let dealWaitTimer = null;   // non-host: keep asking for the host's deal until it lands
 let mySeat = 0;
+// Round-start snapshot for host checkpoints: scores/elimination + the starter
+// context (firstDeal/lastWinner) as they were when THIS round was dealt, so a
+// reconnecting client can rebuild the live round from the checkpoint alone
+// (deal + replay this round's moves) instead of the full action log.
+let roundStartTotals = [];
+let roundStartOuts = [];
+let roundFirstDeal = true;
+let roundLastWinner = -1;
 
 // ── DOM ──────────────────────────────────────────────────
 const oppEl = document.getElementById("opponents");
@@ -424,6 +432,13 @@ function startDeal(seed) {
   if (botTimer) { clearTimeout(botTimer); botTimer = null; }
   if (endTimer) { clearTimeout(endTimer); endTimer = null; }
   if (dealWaitTimer) { clearInterval(dealWaitTimer); dealWaitTimer = null; }
+  // snapshot scores/elimination + starter context AT THE START of this round, so
+  // a host checkpoint replays deterministically on reconnecting clients (replay
+  // adds this round's deltas on top of these, avoiding double-counting).
+  roundStartTotals = players.map(p => p.total);
+  roundStartOuts = players.map(p => p.out);
+  roundFirstDeal = firstDeal;
+  roundLastWinner = lastWinner;
   // deal 13 only to players still in the game; eliminated seats sit out
   const active = activeSeats();
   const dealt = dealHands(seed, active.length);
@@ -762,9 +777,43 @@ function hostCheckpoint() {
   if (!isHostPlayer()) return;
   try {
     if (window.Usion && Usion.game && Usion.game.setState) {
-      Usion.game.setState({ seed: curSeed, order: roomPlayerIds, moves: moveLog.slice(), version: Date.now() });
+      // Carry enough to rebuild the live round from the checkpoint alone: the
+      // deal seed, the seating order, this round's moves so far, and the
+      // round-start scores/starter context (so replay re-derives the same lead
+      // and adds penalties on top of the correct baseline).
+      Usion.game.setState({
+        seed: curSeed, order: roomPlayerIds, moves: moveLog.slice(),
+        totals: roundStartTotals, outs: roundStartOuts,
+        firstDeal: roundFirstDeal, lastWinner: roundLastWinner,
+        version: Date.now()
+      });
     }
   } catch (_) {}
+}
+
+// Rebuild the current round from a host checkpoint (received as game_state on a
+// reconnect/join). Restores round-start state, re-deals the same seed, then
+// replays the round's moves so the board matches everyone else's. Returns true
+// if a valid checkpoint was applied.
+function applyCheckpoint(state) {
+  if (!state || typeof state !== "object" || state.seed === undefined || !Array.isArray(state.order)) return false;
+  if (!gameStarted) startOnlineGame({ order: state.order });
+  roomPlayerIds = state.order.slice();
+  numPlayers = roomPlayerIds.length;
+  mySeat = roomPlayerIds.indexOf(myId);
+  // restore round-start scores/elimination (startOnlineGame zeroes them), then
+  // replaying the moves re-applies this round's penalties exactly once.
+  if (Array.isArray(state.totals)) state.totals.forEach((t, s) => { if (players[s]) players[s].total = t; });
+  if (Array.isArray(state.outs)) state.outs.forEach((o, s) => { if (players[s]) players[s].out = o; });
+  firstDeal = !!state.firstDeal;
+  lastWinner = (typeof state.lastWinner === "number") ? state.lastWinner : -1;
+  curSeed = state.seed;
+  moveLog = [];
+  onlineOverlay.classList.remove("show");
+  handOverlay.classList.remove("show");
+  startDeal(state.seed);                                 // same seed → same hands & lead
+  (state.moves || []).forEach(mv => { moveLog.push(mv); applyRemoteMove(mv); });
+  return true;
 }
 
 if (window.Usion && Usion.init) {
@@ -811,6 +860,11 @@ function onJoined(data) {
   if (data.sequence !== undefined) lastSeq = data.sequence;
   isHost = roomPlayerIds[0] === myId;
   sendPlayerInfo(); updateOnlineStatus();
+  // The join ack may carry the host's checkpoint as game_state — rebuild the
+  // live round straight away so a rejoin resumes instead of stalling on
+  // "Dealing…". Guarded by !dealActive (don't disturb an in-progress round);
+  // applying it marks the game started so maybeStart won't re-deal.
+  if (!dealActive && data.game_state && data.game_state.seed !== undefined) applyCheckpoint(data.game_state);
   Usion.game.requestSync(0);   // SDK replays the stored deal + moves via onSync
   maybeStart();
 }
@@ -980,8 +1034,27 @@ function onNetRealtime(data) {
 // the whole log from sequence 0 deterministically rebuilds the current round.
 function onNetSync(data) {
   if (data.sequence !== undefined) lastSeq = Math.max(lastSeq, data.sequence);
-  if (!data.actions) return;
-  data.actions.forEach(a => {
+  const actions = data.actions || [];
+  // Checkpoint path: once the host has setState()'d, the SDK compacts the log —
+  // sync carries game_state + only the tail of actions (the original "deal" is
+  // gone). Rebuild from the checkpoint, then replay anything newer than it.
+  // Guard on !dealActive so we never clobber a round we're already playing
+  // (e.g. the host that just re-dealt fresh via maybeStart → hostDeal).
+  if (!dealActive && data.game_state && data.game_state.seed !== undefined && applyCheckpoint(data.game_state)) {
+    let baseMoves = Array.isArray(data.game_state.moves) ? data.game_state.moves.length : 0;
+    let movesSeen = 0;
+    actions.forEach(a => {
+      const d = a.action_data || {};
+      if (a.action_type === "deal") {
+        if (d.seed !== curSeed) { onDeal(d); movesSeen = 0; baseMoves = 0; }   // a round newer than the checkpoint
+      } else if (a.action_type === "move") {
+        if (++movesSeen > baseMoves) { moveLog.push(d); applyRemoteMove(d); }   // skip moves already in the checkpoint
+      }
+    });
+    return;
+  }
+  // No checkpoint: deterministic full replay from sequence 0.
+  actions.forEach(a => {
     const d = a.action_data || {};
     if (a.action_type === "deal") onDeal(d);
     else if (a.action_type === "move") { moveLog.push(d); applyRemoteMove(d); }
