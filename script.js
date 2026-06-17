@@ -417,6 +417,10 @@ function humanPass() {
 
 // ── Engine ───────────────────────────────────────────────
 function activeSeats() { return players.map((p, s) => s).filter(s => !players[s].out); }
+function nextActiveAfter(seat) {
+  for (let i = 1; i <= numPlayers; i++) { const s = (seat + i) % numPlayers; if (!players[s].out) return s; }
+  return seat;
+}
 function startDeal(seed) {
   if (botTimer) { clearTimeout(botTimer); botTimer = null; }
   if (endTimer) { clearTimeout(endTimer); endTimer = null; }
@@ -498,7 +502,7 @@ function clearTrick(winnerSeat) {
   passed = new Set();
   trickPlays = [];
   for (const k in lastAction) if (lastAction[k] && lastAction[k].kind !== "win") delete lastAction[k];
-  turn = winnerSeat;
+  turn = (players[winnerSeat] && players[winnerSeat].out) ? nextActiveAfter(winnerSeat) : winnerSeat;
   beginTurn();
 }
 
@@ -680,6 +684,7 @@ if (window.Usion && Usion.init) {
       myId = config.userId;
       if (config.userName) myName = config.userName;
       if (config.userAvatar) myAvatar = config.userAvatar;
+      if (config.playerIds) roomPlayerIds = config.playerIds.slice();   // platform-provided roster (playerIds[0] = host)
       playerMeta[myId] = { name: myName, avatar: myAvatar };
       if (config.roomId) {
         online = true;
@@ -728,10 +733,29 @@ function onPlayerJoined(data) {
   sendPlayerInfo(); updateOnlineStatus(); maybeStart();
 }
 function onPlayerLeft(data) {
-  if (data && data.player_ids) roomPlayerIds = data.player_ids;
   connectedCount = Math.max(0, connectedCount - 1);
-  isHost = roomPlayerIds[0] === myId;
-  if (!gameStarted) updateOnlineStatus();
+  if (!gameStarted) {
+    if (data && data.player_ids) roomPlayerIds = data.player_ids;   // roster only changes pre-game; seats are fixed once started
+    isHost = roomPlayerIds[0] === myId;
+    updateOnlineStatus();
+    return;
+  }
+  // mid-game: the player who left forfeits (their seat stays fixed)
+  const seat = (data && data.player_id != null) ? roomPlayerIds.indexOf(data.player_id) : -1;
+  if (seat < 0 || !players[seat] || players[seat].out) { render(); return; }
+  players[seat].out = true;
+  lastAction[seat] = { kind: "pass", text: "Left" };
+  if (dealActive && turn === seat) {
+    if (table) doPass(seat);                              // was following → pass & advance
+    else { turn = nextActiveAfter(seat); beginTurn(); }   // was leading → hand the lead to the next active seat
+  } else {
+    render();
+  }
+  if (activeSeats().length <= 1) {                        // only one player left → they win by forfeit
+    if (endTimer) { clearTimeout(endTimer); endTimer = null; }
+    dealActive = false;
+    showGameOver();
+  }
 }
 function updateOnlineStatus() {
   const s = document.getElementById("onlineStatus");
