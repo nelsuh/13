@@ -225,6 +225,7 @@ let loseAt = 30;            // a player who reaches this many penalty points is 
 let firstDeal = true;       // first deal of the game: lowest card (3♦) leads; later deals: winner leads
 let trickPlays = [];        // plays in the current trick: [{ seat, combo }] (for the table history)
 let endTimer = null;        // brief pause after the winning play before the results overlay
+let dealWaitTimer = null;   // non-host: keep asking for the host's deal until it lands
 let mySeat = 0;
 
 // ── DOM ──────────────────────────────────────────────────
@@ -422,6 +423,7 @@ function nextActiveAfter(seat) {
 function startDeal(seed) {
   if (botTimer) { clearTimeout(botTimer); botTimer = null; }
   if (endTimer) { clearTimeout(endTimer); endTimer = null; }
+  if (dealWaitTimer) { clearInterval(dealWaitTimer); dealWaitTimer = null; }
   // deal 13 only to players still in the game; eliminated seats sit out
   const active = activeSeats();
   const dealt = dealHands(seed, active.length);
@@ -792,11 +794,21 @@ function startOnlineGame(data) {
   onlineOverlay.classList.add("show");   // keep covering the table until the first deal lands
   render();
   Usion.game.requestSync(0);   // catch any actions (e.g. the deal) we missed
+  // non-host safety net: if the host's deal never reaches us, keep asking
+  if (!isHost) {
+    if (dealWaitTimer) clearInterval(dealWaitTimer);
+    dealWaitTimer = setInterval(function () {
+      if (dealActive) { clearInterval(dealWaitTimer); dealWaitTimer = null; return; }
+      Usion.game.requestSync(0);
+    }, 2000);
+  }
 }
 function hostDeal() {
   if (!isHost) return;
   curSeed = randomSeed();
-  Usion.game.action("deal", { seed: curSeed, order: roomPlayerIds }).catch(() => {});
+  const d = { seed: curSeed, order: roomPlayerIds };
+  Usion.game.action("deal", d).catch(() => {});
+  onDeal(d);   // deal locally immediately — don't wait for our own action to echo back
 }
 function sendMove(move) { moveLog.push(move); Usion.game.action("move", move).catch(() => {}); }
 function applyRemoteMove(move) {
@@ -808,7 +820,7 @@ function applyRemoteMove(move) {
 function onNetAction(data) {
   if (data.sequence !== undefined) lastSeq = Math.max(lastSeq, data.sequence);
   const d = data.action_data || {};
-  if (data.action_type === "deal") onDeal(d);
+  if (data.action_type === "deal") { if (data.player_id === myId) return; onDeal(d); }
   else if (data.action_type === "move") { if (data.player_id === myId) return; moveLog.push(d); applyRemoteMove(d); }
 }
 function onNetRealtime(data) {
