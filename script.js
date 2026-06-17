@@ -820,8 +820,57 @@ function onPlayerJoined(data) {
   if (typeof data.connected_count === "number") connectedCount = data.connected_count;
   else if (data.player && data.player.is_connected) connectedCount = Math.min(roomPlayerIds.length, connectedCount + 1);
   isHost = roomPlayerIds[0] === myId;
+  if (connectedCount > 1 && forfeitTimer) { clearForfeitGrace(); render(); } // a player returned → cancel pending forfeit
   sendPlayerInfo(); updateOnlineStatus(); maybeStart();
 }
+// ── Forfeit grace period ──────────────────────────────────
+// When a leave WOULD end the match (one active seat left), defer the forfeit
+// for a grace window so a quick rejoin resumes the hand untouched. Non-decisive
+// leaves (3–4p with others still in) fold the leaver and play continues as before.
+let forfeitTimer = null;
+let pendingLeaveSeat = -1;
+const FORFEIT_GRACE_MS = 20000;
+
+function clearForfeitGrace() {
+  if (forfeitTimer) { clearInterval(forfeitTimer); forfeitTimer = null; }
+  pendingLeaveSeat = -1;
+}
+
+function applyLeaveFold(seat) {
+  if (seat < 0 || !players[seat] || players[seat].out) return;
+  players[seat].out = true;
+  lastAction[seat] = { kind: "pass", text: "Left" };
+  if (dealActive && turn === seat) {
+    if (table) doPass(seat);                              // was following → pass & advance
+    else { turn = nextActiveAfter(seat); beginTurn(); }   // was leading → hand the lead to the next active seat
+  }
+}
+
+function startForfeitGrace() {
+  if (forfeitTimer) clearInterval(forfeitTimer);
+  let secs = Math.ceil(FORFEIT_GRACE_MS / 1000);
+  if (turnLine) { turnLine.textContent = "A player left — waiting to rejoin… (" + secs + "s)"; turnLine.className = "turn-line"; }
+  forfeitTimer = setInterval(() => {
+    if (!gameStarted || connectedCount > 1) {   // someone returned → resume
+      clearForfeitGrace();
+      render();
+      return;
+    }
+    secs -= 1;
+    if (secs > 0) { if (turnLine) turnLine.textContent = "A player left — waiting to rejoin… (" + secs + "s)"; return; }
+    const seat = pendingLeaveSeat;
+    clearForfeitGrace();
+    applyLeaveFold(seat);                        // grace expired → the leaver folds for good
+    if (activeSeats().length <= 1) {
+      if (endTimer) { clearTimeout(endTimer); endTimer = null; }
+      dealActive = false;
+      showGameOver();
+    } else {
+      render();
+    }
+  }, 1000);
+}
+
 function onPlayerLeft(data) {
   connectedCount = Math.max(0, connectedCount - 1);
   if (!gameStarted) {
@@ -833,20 +882,21 @@ function onPlayerLeft(data) {
   // mid-game: the player who left forfeits (their seat stays fixed)
   const seat = (data && data.player_id != null) ? roomPlayerIds.indexOf(data.player_id) : -1;
   if (seat < 0 || !players[seat] || players[seat].out) { render(); return; }
-  players[seat].out = true;
-  lastAction[seat] = { kind: "pass", text: "Left" };
-  if (activeSeats().length > 1) notifySelf("Opponent left", "A player left your Mongolian Poker match");
-  if (dealActive && turn === seat) {
-    if (table) doPass(seat);                              // was following → pass & advance
-    else { turn = nextActiveAfter(seat); beginTurn(); }   // was leading → hand the lead to the next active seat
-  } else {
-    render();
+
+  // Decisive case (would leave ≤1 active) → grace window before ending; don't
+  // mutate yet, so a rejoin resumes the hand exactly where it was.
+  const activeAfter = activeSeats().filter(s => s !== seat).length;
+  if (activeAfter <= 1) {
+    notifySelf("Opponent left", "A player left your Mongolian Poker match");
+    pendingLeaveSeat = seat;
+    startForfeitGrace();
+    return;
   }
-  if (activeSeats().length <= 1) {                        // only one player left → they win by forfeit
-    if (endTimer) { clearTimeout(endTimer); endTimer = null; }
-    dealActive = false;
-    showGameOver();
-  }
+
+  // Non-decisive: fold the leaver and continue with the remaining players.
+  notifySelf("Opponent left", "A player left your Mongolian Poker match");
+  applyLeaveFold(seat);
+  render();
 }
 function updateOnlineStatus() {
   const s = document.getElementById("onlineStatus");
@@ -868,6 +918,7 @@ function maybeStart() {
 }
 function startOnlineGame(data) {
   if (gameStarted) return;
+  clearForfeitGrace();
   gameStarted = true; online = true;
   statsRecordedThisGame = false;   // new match → allow recording its outcome once
   lastTurnNotified = false;
