@@ -20,7 +20,31 @@
   --text-dim: rgba(243, 234, 210, .62);
   --danger: #ff8a94;
   --good: #7fe3a6;
+  --back-1: #155740;   /* card-back gradient (felt-toned) */
+  --back-2: #0a2c1d;
 }
+/* Red-velvet skin — same gold/cream accents over a crimson table */
+body.skin-red {
+  --bg-0: #160407;
+  --felt-hi: #8a2433;
+  --felt-mid: #5e1722;
+  --felt-lo: #380b13;
+  --felt-edge: #2a0810;
+  --panel: rgba(42, 8, 14, .72);
+  --panel-2: rgba(60, 14, 22, .9);
+  --back-1: #6e1a26;
+  --back-2: #2a0a0f;
+}
+
+/* Table-colour toggle (green ↔ red velvet) */
+.skin-toggle {
+  position: fixed; top: 8px; left: 8px; z-index: 70;
+  width: 30px; height: 30px; border-radius: 50%; padding: 0;
+  border: 2px solid var(--gold); cursor: pointer;
+  background: linear-gradient(135deg, #1a6b46 0 50%, #8a2433 50% 100%);
+  box-shadow: 0 2px 8px rgba(0,0,0,.5);
+}
+.skin-toggle:active { transform: scale(.94); }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -82,7 +106,7 @@ body {
   margin-left: -10px;
   background:
     repeating-linear-gradient(45deg, rgba(212,175,55,.5) 0 2px, rgba(212,175,55,0) 2px 5px),
-    linear-gradient(160deg, #155740, #0a2c1d);
+    linear-gradient(160deg, var(--back-1), var(--back-2));
   border: 1px solid var(--gold-deep);
   box-shadow: 0 1px 2px rgba(0,0,0,.4);
 }
@@ -230,8 +254,8 @@ body {
   position: relative;
   background:
     radial-gradient(140% 90% at 50% 0%, rgba(212,175,55,.12), rgba(0,0,0,0) 55%),
-    linear-gradient(180deg, #103c2a, #0c2c1e);
-  background-color: #0d2c1e;
+    linear-gradient(180deg, var(--felt-mid), var(--felt-lo));
+  background-color: var(--felt-lo);
   border: 1px solid var(--gold-deep);
   border-radius: 20px;
   padding: 26px 22px;

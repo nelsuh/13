@@ -224,6 +224,7 @@ let lastWinner = -1;
 let loseAt = 30;            // a player who reaches this many penalty points is eliminated
 let firstDeal = true;       // first deal of the game: lowest card (3♦) leads; later deals: winner leads
 let trickPlays = [];        // plays in the current trick: [{ seat, combo }] (for the table history)
+let endTimer = null;        // brief pause after the winning play before the results overlay
 let mySeat = 0;
 
 // ── DOM ──────────────────────────────────────────────────
@@ -418,6 +419,7 @@ function humanPass() {
 function activeSeats() { return players.map((p, s) => s).filter(s => !players[s].out); }
 function startDeal(seed) {
   if (botTimer) { clearTimeout(botTimer); botTimer = null; }
+  if (endTimer) { clearTimeout(endTimer); endTimer = null; }
   // deal 13 only to players still in the game; eliminated seats sit out
   const active = activeSeats();
   const dealt = dealHands(seed, active.length);
@@ -517,9 +519,13 @@ function endHand(winnerSeat, dragon) {
   for (let s = 0; s < numPlayers; s++) {
     if (!players[s].out && players[s].total >= loseAt) { players[s].out = true; newlyOut.push(s); }
   }
-  render();
-  if (activeSeats().length <= 1) showGameOver();
-  else showHandOver(winnerSeat, deltas, newlyOut);
+  render();   // show the winning play on the table first, so everyone sees the last trick
+  if (endTimer) clearTimeout(endTimer);
+  endTimer = setTimeout(function () {
+    endTimer = null;
+    if (activeSeats().length <= 1) showGameOver();
+    else showHandOver(winnerSeat, deltas, newlyOut);
+  }, 2400);
 }
 
 // ── Hand-over overlay ────────────────────────────────────
@@ -576,6 +582,7 @@ function startNextLocal() {
 function backToSetup() {
   if (handCdInterval) clearInterval(handCdInterval);
   if (handCdTimeout) clearTimeout(handCdTimeout);
+  if (endTimer) { clearTimeout(endTimer); endTimer = null; }
   handOverlay.classList.remove("show");
   dealActive = false;
   setupOverlay.classList.add("show");
@@ -614,6 +621,17 @@ document.getElementById("playAgainBtn").addEventListener("click", () => {
   firstDeal = true; lastWinner = -1;
   startDeal(randomSeed());
 });
+
+// ── Table skin (green ↔ red velvet) — a per-client cosmetic, persisted ──
+let skin = "green";
+try { skin = localStorage.getItem("mp_skin") || "green"; } catch (e) {}
+function applySkin(s) {
+  skin = (s === "red") ? "red" : "green";
+  document.body.classList.toggle("skin-red", skin === "red");
+  try { localStorage.setItem("mp_skin", skin); } catch (e) {}
+}
+applySkin(skin);
+document.getElementById("skinToggle").addEventListener("click", () => applySkin(skin === "green" ? "red" : "green"));
 
 // ── Setup (local) ────────────────────────────────────────
 document.querySelectorAll("#countRow .count-btn").forEach(btn => {
