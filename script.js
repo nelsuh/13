@@ -767,6 +767,10 @@ let lastSeq = 0;
 let curSeed = 0;
 let moveLog = [];
 const playerMeta = {};
+// ── Lobby (waiting room): who's connected + their ready state, pre-game ──
+const presentIds = new Set();   // player ids currently in the room (connected)
+let lobbyReady = {};            // id → bool ready flag
+let myReady = false;            // my own ready toggle
 
 // ── Usion capabilities: cloud stats · leaderboard · notify · checkpoint ──
 // All wrappers are defensive: missing modules / standalone preview must never
@@ -897,6 +901,7 @@ if (window.Usion && Usion.init) {
       if (config.userAvatar) myAvatar = config.userAvatar;
       if (config.playerIds) roomPlayerIds = config.playerIds.slice();   // platform-provided roster (playerIds[0] = host)
       playerMeta[myId] = { name: myName, avatar: myAvatar };
+      presentIds.add(myId);
       loadStats(); // fire-and-forget; never block init/render
       if (config.roomId) {
         online = true;
@@ -923,7 +928,7 @@ async function setupMultiplayer(roomId) {
     online = false; onlineOverlay.classList.remove("show"); setupOverlay.classList.add("show");
   }
 }
-function sendPlayerInfo() { Usion.game.realtime("player_info", { name: myName, avatar: myAvatar || null }); }
+function sendPlayerInfo() { Usion.game.realtime("player_info", { name: myName, avatar: myAvatar || null, ready: myReady }); }
 // number of seats this online match has, from the authorized roster (2–4)
 function targetSeats() { return Math.max(2, Math.min(4, roomPlayerIds.length || 2)); }
 
@@ -944,6 +949,7 @@ function onJoined(data) {
 function onPlayerJoined(data) {
   if (data.player_ids) roomPlayerIds = data.player_ids;
   else if (data.player && data.player.id && !roomPlayerIds.includes(data.player.id)) roomPlayerIds.push(data.player.id);
+  if (data.player && data.player.id) presentIds.add(data.player.id);
   if (typeof data.connected_count === "number") connectedCount = data.connected_count;
   else if (data.player && data.player.is_connected) connectedCount = Math.min(roomPlayerIds.length, connectedCount + 1);
   isHost = roomPlayerIds[0] === myId;
@@ -1002,8 +1008,9 @@ function onPlayerLeft(data) {
   connectedCount = Math.max(0, connectedCount - 1);
   if (!gameStarted) {
     if (data && data.player_ids) roomPlayerIds = data.player_ids;   // roster only changes pre-game; seats are fixed once started
+    if (data && data.player_id != null) { presentIds.delete(data.player_id); delete lobbyReady[data.player_id]; }
     isHost = roomPlayerIds[0] === myId;
-    updateOnlineStatus();
+    renderLobby();
     return;
   }
   // mid-game: the player who left forfeits (their seat stays fixed)
@@ -1033,16 +1040,90 @@ function updateOnlineStatus() {
     ? ("Waiting for players… (" + Math.min(connectedCount, n) + "/" + n + ")")
     : (n + " players ready — starting…");
 }
-// Every client starts independently once the roster is fully connected (same
-// model as Ludo). 13 also needs a shared deal, so the host (seat 0) then
-// broadcasts the seed; the others deal identically on receiving it.
+// Players gather in a waiting room, each toggles READY, and the host starts the
+// match once everyone present is ready (2–4 seats). The host's "deal" action
+// carries the final seat order, so every client begins with the same players.
 function maybeStart() {
-  if (gameStarted) return;
-  if (roomPlayerIds.length >= 2 && connectedCount >= targetSeats()) {
-    startOnlineGame({ order: roomPlayerIds.slice() });
-    if (isHost) hostDeal();
+  if (gameStarted || dealActive) return;
+  enterLobby();
+}
+function enterLobby() {
+  if (gameStarted || dealActive) return;
+  presentIds.add(myId);
+  lobbyReady[myId] = myReady;
+  onlineOverlay.classList.add("show");
+  renderLobby();
+}
+// present players in roster order (then any extras), so seats are stable for all
+function lobbyOrder() {
+  const ids = roomPlayerIds.filter(id => presentIds.has(id));
+  presentIds.forEach(id => { if (!ids.includes(id)) ids.push(id); });
+  return ids;
+}
+function renderLobby() {
+  const list = document.getElementById("lobbyList");
+  if (!list || gameStarted || dealActive) return;
+  const ids = lobbyOrder();
+  const hostId = roomPlayerIds[0];
+  const spinner = document.getElementById("lobbySpinner");
+  if (spinner) spinner.style.display = ids.length ? "none" : "block";
+  list.innerHTML = "";
+  ids.forEach((id, i) => {
+    const nm = (playerMeta[id] && playerMeta[id].name) || (id === myId ? myName : "Player " + (i + 1));
+    const ready = !!lobbyReady[id];
+    const row = document.createElement("div");
+    row.className = "lobby-row" + (id === myId ? " me" : "");
+    row.innerHTML =
+      '<span class="lobby-seat">' + (i + 1) + "</span>" +
+      '<span class="lobby-name">' + escapeHtml(nm) + (id === hostId ? ' <span class="lobby-tag">HOST</span>' : "") + "</span>" +
+      '<span class="lobby-badge ' + (ready ? "ready" : "wait") + '">' + (ready ? "READY" : "NOT READY") + "</span>";
+    list.appendChild(row);
+  });
+  const present = ids.length;
+  const readyCount = ids.filter(id => lobbyReady[id]).length;
+  const allReady = present >= 2 && readyCount === present;
+  const statusEl = document.getElementById("onlineStatus");
+  if (statusEl) statusEl.textContent = present < 2 ? "Waiting for players to join…" : (readyCount + "/" + present + " ready");
+  const readyBtn = document.getElementById("readyBtn");
+  if (readyBtn) {
+    readyBtn.style.display = "block";
+    readyBtn.textContent = myReady ? "✓ READY" : "I'M READY";
+    readyBtn.classList.toggle("btn-ready-on", myReady);
+  }
+  const startBtn = document.getElementById("startGameBtn");
+  if (startBtn) {
+    startBtn.style.display = isHost ? "block" : "none";
+    startBtn.disabled = !allReady;
+  }
+  const hint = document.getElementById("lobbyHint");
+  if (hint) {
+    hint.textContent = isHost
+      ? (allReady ? "Everyone's ready — tap Start!" : "Start unlocks once all players are ready.")
+      : (myReady ? "Waiting for the host to start…" : "Tap ready when you're set.");
   }
 }
+// Host only: lock the seats to the present + ready players and deal.
+function hostStartGame() {
+  if (gameStarted || !isHost) return;
+  const order = lobbyOrder().filter(id => lobbyReady[id]);
+  if (order.length < 2) return;
+  roomPlayerIds = order;
+  numPlayers = order.length;
+  isHost = roomPlayerIds[0] === myId;
+  if (!isHost) return;
+  hostDeal();   // broadcasts the deal (with this order) → every client begins
+}
+(function wireLobby() {
+  const readyBtn = document.getElementById("readyBtn");
+  const startBtn = document.getElementById("startGameBtn");
+  if (readyBtn) readyBtn.addEventListener("click", () => {
+    myReady = !myReady;
+    lobbyReady[myId] = myReady;
+    if (online && window.Usion && Usion.game) sendPlayerInfo();
+    renderLobby();
+  });
+  if (startBtn) startBtn.addEventListener("click", hostStartGame);
+})();
 function startOnlineGame(data) {
   if (gameStarted) return;
   clearForfeitGrace();
@@ -1100,7 +1181,9 @@ function onNetRealtime(data) {
   const d = data.action_data || {};
   if (data.action_type === "player_info") {
     playerMeta[data.player_id] = { name: d.name, avatar: d.avatar };
-    if (gameStarted) { refreshNames(); render(); } else updateOnlineStatus();
+    presentIds.add(data.player_id);
+    if (typeof d.ready === "boolean") lobbyReady[data.player_id] = d.ready;
+    if (gameStarted) { refreshNames(); render(); } else renderLobby();
   }
 }
 // Catch-up replay (from requestSync). Each "deal" resets state, so replaying
@@ -1134,6 +1217,14 @@ function onNetSync(data) {
   });
 }
 function onDeal(d) {
+  // Not seated in this match (e.g. wasn't ready when the host started) → stay in
+  // the room instead of crashing on a -1 seat.
+  if (!gameStarted && Array.isArray(d.order) && d.order.indexOf(myId) < 0) {
+    onlineOverlay.classList.add("show");
+    const s = document.getElementById("onlineStatus");
+    if (s) s.textContent = "The host started without you.";
+    return;
+  }
   if (!gameStarted) startOnlineGame({ order: d.order });
   curSeed = d.seed; moveLog = [];
   handOverlay.classList.remove("show");

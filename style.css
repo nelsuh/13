@@ -332,6 +332,25 @@ body {
 .setup-foot { font-size: 11px; color: var(--text-dim); margin-top: 14px; }
 
 .waiting-card { text-align: center; }
+
+/* Online waiting room (ready / host-start lobby) */
+.lobby-card { text-align: center; }
+.lobby-title { font-family: "Playfair Display", serif; font-size: 22px; font-weight: 800; color: var(--gold-hi); margin: 4px 0 2px; }
+.lobby-list { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; text-align: left; }
+.lobby-row {
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(0,0,0,.28); border: 1px solid rgba(255,255,255,.06);
+  border-radius: 11px; padding: 10px 13px;
+}
+.lobby-row.me { border-color: var(--line); }
+.lobby-seat { font-size: 12px; font-weight: 700; color: var(--text-dim); width: 16px; text-align: center; }
+.lobby-name { flex: 1; font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lobby-tag { font-size: 9px; font-weight: 800; color: var(--gold); letter-spacing: .5px; margin-left: 4px; }
+.lobby-badge { font-size: 10px; font-weight: 800; padding: 3px 9px; border-radius: 999px; letter-spacing: .3px; }
+.lobby-badge.ready { background: rgba(127,227,166,.18); color: var(--good); }
+.lobby-badge.wait  { background: rgba(255,255,255,.08); color: var(--text-dim); }
+.lobby-actions { display: flex; flex-direction: column; gap: 9px; margin-top: 4px; }
+.ctrl-btn.btn-ready-on { background: rgba(127,227,166,.2); color: var(--good); border-color: rgba(127,227,166,.45); box-shadow: none; }
 .overlay-text { font-family: "Playfair Display", serif; font-size: 18px; font-weight: 800; margin-top: 12px; color: var(--gold-hi); }
 .spinner {
   width: 46px; height: 46px; margin: 0 auto;

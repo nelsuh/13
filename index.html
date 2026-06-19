@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=17">
+<link rel="stylesheet" href="style.css?v=18">
 </head>
 
 <body>
@@ -78,11 +78,18 @@
   </div>
 </div>
 
-<!-- Online connecting / waiting overlay -->
+<!-- Online connecting / waiting room (ready ↔ host-start lobby) -->
 <div id="onlineOverlay" class="overlay">
-  <div class="overlay-card waiting-card">
-    <div class="spinner"></div>
+  <div class="overlay-card lobby-card">
+    <div class="spinner" id="lobbySpinner"></div>
+    <h2 class="lobby-title" id="lobbyTitle">Waiting Room</h2>
     <p class="overlay-text" id="onlineStatus">Connecting…</p>
+    <div class="lobby-list" id="lobbyList"></div>
+    <div class="lobby-actions">
+      <button id="readyBtn" class="ctrl-btn primary" style="display:none">I'M READY</button>
+      <button id="startGameBtn" class="ctrl-btn primary" style="display:none" disabled>START GAME</button>
+    </div>
+    <p class="setup-foot" id="lobbyHint"></p>
   </div>
 </div>
 
@@ -114,7 +121,7 @@
 <button id="skinToggle" class="skin-toggle" aria-label="Change table colour"></button>
 
 <script src="https://usions.com/usion-sdk.js"></script>
-<script src="script.js?v=17"></script>
+<script src="script.js?v=18"></script>
 
 </body>
 </html>
