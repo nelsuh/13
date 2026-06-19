@@ -130,7 +130,7 @@ body {
 /* felt ring evoking the centre of a card table */
 .table-area::before {
   content: ""; position: absolute; left: 50%; top: 50%;
-  width: min(420px, 86vw); aspect-ratio: 1; transform: translate(-50%, -50%);
+  width: min(440px, 92vw); aspect-ratio: 1; transform: translate(-50%, -50%);
   border-radius: 50%;
   background: radial-gradient(circle, rgba(255,255,255,.05) 0%, rgba(0,0,0,0) 62%);
   border: 1px solid rgba(212,175,55,.16);
@@ -153,7 +153,7 @@ body {
   border-color: var(--gold-hi);
   box-shadow: 0 4px 16px rgba(212,175,55,.4);
 }
-.table-combo { position: relative; display: flex; flex-direction: column; gap: 6px; justify-content: center; align-items: center; min-height: 96px; max-width: 94%; max-height: 48vh; overflow: hidden; }
+.table-combo { position: relative; display: flex; flex-direction: column; gap: 6px; justify-content: center; align-items: center; min-height: clamp(120px, 26vh, 200px); max-width: 96%; max-height: 52vh; overflow: hidden; }
 .table-label { position: relative; font-size: 12px; font-weight: 600; color: var(--text-dim); min-height: 16px; letter-spacing: .2px; }
 
 /* ── Playing cards ── */
@@ -175,7 +175,7 @@ body {
 .card .corner i { font-style: normal; font-size: 1em; }
 .card .pip { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 2.5em; opacity: .9; }
 
-.table-combo .card { width: 52px; height: 74px; font-size: 13px; }
+.table-combo .card { width: clamp(58px, 15vw, 72px); height: auto; aspect-ratio: 5 / 7; font-size: clamp(14px, 3.6vw, 17px); }
 
 /* trick history — each play in the current trick, older ones faded + colour-tinted */
 .tp-play {
@@ -184,7 +184,7 @@ body {
   transition: opacity .2s;
 }
 /* previous plays pile up behind the latest one (only their tops peek out) */
-.tp-play:not(:first-child) { margin-top: -40px; }
+.tp-play:not(:first-child) { margin-top: clamp(-66px, -15vw, -52px); }
 .tp-play:not(.latest) { filter: grayscale(0.6) brightness(0.82); }   /* previous plays: subtle gray tone */
 .tp-play.latest { z-index: 3; }
 .tp-play:first-child { margin-top: 0; }
@@ -192,7 +192,7 @@ body {
 .tp-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(255,255,255,.4); }
 .tp-cards { display: flex; }
 /* all plays use the same readable card size; they stack via the vertical overlap above */
-.tp-cards .card { width: 38px; height: 53px; font-size: 10px; margin-left: -12px; }
+.tp-cards .card { width: clamp(52px, 13.5vw, 66px); height: auto; aspect-ratio: 5 / 7; font-size: clamp(13px, 3.3vw, 16px); margin-left: -16px; }
 .tp-cards .card:first-child { margin-left: 0; }
 
 /* ── My hand (fanned) ── */
