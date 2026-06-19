@@ -862,6 +862,7 @@ function hostCheckpoint() {
         seed: curSeed, order: roomPlayerIds, moves: moveLog.slice(),
         totals: roundStartTotals, outs: roundStartOuts,
         firstDeal: roundFirstDeal, lastWinner: roundLastWinner,
+        names: nameMap(),
         version: Date.now()
       });
     }
@@ -874,6 +875,7 @@ function hostCheckpoint() {
 // if a valid checkpoint was applied.
 function applyCheckpoint(state) {
   if (!state || typeof state !== "object" || state.seed === undefined || !Array.isArray(state.order)) return false;
+  applyNames(state.names);                              // host-supplied names before seating
   if (!gameStarted) startOnlineGame({ order: state.order });
   roomPlayerIds = state.order.slice();
   numPlayers = roomPlayerIds.length;
@@ -893,6 +895,19 @@ function applyCheckpoint(state) {
   return true;
 }
 
+// Heuristic: did the platform open us in "play with bots"/solo mode? Such a
+// launch should go straight to the offline vs-bots setup, NOT the online lobby.
+// Checks the launch ref/path the host passes (config + getLaunchParams).
+function isBotsLaunch(config) {
+  try {
+    let lp = {};
+    if (window.Usion && typeof Usion.getLaunchParams === "function") lp = Usion.getLaunchParams() || {};
+    const hint = [config && config.ref, config && config.launchPath, lp.ref, lp.path]
+      .filter(Boolean).join(" ").toLowerCase();
+    return /\b(bot|bots|solo|practice|single|ai|offline)\b/.test(hint);
+  } catch (_) { return false; }
+}
+
 if (window.Usion && Usion.init) {
   try {
     Usion.init(async function (config) {
@@ -903,7 +918,10 @@ if (window.Usion && Usion.init) {
       playerMeta[myId] = { name: myName, avatar: myAvatar };
       presentIds.add(myId);
       loadStats(); // fire-and-forget; never block init/render
-      if (config.roomId) {
+      // "Play with bots" launches solo — skip the room/waiting-room entirely and
+      // fall through to the offline setup (you vs bots). Only a real "play with
+      // friends" room (roomId, not a bots/solo launch) goes online to the lobby.
+      if (config.roomId && !isBotsLaunch(config)) {
         online = true;
         setupOverlay.classList.remove("show");
         onlineOverlay.classList.add("show");
@@ -1113,9 +1131,20 @@ function hostStartGame() {
   if (!isHost) return;
   hostDeal();   // broadcasts the deal (with this order) → every client begins
 }
+// Bail out of the online room and play solo vs bots (the offline setup). Lets a
+// player drop to bots from the waiting room — no ready needed.
+function leaveForBots() {
+  try { if (window.Usion && Usion.game && Usion.game.leave) Usion.game.leave(); } catch (_) {}
+  online = false; gameStarted = false; dealActive = false;
+  myReady = false; presentIds.clear(); lobbyReady = {};
+  onlineOverlay.classList.remove("show");
+  handOverlay.classList.remove("show");
+  setupOverlay.classList.add("show");
+}
 (function wireLobby() {
   const readyBtn = document.getElementById("readyBtn");
   const startBtn = document.getElementById("startGameBtn");
+  const botsBtn = document.getElementById("lobbyBotsBtn");
   if (readyBtn) readyBtn.addEventListener("click", () => {
     myReady = !myReady;
     lobbyReady[myId] = myReady;
@@ -1123,6 +1152,7 @@ function hostStartGame() {
     renderLobby();
   });
   if (startBtn) startBtn.addEventListener("click", hostStartGame);
+  if (botsBtn) botsBtn.addEventListener("click", leaveForBots);
 })();
 function startOnlineGame(data) {
   if (gameStarted) return;
@@ -1155,10 +1185,22 @@ function startOnlineGame(data) {
     }, 2000);
   }
 }
+// names the host knows for the current roster — carried in stored deal/checkpoint
+// so every client (and reconnects) gets real names, not "Player N", even if they
+// missed the ephemeral player_info broadcast.
+function nameMap() {
+  const m = {};
+  roomPlayerIds.forEach(id => { const nm = playerMeta[id] && playerMeta[id].name; if (nm) m[id] = nm; });
+  return m;
+}
+function applyNames(map) {
+  if (!map) return;
+  for (const id in map) playerMeta[id] = Object.assign(playerMeta[id] || {}, { name: map[id] });
+}
 function hostDeal() {
   if (!isHost) return;
   curSeed = randomSeed();
-  const d = { seed: curSeed, order: roomPlayerIds };
+  const d = { seed: curSeed, order: roomPlayerIds, names: nameMap() };
   Usion.game.action("deal", d).catch(() => {});
   onDeal(d);   // deal locally immediately — don't wait for our own action to echo back
 }
@@ -1225,7 +1267,9 @@ function onDeal(d) {
     if (s) s.textContent = "The host started without you.";
     return;
   }
+  applyNames(d.names);                 // adopt host-supplied names before seating
   if (!gameStarted) startOnlineGame({ order: d.order });
+  else refreshNames();                 // later rounds: update any "Player N" already shown
   curSeed = d.seed; moveLog = [];
   handOverlay.classList.remove("show");
   numPlayers = d.order.length;
