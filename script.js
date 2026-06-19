@@ -29,6 +29,7 @@ const RANK_LABEL = { 11: "J", 12: "Q", 13: "K", 14: "A", 15: "2" };
 const PLAYER_COLORS = ["#2ed573", "#ff4757", "#1e90ff", "#ffa502"];
 const BOT_NAMES = ["You", "Bot Anh", "Bot Bat", "Bot Cag"];
 const HAND_OVER_SECONDS = 8;
+const TURN_SECONDS = 90;   // each player gets 2:00 to act; on expiry they auto-pass (auto-lead if leading)
 
 function rankLabel(r) { return RANK_LABEL[r] || String(r); }
 function cardStrength(c) { return c.r * 4 + SUIT_RANK[c.s]; }            // 2 highest single
@@ -219,6 +220,8 @@ let lowCard = null;         // the globally lowest dealt card
 let passed = new Set();
 let lastAction = {};
 let botTimer = null;
+let turnTimer = null;       // ticks the active player's 2:00 turn clock
+let turnLeft = TURN_SECONDS;
 let dealActive = false;
 let lastWinner = -1;
 let loseAt = 30;            // a player who reaches this many penalty points is eliminated
@@ -274,7 +277,70 @@ function makeCardEl(c) {
 }
 
 // ── Rendering ────────────────────────────────────────────
-function render() { renderOpponents(); renderTable(); renderHand(); renderControls(); }
+function render() { renderOpponents(); renderTable(); renderHand(); renderControls(); updateTimers(); }
+
+// ── Turn clock (per-player 2:00; auto-pass / auto-lead on expiry) ─────────
+function fmtTime(s) { s = Math.max(0, s | 0); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+// A circular countdown ring: the foreground arc depletes as the turn elapses,
+// with the remaining time shown in the centre. pathLength=100 lets us drive the
+// arc with a 0–100 dashoffset regardless of the circle's radius.
+function ringSVG() {
+  return '<svg viewBox="0 0 36 36">' +
+    '<circle class="ring-bg" cx="18" cy="18" r="15.5"></circle>' +
+    '<circle class="ring-fg" cx="18" cy="18" r="7.75" pathLength="100"></circle>' +
+    '</svg>';
+}
+function setTimerEl(el, live, secs) {
+  if (!el) return;
+  el.classList.toggle("live", live);
+  el.classList.toggle("warn", live && secs <= 10);
+  const frac = Math.max(0, Math.min(1, secs / TURN_SECONDS));
+  const fg = el.querySelector(".ring-fg");
+  if (fg) fg.style.strokeDashoffset = (100 * (1 - frac)).toFixed(2);
+}
+// Refresh just the clock rings (cheap; runs every second without a full render).
+function updateTimers() {
+  document.querySelectorAll(".opp").forEach(div => {
+    const seat = +div.dataset.seat;
+    const live = dealActive && turn === seat;
+    setTimerEl(div.querySelector(".opp-timer"), live, live ? turnLeft : TURN_SECONDS);
+  });
+  const live = dealActive && turn === mySeat;
+  setTimerEl(document.getElementById("meTimer"), live, live ? turnLeft : TURN_SECONDS);
+}
+function stopTurnTimer() { if (turnTimer) { clearInterval(turnTimer); turnTimer = null; } }
+function startTurnTimer() {
+  stopTurnTimer();
+  turnLeft = TURN_SECONDS;
+  if (!dealActive) { updateTimers(); return; }
+  updateTimers();
+  turnTimer = setInterval(() => {
+    turnLeft -= 1;
+    updateTimers();
+    if (turnLeft <= 0) { stopTurnTimer(); onTurnTimeout(); }
+  }, 1000);
+}
+// Only the client that controls the active seat resolves the timeout, so the
+// move is generated (and broadcast online) exactly once. Other clients just let
+// their display sit at 0:00 until the move arrives and resets the clock.
+function onTurnTimeout() {
+  if (!dealActive) return;
+  if (online) { if (turn !== mySeat) return; }       // remote seats resolve on their own client
+  else if (players[turn].isBot) return;              // local bots act via botTimer, never time out
+  autoMove(turn);
+}
+function autoMove(seat) {
+  selected.clear();
+  if (table) {                                       // following → forfeit the trick
+    doPass(seat);
+    if (online) sendMove({ kind: "pass" });
+  } else {                                            // leading → can't pass, so play a forced minimal lead
+    const combo = botLead(hands[seat], firstPlay);
+    if (!combo) return;
+    doPlay(seat, combo);
+    if (online) sendMove({ kind: "play", cards: combo.cards.map(cardWire) });
+  }
+}
 
 // opponents are seated around the table; each shows a fan of face-down cards
 // (one per card held) plus their count, so you can read everyone's hand size.
@@ -287,11 +353,13 @@ function renderOpponents() {
     const p = players[seat];
     const cnt = (hands[seat] || []).length;   // hands may be empty before the first deal
     const pos = positions[i - 1] || "top";
+    const live = turn === seat && dealActive;
     const div = document.createElement("div");
-    div.className = "opp opp--" + pos + (turn === seat && dealActive ? " turn" : "") + (cnt === 0 ? " done" : "");
+    div.className = "opp opp--" + pos + (live ? " turn" : "") + (cnt === 0 ? " done" : "");
+    div.dataset.seat = seat;
     div.innerHTML =
       '<div class="opp-name">' +
-        '<span class="opp-dot" style="background:' + p.color + '"></span>' +
+        '<span class="opp-timer seat-timer' + (live ? " live" : "") + '">' + ringSVG() + "</span>" +
         '<span class="opp-pname">' + escapeHtml(p.name) + "</span>" +
         '<span class="opp-score">' + p.total + "</span>" +
       "</div>" +
@@ -432,6 +500,7 @@ function startDeal(seed) {
   if (botTimer) { clearTimeout(botTimer); botTimer = null; }
   if (endTimer) { clearTimeout(endTimer); endTimer = null; }
   if (dealWaitTimer) { clearInterval(dealWaitTimer); dealWaitTimer = null; }
+  stopTurnTimer();
   // snapshot scores/elimination + starter context AT THE START of this round, so
   // a host checkpoint replays deterministically on reconnecting clients (replay
   // adds this round's deltas on top of these, avoiding double-counting).
@@ -475,6 +544,7 @@ function startDeal(seed) {
 function beginTurn() {
   render();
   maybeNotifyTurn();
+  startTurnTimer();
   if (!dealActive || online) return;
   if (players[turn].isBot) botTimer = setTimeout(botAct, 750 + Math.floor(Math.random() * 500));
 }
@@ -524,6 +594,7 @@ function clearTrick(winnerSeat) {
 
 function endHand(winnerSeat, dragon) {
   if (botTimer) { clearTimeout(botTimer); botTimer = null; }
+  stopTurnTimer();
   lastWinner = winnerSeat;
   // losers ADD their leftover-card penalty toward the lose-at threshold
   const deltas = Array(numPlayers).fill(0);
@@ -603,6 +674,7 @@ function backToSetup() {
   if (handCdInterval) clearInterval(handCdInterval);
   if (handCdTimeout) clearTimeout(handCdTimeout);
   if (endTimer) { clearTimeout(endTimer); endTimer = null; }
+  stopTurnTimer();
   handOverlay.classList.remove("show");
   dealActive = false;
   setupOverlay.classList.add("show");
@@ -611,6 +683,7 @@ function backToSetup() {
 // Game over: only one player has avoided the lose-at threshold — they win.
 function showGameOver() {
   if (botTimer) { clearTimeout(botTimer); botTimer = null; }
+  stopTurnTimer();
   if (handCdInterval) clearInterval(handCdInterval);
   if (handCdTimeout) clearTimeout(handCdTimeout);
   handOverlay.classList.remove("show");

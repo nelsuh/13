@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=17">
 </head>
 
 <body>
@@ -30,6 +30,12 @@
     <div class="me-bar">
       <span class="me-name" id="meName">You</span>
       <span class="me-status" id="meStatus"></span>
+      <span class="me-timer seat-timer" id="meTimer">
+        <svg viewBox="0 0 36 36">
+          <circle class="ring-bg" cx="18" cy="18" r="15.5"></circle>
+          <circle class="ring-fg" cx="18" cy="18" r="7.75" pathLength="100"></circle>
+        </svg>
+      </span>
     </div>
     <div class="hand" id="hand"></div>
     <div class="controls">
@@ -108,7 +114,7 @@
 <button id="skinToggle" class="skin-toggle" aria-label="Change table colour"></button>
 
 <script src="https://usions.com/usion-sdk.js"></script>
-<script src="script.js?v=5"></script>
+<script src="script.js?v=17"></script>
 
 </body>
 </html>

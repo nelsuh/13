@@ -91,7 +91,23 @@ body {
   display: flex; align-items: center; gap: 5px;
   max-width: 100%; font-size: 11px; font-weight: 700; letter-spacing: .2px;
 }
-.opp-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(255,255,255,.4); }
+/* per-seat turn clock — solid pie countdown: a filled wedge that depletes as
+   the turn elapses (a thick stroke on a small-radius circle paints a full disc;
+   pathLength=100 drives the wedge with a 0–100 dashoffset). */
+.seat-timer { position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.seat-timer svg { display: block; width: 100%; height: 100%; transform: rotate(-90deg); filter: drop-shadow(0 1px 2px rgba(0,0,0,.45)); }
+.seat-timer .ring-bg { fill: rgba(0,0,0,.42); stroke: rgba(255,255,255,.22); stroke-width: 1; }
+.seat-timer .ring-fg {
+  fill: none; stroke: rgba(247,242,228,.32); stroke-width: 15.5;
+  stroke-dasharray: 100; stroke-dashoffset: 0;
+  transition: stroke-dashoffset 1s linear, stroke .3s;
+}
+.seat-timer.live .ring-fg { stroke: var(--gold); }
+.seat-timer.warn { animation: pulseTime 1s ease-in-out infinite; }
+.seat-timer.warn .ring-fg { stroke: var(--suit-red); }
+@keyframes pulseTime { 50% { opacity: .62; } }
+
+.opp-timer { width: 18px; height: 18px; }
 .opp-pname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .opp-score { margin-left: 2px; font-family: "Playfair Display", serif; font-weight: 800; color: var(--gold-hi); }
 .opp-fan {
@@ -197,11 +213,12 @@ body {
 
 /* ── My hand (fanned) ── */
 .me-area { margin-top: 8px; }
-.me-bar { display: flex; align-items: baseline; gap: 8px; padding: 0 6px 6px; }
+.me-bar { display: flex; align-items: center; gap: 8px; padding: 0 6px 6px; }
 .me-name { font-family: "Playfair Display", serif; font-size: 14px; font-weight: 800; color: var(--gold-hi); }
-.me-status { font-size: 11px; font-weight: 600; color: var(--text-dim); margin-left: auto; text-align: right; }
+.me-status { font-size: 11px; font-weight: 600; color: var(--text-dim); text-align: right; }
 .me-status.good { color: var(--good); }
 .me-status.bad { color: var(--danger); }
+.me-timer { width: 24px; height: 24px; margin-left: auto; }
 
 .hand { display: flex; justify-content: center; align-items: flex-end; height: 122px; padding: 40px 6px 0; }
 .hand .card {
