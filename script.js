@@ -926,6 +926,8 @@ if (window.Usion && Usion.init) {
         setupOverlay.classList.remove("show");
         onlineOverlay.classList.add("show");
         await setupMultiplayer(config.roomId);
+      } else if (isBotsLaunch(config)) {
+        startBotsGame();   // "play with bots" → straight into you + 3 bots
       }
     });
   } catch (e) { /* standalone preview */ }
@@ -1129,17 +1131,31 @@ function hostStartGame() {
   numPlayers = order.length;
   isHost = roomPlayerIds[0] === myId;
   if (!isHost) return;
+  firstDeal = true; lastWinner = -1;   // fresh match → lowest-card holder leads
   hostDeal();   // broadcasts the deal (with this order) → every client begins
 }
-// Bail out of the online room and play solo vs bots (the offline setup). Lets a
-// player drop to bots from the waiting room — no ready needed.
-function leaveForBots() {
-  try { if (window.Usion && Usion.game && Usion.game.leave) Usion.game.leave(); } catch (_) {}
+// Start a solo offline game vs 3 bots (you + Bot Anh/Bat/Cag = 4 seats).
+function startBotsGame() {
   online = false; gameStarted = false; dealActive = false;
   myReady = false; presentIds.clear(); lobbyReady = {};
   onlineOverlay.classList.remove("show");
   handOverlay.classList.remove("show");
-  setupOverlay.classList.add("show");
+  setupOverlay.classList.remove("show");
+  const nm = (myName || "You").slice(0, 10);
+  numPlayers = 4;                       // "play with bots" is always you + 3 bots
+  players = [];
+  for (let i = 0; i < numPlayers; i++) {
+    players.push({ name: i === 0 ? nm : BOT_NAMES[i], color: PLAYER_COLORS[i], isBot: i !== 0, total: 0, out: false });
+  }
+  mySeat = 0;
+  firstDeal = true; lastWinner = -1;
+  meNameEl.textContent = nm;
+  startDeal(randomSeed());
+}
+// Bail out of the online room and play solo vs 3 bots — no ready needed.
+function leaveForBots() {
+  try { if (window.Usion && Usion.game && Usion.game.leave) Usion.game.leave(); } catch (_) {}
+  startBotsGame();
 }
 (function wireLobby() {
   const readyBtn = document.getElementById("readyBtn");
@@ -1200,7 +1216,10 @@ function applyNames(map) {
 function hostDeal() {
   if (!isHost) return;
   curSeed = randomSeed();
-  const d = { seed: curSeed, order: roomPlayerIds, names: nameMap() };
+  // carry the starter context so every client picks the SAME leader: firstDeal →
+  // lowest-card holder leads; otherwise the previous round's winner leads. Without
+  // this, a client with stale firstDeal/lastWinner computes a different starter.
+  const d = { seed: curSeed, order: roomPlayerIds, names: nameMap(), firstDeal: firstDeal, lastWinner: lastWinner };
   Usion.game.action("deal", d).catch(() => {});
   onDeal(d);   // deal locally immediately — don't wait for our own action to echo back
 }
@@ -1270,6 +1289,9 @@ function onDeal(d) {
   applyNames(d.names);                 // adopt host-supplied names before seating
   if (!gameStarted) startOnlineGame({ order: d.order });
   else refreshNames();                 // later rounds: update any "Player N" already shown
+  // authoritative starter context from the host → identical leader on every client
+  if (typeof d.firstDeal === "boolean") firstDeal = d.firstDeal;
+  if (typeof d.lastWinner === "number") lastWinner = d.lastWinner;
   curSeed = d.seed; moveLog = [];
   handOverlay.classList.remove("show");
   numPlayers = d.order.length;
