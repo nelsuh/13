@@ -1224,9 +1224,15 @@ function hostDeal() {
   onDeal(d);   // deal locally immediately — don't wait for our own action to echo back
 }
 function sendMove(move) { moveLog.push(move); Usion.game.action("move", move).catch(() => {}); hostCheckpoint(); }
-function applyRemoteMove(move) {
+// Apply a move from `fromId` (the actual sender). Anchoring to the sender's seat
+// — not the local `turn` — makes the turn pointer self-correcting: if a client
+// ever missed/duplicated/reordered a move, it snaps back instead of drifting and
+// deadlocking the whole table.
+function applyRemoteMove(move, fromId) {
   if (!dealActive) return;
-  const seat = turn;
+  let seat = (fromId != null) ? roomPlayerIds.indexOf(fromId) : -1;
+  if (seat < 0) seat = turn;                 // no sender info (e.g. checkpoint replay) → in-order
+  if (seat !== turn) turn = seat;            // snap to the real actor before applying
   if (move.kind === "pass") doPass(seat);
   else { const combo = classify(move.cards.map(wireCard)); if (combo) doPlay(seat, combo); }
   hostCheckpoint();   // host only: snapshot after applying the authoritative move
@@ -1235,7 +1241,7 @@ function onNetAction(data) {
   if (data.sequence !== undefined) lastSeq = Math.max(lastSeq, data.sequence);
   const d = data.action_data || {};
   if (data.action_type === "deal") { if (data.player_id === myId) return; onDeal(d); }
-  else if (data.action_type === "move") { if (data.player_id === myId) return; moveLog.push(d); applyRemoteMove(d); }
+  else if (data.action_type === "move") { if (data.player_id === myId) return; moveLog.push(d); applyRemoteMove(d, data.player_id); }
 }
 function onNetRealtime(data) {
   if (data.player_id === myId) return;
@@ -1265,7 +1271,7 @@ function onNetSync(data) {
       if (a.action_type === "deal") {
         if (d.seed !== curSeed) { onDeal(d); movesSeen = 0; baseMoves = 0; }   // a round newer than the checkpoint
       } else if (a.action_type === "move") {
-        if (++movesSeen > baseMoves) { moveLog.push(d); applyRemoteMove(d); }   // skip moves already in the checkpoint
+        if (++movesSeen > baseMoves) { moveLog.push(d); applyRemoteMove(d, a.player_id); }   // skip moves already in the checkpoint
       }
     });
     return;
@@ -1274,7 +1280,7 @@ function onNetSync(data) {
   actions.forEach(a => {
     const d = a.action_data || {};
     if (a.action_type === "deal") onDeal(d);
-    else if (a.action_type === "move") { moveLog.push(d); applyRemoteMove(d); }
+    else if (a.action_type === "move") { moveLog.push(d); applyRemoteMove(d, a.player_id); }
   });
 }
 function onDeal(d) {
