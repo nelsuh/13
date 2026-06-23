@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>Mongolian Poker</title>
+<title>Монгол Покер</title>
 <link rel="stylesheet" href="https://usions.com/usion-design-system.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=24">
 </head>
 
 <body>
@@ -28,7 +28,7 @@
   <!-- My seat -->
   <div class="me-area">
     <div class="me-bar">
-      <span class="me-name" id="meName">You</span>
+      <span class="me-name" id="meName">Та</span>
       <span class="me-status" id="meStatus"></span>
       <span class="me-timer seat-timer" id="meTimer">
         <svg viewBox="0 0 36 36">
@@ -39,8 +39,8 @@
     </div>
     <div class="hand" id="hand"></div>
     <div class="controls">
-      <button id="passBtn" class="ctrl-btn" disabled>Pass</button>
-      <button id="playBtn" class="ctrl-btn primary" disabled>Play</button>
+      <button id="passBtn" class="ctrl-btn" disabled>Пас</button>
+      <button id="playBtn" class="ctrl-btn primary" disabled>Тавих</button>
     </div>
   </div>
 
@@ -51,30 +51,30 @@
   <div class="overlay-card setup-card">
     <div class="setup-head">
       <span class="title-ace" aria-label="Ace of Spades"><b>A</b><i>♠</i></span>
-      <h1 class="setup-title">MONGOLIAN POKER</h1>
+      <h1 class="setup-title">МОНГОЛ ПОКЕР</h1>
     </div>
-    <p class="setup-sub">2–4 players, 13 cards each — be first to empty your hand. Play singles, pairs, triples, fours, or 5-card poker hands (straight, flush, full house, four+1, straight flush). Beat the table with a bigger combo of the same size, or pass. ♠&gt;♥&gt;♣&gt;♦.</p>
+    <p class="setup-sub">2–4 тоглогч, тус бүр 13 хөзөр — хөзрөө хамгийн түрүүнд дуусга. Ганц, хос, гурав, дөрөв, эсвэл 5 хөзрийн хослол (дараалал, флэш, фулл хаус, дөрөв+1, дараалал флэш) тавь. Ширээн дээрхийг ижил тооны илүү том хослолоор дар, эсвэл пас. ♠&gt;♥&gt;♣&gt;♦.</p>
 
-    <div class="count-label">PLAYERS</div>
+    <div class="count-label">ТОГЛОГЧ</div>
     <div class="count-row" id="countRow">
       <button class="count-btn" data-count="2">2</button>
       <button class="count-btn" data-count="3">3</button>
       <button class="count-btn selected" data-count="4">4</button>
     </div>
 
-    <div class="count-label">LOSE AT (points)</div>
+    <div class="count-label">ХОЖИГДОХ ОНОО</div>
     <div class="count-row" id="loseRow">
       <button class="count-btn" data-lose="20">20</button>
       <button class="count-btn selected" data-lose="30">30</button>
       <button class="count-btn" data-lose="40">40</button>
     </div>
 
-    <label class="name-label">YOUR NAME
-      <input id="nameInput" class="ps-name" value="You" maxlength="10">
+    <label class="name-label">ТАНЫ НЭР
+      <input id="nameInput" class="ps-name" value="Та" maxlength="10">
     </label>
 
-    <button class="btn-confirm" id="startBtn">START GAME</button>
-    <p class="setup-foot">You vs bots offline. Online, everyone at the table plays.</p>
+    <button class="btn-confirm" id="startBtn">ТОГЛООМ ЭХЛҮҮЛЭХ</button>
+    <p class="setup-foot">Офлайн та ботуудтай. Онлайн бол ширээний бүх тоглогч тоглоно.</p>
   </div>
 </div>
 
@@ -82,13 +82,13 @@
 <div id="onlineOverlay" class="overlay">
   <div class="overlay-card lobby-card">
     <div class="spinner" id="lobbySpinner"></div>
-    <h2 class="lobby-title" id="lobbyTitle">Waiting Room</h2>
-    <p class="overlay-text" id="onlineStatus">Connecting…</p>
+    <h2 class="lobby-title" id="lobbyTitle">Хүлээх танхим</h2>
+    <p class="overlay-text" id="onlineStatus">Холбогдож байна…</p>
     <div class="lobby-list" id="lobbyList"></div>
     <div class="lobby-actions">
-      <button id="readyBtn" class="ctrl-btn primary" style="display:none">I'M READY</button>
-      <button id="startGameBtn" class="ctrl-btn primary" style="display:none" disabled>START GAME</button>
-      <button id="lobbyBotsBtn" class="ctrl-btn">PLAY WITH BOTS</button>
+      <button id="readyBtn" class="ctrl-btn primary" style="display:none">БЭЛЭН</button>
+      <button id="startGameBtn" class="ctrl-btn primary" style="display:none" disabled>ТОГЛООМ ЭХЛҮҮЛЭХ</button>
+      <button id="lobbyBotsBtn" class="ctrl-btn">БОТТОЙ ТОГЛОХ</button>
     </div>
     <p class="setup-foot" id="lobbyHint"></p>
   </div>
@@ -97,7 +97,7 @@
 <!-- Hand-over (results of one deal) -->
 <div id="handOverlay" class="overlay">
   <div class="overlay-card result-card">
-    <h2 class="result-title" id="handTitle">Round Over</h2>
+    <h2 class="result-title" id="handTitle">Тойрог дууслаа</h2>
     <div class="scoreboard" id="handScoreboard"></div>
     <div class="countdown" id="handCountdown"></div>
     <div class="reveal-actions" id="handActions"></div>
@@ -108,10 +108,10 @@
 <div id="winnerOverlay" class="overlay">
   <div class="overlay-card winner-card">
     <div class="winner-emoji">🏆</div>
-    <div class="winner-label">WINNER</div>
-    <div class="winner-name" id="winnerName">You</div>
+    <div class="winner-label">ЯЛАГЧ</div>
+    <div class="winner-name" id="winnerName">Та</div>
     <div class="scoreboard" id="finalScoreboard"></div>
-    <button class="btn-confirm" id="playAgainBtn">PLAY AGAIN</button>
+    <button class="btn-confirm" id="playAgainBtn">ДАХИН ТОГЛОХ</button>
   </div>
 </div>
 
@@ -119,10 +119,10 @@
 <div class="toast" id="toast"></div>
 
 <!-- Table-colour skin toggle (green ↔ red velvet) -->
-<button id="skinToggle" class="skin-toggle" aria-label="Change table colour"></button>
+<button id="skinToggle" class="skin-toggle" aria-label="Ширээний өнгө солих"></button>
 
 <script src="https://usions.com/usion-sdk.js"></script>
-<script src="script.js?v=22"></script>
+<script src="script.js?v=24"></script>
 
 </body>
 </html>

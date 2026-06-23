@@ -27,7 +27,7 @@ const SUIT_RED = [false, false, true, true];
 const SUIT_RANK = [3, 1, 0, 2];
 const RANK_LABEL = { 11: "J", 12: "Q", 13: "K", 14: "A", 15: "2" };
 const PLAYER_COLORS = ["#2ed573", "#ff4757", "#1e90ff", "#ffa502"];
-const BOT_NAMES = ["You", "Bot Anh", "Bot Bat", "Bot Cag"];
+const BOT_NAMES = ["Та", "Бот Бат", "Бот Болд", "Бот Сүх"];
 const HAND_OVER_SECONDS = 8;
 const TURN_SECONDS = 90;   // each player gets 2:00 to act; on expiry they auto-pass (auto-lead if leading)
 
@@ -56,9 +56,9 @@ function classify(cards) {
   const top = sorted[n - 1];
   const allSame = ranks.every(r => r === ranks[0]);
   if (n === 1) return mk("single", sorted, [cardStrength(top)], rankLabel(top.r));
-  if (n === 2) return allSame ? mk("pair", sorted, [cardStrength(top)], "pair of " + rankLabel(top.r) + "s") : null;
-  if (n === 3) return allSame ? mk("triple", sorted, [ranks[0]], "triple " + rankLabel(ranks[0]) + "s") : null;
-  if (n === 4) return allSame ? mk("four", sorted, [ranks[0]], "four " + rankLabel(ranks[0]) + "s") : null;
+  if (n === 2) return allSame ? mk("pair", sorted, [cardStrength(top)], rankLabel(top.r) + " хос") : null;
+  if (n === 3) return allSame ? mk("triple", sorted, [ranks[0]], rankLabel(ranks[0]) + " гурав") : null;
+  if (n === 4) return allSame ? mk("four", sorted, [ranks[0]], rankLabel(ranks[0]) + " дөрөв") : null;
   if (n === 5) return classify5(sorted);
   return null;
 }
@@ -77,11 +77,11 @@ function classify5(sorted) {
   const sizes = groups.map(g => g[0]).join("");
   // straights / straight flushes display in run order
   const runOrder = sorted.slice().sort((a, b) => straightPos(a.r) - straightPos(b.r));
-  if (isStraight && isFlush) return mk("sflush", runOrder, [4, ...straightKey], "straight flush to " + rankLabel(topS.r));
-  if (sizes === "41") return mk("fourplus", sorted, [3, groups[0][1]], "four+1 (" + rankLabel(groups[0][1]) + "s)");
-  if (sizes === "32") return mk("fullhouse", sorted, [2, groups[0][1]], "full house (" + rankLabel(groups[0][1]) + "s)");
-  if (isFlush) return mk("flush", sorted, [1, ...sorted.map(cardStrength).sort((a, b) => b - a)], "5-flush " + SUITS[sorted[0].s]);
-  if (isStraight) return mk("straight", runOrder, [0, ...straightKey], "straight to " + rankLabel(topS.r));
+  if (isStraight && isFlush) return mk("sflush", runOrder, [4, ...straightKey], rankLabel(topS.r) + " дараалал флэш");
+  if (sizes === "41") return mk("fourplus", sorted, [3, groups[0][1]], "дөрөв+1 (" + rankLabel(groups[0][1]) + ")");
+  if (sizes === "32") return mk("fullhouse", sorted, [2, groups[0][1]], "фулл хаус (" + rankLabel(groups[0][1]) + ")");
+  if (isFlush) return mk("flush", sorted, [1, ...sorted.map(cardStrength).sort((a, b) => b - a)], "флэш " + SUITS[sorted[0].s]);
+  if (isStraight) return mk("straight", runOrder, [0, ...straightKey], rankLabel(topS.r) + " дараалал");
   return null;
 }
 function comboName(c) { return c ? c.label : ""; }
@@ -218,6 +218,7 @@ let turn = 0;
 let firstPlay = true;       // first lead of the deal must include the lowest card
 let lowCard = null;         // the globally lowest dealt card
 let passed = new Set();
+let passStreak = 0;         // consecutive passes since the last play (trick ends at active-1)
 let lastAction = {};
 let botTimer = null;
 let turnTimer = null;       // ticks the active player's 2:00 turn clock
@@ -383,11 +384,11 @@ function renderTable() {
       tableComboEl.appendChild(row);
     });
   } else {
-    tableLabelEl.textContent = dealActive ? "Table is clear — lead any combo" : "";
+    tableLabelEl.textContent = dealActive ? "Ширээ хоосон — дурын хослол эхлүүл" : "";
   }
   if (!dealActive) { turnLine.textContent = "—"; turnLine.className = "turn-line"; return; }
-  if (turn === mySeat) { turnLine.textContent = "Your turn"; turnLine.className = "turn-line mine"; }
-  else { turnLine.textContent = players[turn].name + "'s turn…"; turnLine.className = "turn-line"; }
+  if (turn === mySeat) { turnLine.textContent = "Таны ээлж"; turnLine.className = "turn-line mine"; }
+  else { turnLine.textContent = players[turn].name + "-ийн ээлж…"; turnLine.className = "turn-line"; }
 }
 function renderHand() {
   handEl.innerHTML = "";
@@ -428,7 +429,7 @@ function renderControls() {
   const myTurn = dealActive && turn === mySeat;
   if (!myTurn) {
     playBtn.disabled = true; passBtn.disabled = true;
-    meStatusEl.textContent = dealActive ? "Waiting…" : "";
+    meStatusEl.textContent = dealActive ? "Хүлээж байна…" : "";
     meStatusEl.className = "me-status";
     return;
   }
@@ -437,15 +438,15 @@ function renderControls() {
   playBtn.disabled = !legal;
   passBtn.disabled = !table;
   if (selected.size === 0) {
-    if (!table) meStatusEl.textContent = firstPlay ? ("Lead — must include " + lowLabel()) : "Your lead";
-    else meStatusEl.textContent = "Beat the " + comboName(table.combo) + ", or pass";
+    if (!table) meStatusEl.textContent = firstPlay ? ("Эхлүүл — " + lowLabel() + " багтаах ёстой") : "Та эхэлнэ";
+    else meStatusEl.textContent = comboName(table.combo) + "-г дар, эсвэл пас";
     meStatusEl.className = "me-status";
   } else if (!combo) {
-    meStatusEl.textContent = selected.size > 5 ? "Max 5 cards per play" : selected.size + " cards — not a valid combo";
+    meStatusEl.textContent = selected.size > 5 ? "Дээд тал нь 5 хөзөр" : selected.size + " хөзөр — буруу хослол";
     meStatusEl.className = "me-status bad";
   } else if (!legal) {
-    const why = firstPlay && !combo.cards.some(c => sameCard(c, lowCard)) ? "must include " + lowLabel()
-      : table ? "doesn't beat the table" : "illegal";
+    const why = firstPlay && !combo.cards.some(c => sameCard(c, lowCard)) ? (lowLabel() + " багтаах ёстой")
+      : table ? "ширээн дээрхийг давахгүй" : "хүчингүй";
     meStatusEl.textContent = comboName(combo) + " — " + why;
     meStatusEl.className = "me-status bad";
   } else {
@@ -468,7 +469,7 @@ function isLegalPlay(combo) {
 // ── Selection / human input ──────────────────────────────
 function toggleCard(i) {
   if (selected.has(i)) selected.delete(i);
-  else if (selected.size >= 5) { toast("Max 5 cards"); return; }   // never select/raise more than 5
+  else if (selected.size >= 5) { toast("Дээд тал нь 5 хөзөр"); return; }   // never select/raise more than 5
   else selected.add(i);
   renderHand(); renderControls();   // selection only — playing happens via the Play button
 }
@@ -478,7 +479,7 @@ passBtn.addEventListener("click", () => { if (!passBtn.disabled) humanPass(); })
 function humanPlay() {
   if (turn !== mySeat) return;
   const combo = classify(selectedCards());
-  if (!isLegalPlay(combo)) { toast("Not a legal play"); return; }
+  if (!isLegalPlay(combo)) { toast("Хүчингүй тавилт"); return; }
   selected.clear();
   doPlay(mySeat, combo);
   if (online) sendMove({ kind: "play", cards: combo.cards.map(cardWire) });
@@ -515,6 +516,7 @@ function startDeal(seed) {
   active.forEach((s, i) => { hands[s] = dealt[i]; });
   table = null;
   passed = new Set();
+  passStreak = 0;
   trickPlays = [];
   lastAction = {};
   selected.clear();
@@ -537,7 +539,7 @@ function startDeal(seed) {
   handOverlay.classList.remove("show");
   onlineOverlay.classList.remove("show");   // cards are in — clear the "Dealing…" cover
   render();
-  if (dragon !== undefined) { toast(players[dragon].name + " — DRAGON! 🐉"); dealActive = false; endHand(dragon, true); return; }
+  if (dragon !== undefined) { toast(players[dragon].name + " — ЛУУ! 🐉"); dealActive = false; endHand(dragon, true); return; }
   beginTurn();
 }
 
@@ -562,30 +564,32 @@ function doPlay(seat, combo) {
   table = { combo, seat };
   trickPlays.push({ seat, combo });
   firstPlay = false;
+  passStreak = 0;                       // a play resets the consecutive-pass count
   lastAction[seat] = { kind: "play", text: comboName(combo) };
-  if (hand.length === 0) { lastAction[seat] = { kind: "win", text: "OUT! 🎉" }; dealActive = false; endHand(seat, false); return; }
+  if (hand.length === 0) { lastAction[seat] = { kind: "win", text: "ДУУСГАВ! 🎉" }; dealActive = false; endHand(seat, false); return; }
   advanceTurn();
 }
 function doPass(seat) {
   passed.add(seat);
-  lastAction[seat] = { kind: "pass", text: "Pass" };
+  passStreak += 1;
+  lastAction[seat] = { kind: "pass", text: "Пас" };
+  // No lock-out: a passer is NOT skipped on later turns. The trick ends only when
+  // every OTHER active player has passed in a row since the last play.
+  if (table && passStreak >= activeSeats().length - 1) { render(); clearTrick(table.seat); return; }
   advanceTurn();
 }
+// Hand the turn to the next active (non-eliminated) seat. Passers keep their seat
+// in the rotation — they get asked again instead of being skipped for the trick.
 function advanceTurn() {
   render();
-  if (!table) { beginTurn(); return; }
-  const owner = table.seat;
-  for (let i = 1; i <= numPlayers; i++) {
-    const s = (turn + i) % numPlayers;
-    if (s === owner) { clearTrick(owner); return; }   // looped back to owner → trick won
-    if (passed.has(s) || players[s].out) continue;    // skip passers and eliminated seats
-    turn = s; beginTurn(); return;
-  }
-  clearTrick(owner);
+  if (!dealActive) return;
+  turn = nextActiveAfter(turn);
+  beginTurn();
 }
 function clearTrick(winnerSeat) {
   table = null;
   passed = new Set();
+  passStreak = 0;
   trickPlays = [];
   for (const k in lastAction) if (lastAction[k] && lastAction[k].kind !== "win") delete lastAction[k];
   turn = (players[winnerSeat] && players[winnerSeat].out) ? nextActiveAfter(winnerSeat) : winnerSeat;
@@ -623,7 +627,7 @@ function endHand(winnerSeat, dragon) {
 let handCdInterval = null, handCdTimeout = null;
 function showHandOver(winnerSeat, deltas, newlyOut) {
   newlyOut = newlyOut || [];
-  document.getElementById("handTitle").textContent = winnerSeat === mySeat ? "You win the round!" : players[winnerSeat].name + " wins the round!";
+  document.getElementById("handTitle").textContent = winnerSeat === mySeat ? "Та тойргийг хожлоо!" : players[winnerSeat].name + " тойргийг хожлоо!";
   const sb = document.getElementById("handScoreboard");
   sb.innerHTML = "";
   // lower total is safer → list best (lowest) first
@@ -634,7 +638,7 @@ function showHandOver(winnerSeat, deltas, newlyOut) {
     const justOut = newlyOut.includes(seat);
     const row = document.createElement("div");
     row.className = "sb-row" + (!p.out && p.total === best ? " lead" : "");
-    const tag = p.out ? '<span class="rv-foul">OUT</span>' : (seat === winnerSeat ? "🏆 won" : hands[seat].length + " left");
+    const tag = p.out ? '<span class="rv-foul">ХОЖИГДСОН</span>' : (seat === winnerSeat ? "🏆 хожлоо" : hands[seat].length + " үлдсэн");
     row.innerHTML =
       '<div class="sb-dot" style="background:' + p.color + (p.out ? ";opacity:.4" : "") + '"></div>' +
       '<div class="sb-name"' + (p.out ? ' style="opacity:.55"' : "") + '>' + escapeHtml(p.name) + "</div>" +
@@ -647,19 +651,19 @@ function showHandOver(winnerSeat, deltas, newlyOut) {
   const actions = document.getElementById("handActions");
   actions.innerHTML = "";
   if (online) {
-    cd.textContent = isHost ? "Dealing next round…" : "Waiting for next deal…";
+    cd.textContent = isHost ? "Дараагийн тойргийг тараах…" : "Дараагийн хуваалтыг хүлээж байна…";
     if (handCdTimeout) clearTimeout(handCdTimeout);
     if (isHost) handCdTimeout = setTimeout(() => { handOverlay.classList.remove("show"); hostDeal(); }, HAND_OVER_SECONDS * 1000);
   } else {
     let left = HAND_OVER_SECONDS;
-    cd.textContent = "Next round in " + left + "s";
+    cd.textContent = "Дараагийн тойрог " + left + "с дотор";
     if (handCdInterval) clearInterval(handCdInterval);
-    handCdInterval = setInterval(() => { left--; cd.textContent = "Next round in " + left + "s"; if (left <= 0) startNextLocal(); }, 1000);
+    handCdInterval = setInterval(() => { left--; cd.textContent = "Дараагийн тойрог " + left + "с дотор"; if (left <= 0) startNextLocal(); }, 1000);
     const next = document.createElement("button");
-    next.className = "btn-next"; next.textContent = "Next Round";
+    next.className = "btn-next"; next.textContent = "Дараагийн тойрог";
     next.addEventListener("click", startNextLocal);
     const quit = document.createElement("button");
-    quit.className = "btn-quit"; quit.textContent = "New Game";
+    quit.className = "btn-quit"; quit.textContent = "Шинэ тоглоом";
     quit.addEventListener("click", backToSetup);
     actions.appendChild(next); actions.appendChild(quit);
   }
@@ -692,7 +696,7 @@ function showGameOver() {
   const ranked = players.map((p, s) => s).sort((a, b) => players[a].total - players[b].total);
   const champ = survivors.length ? survivors[0] : ranked[0];
   recordOutcome(champ === mySeat);   // multiplayer-only, idempotent per match
-  document.getElementById("winnerName").textContent = champ === mySeat ? "You" : players[champ].name;
+  document.getElementById("winnerName").textContent = champ === mySeat ? "Та" : players[champ].name;
   const sb = document.getElementById("finalScoreboard");
   sb.innerHTML = "";
   ranked.forEach(seat => {
@@ -702,7 +706,7 @@ function showGameOver() {
     row.innerHTML =
       '<div class="sb-dot" style="background:' + p.color + '"></div>' +
       '<div class="sb-name">' + escapeHtml(p.name) + "</div>" +
-      '<div class="sb-rank" style="width:auto;opacity:.7">' + (seat === champ ? "survivor" : "out") + "</div>" +
+      '<div class="sb-rank" style="width:auto;opacity:.7">' + (seat === champ ? "үлдсэн" : "хожигдсон") + "</div>" +
       '<div class="sb-score">' + p.total + "</div>";
     sb.appendChild(row);
   });
@@ -743,7 +747,7 @@ document.querySelectorAll("#loseRow .count-btn").forEach(btn => {
   });
 });
 document.getElementById("startBtn").addEventListener("click", () => {
-  const myName = (document.getElementById("nameInput").value || "You").slice(0, 10);
+  const myName = (document.getElementById("nameInput").value || "Та").slice(0, 10);
   players = [];
   for (let i = 0; i < numPlayers; i++) {
     players.push({ name: i === 0 ? myName : BOT_NAMES[i], color: PLAYER_COLORS[i], isBot: i !== 0, total: 0, out: false });
@@ -758,7 +762,7 @@ document.getElementById("startBtn").addEventListener("click", () => {
 
 // ── Online (Usion) ───────────────────────────────────────
 let online = false;
-let myId = null, myName = "You", myAvatar = null;
+let myId = null, myName = "Та", myAvatar = null;
 let roomPlayerIds = [];
 let connectedCount = 0;
 let isHost = false;
@@ -828,10 +832,10 @@ function recordOutcome(iWon) {
   myStats.games += 1;
   if (iWon) {
     myStats.wins += 1;
-    notifySelf("You won! 🎉", "You won your Mongolian Poker match");
+    notifySelf("Та хожлоо! 🎉", "Та Монгол Покерын тоглолтод хожлоо");
   } else {
     myStats.losses += 1;
-    notifySelf("Match over", "Your Mongolian Poker match ended");
+    notifySelf("Тоглолт дууслаа", "Таны Монгол Покерын тоглолт дууслаа");
   }
   persistStats();
   submitLeaderboard();
@@ -843,7 +847,7 @@ function maybeNotifyTurn() {
   const myTurn = turn === mySeat;
   if (myTurn && document.hidden && !lastTurnNotified) {
     lastTurnNotified = true;
-    notifySelf("Your turn", "It's your move in Mongolian Poker");
+    notifySelf("Таны ээлж", "Монгол Покерт таны явах ээлж");
   }
   if (!myTurn) lastTurnNotified = false;
 }
@@ -992,7 +996,7 @@ function clearForfeitGrace() {
 function applyLeaveFold(seat) {
   if (seat < 0 || !players[seat] || players[seat].out) return;
   players[seat].out = true;
-  lastAction[seat] = { kind: "pass", text: "Left" };
+  lastAction[seat] = { kind: "pass", text: "Гарсан" };
   if (dealActive && turn === seat) {
     if (table) doPass(seat);                              // was following → pass & advance
     else { turn = nextActiveAfter(seat); beginTurn(); }   // was leading → hand the lead to the next active seat
@@ -1002,7 +1006,7 @@ function applyLeaveFold(seat) {
 function startForfeitGrace() {
   if (forfeitTimer) clearInterval(forfeitTimer);
   let secs = Math.ceil(FORFEIT_GRACE_MS / 1000);
-  if (turnLine) { turnLine.textContent = "A player left — waiting to rejoin… (" + secs + "s)"; turnLine.className = "turn-line"; }
+  if (turnLine) { turnLine.textContent = "Тоглогч гарлаа — дахин нэгдэхийг хүлээж байна… (" + secs + "с)"; turnLine.className = "turn-line"; }
   forfeitTimer = setInterval(() => {
     if (!gameStarted || connectedCount > 1) {   // someone returned → resume
       clearForfeitGrace();
@@ -1010,7 +1014,7 @@ function startForfeitGrace() {
       return;
     }
     secs -= 1;
-    if (secs > 0) { if (turnLine) turnLine.textContent = "A player left — waiting to rejoin… (" + secs + "s)"; return; }
+    if (secs > 0) { if (turnLine) turnLine.textContent = "Тоглогч гарлаа — дахин нэгдэхийг хүлээж байна… (" + secs + "с)"; return; }
     const seat = pendingLeaveSeat;
     clearForfeitGrace();
     applyLeaveFold(seat);                        // grace expired → the leaver folds for good
@@ -1041,14 +1045,14 @@ function onPlayerLeft(data) {
   // mutate yet, so a rejoin resumes the hand exactly where it was.
   const activeAfter = activeSeats().filter(s => s !== seat).length;
   if (activeAfter <= 1) {
-    notifySelf("Opponent left", "A player left your Mongolian Poker match");
+    notifySelf("Өрсөлдөгч гарлаа", "Таны Монгол Покерын тоглолтоос тоглогч гарлаа");
     pendingLeaveSeat = seat;
     startForfeitGrace();
     return;
   }
 
   // Non-decisive: fold the leaver and continue with the remaining players.
-  notifySelf("Opponent left", "A player left your Mongolian Poker match");
+  notifySelf("Өрсөлдөгч гарлаа", "Таны Монгол Покерын тоглолтоос тоглогч гарлаа");
   applyLeaveFold(seat);
   render();
 }
@@ -1057,8 +1061,8 @@ function updateOnlineStatus() {
   if (!s) return;
   const n = targetSeats();
   s.textContent = connectedCount < n
-    ? ("Waiting for players… (" + Math.min(connectedCount, n) + "/" + n + ")")
-    : (n + " players ready — starting…");
+    ? ("Тоглогчдыг хүлээж байна… (" + Math.min(connectedCount, n) + "/" + n + ")")
+    : (n + " тоглогч бэлэн — эхэлж байна…");
 }
 // Players gather in a waiting room, each toggles READY, and the host starts the
 // match once everyone present is ready (2–4 seats). The host's "deal" action
@@ -1089,25 +1093,25 @@ function renderLobby() {
   if (spinner) spinner.style.display = ids.length ? "none" : "block";
   list.innerHTML = "";
   ids.forEach((id, i) => {
-    const nm = (playerMeta[id] && playerMeta[id].name) || (id === myId ? myName : "Player " + (i + 1));
+    const nm = (playerMeta[id] && playerMeta[id].name) || (id === myId ? myName : "Тоглогч " + (i + 1));
     const ready = !!lobbyReady[id];
     const row = document.createElement("div");
     row.className = "lobby-row" + (id === myId ? " me" : "");
     row.innerHTML =
       '<span class="lobby-seat">' + (i + 1) + "</span>" +
-      '<span class="lobby-name">' + escapeHtml(nm) + (id === hostId ? ' <span class="lobby-tag">HOST</span>' : "") + "</span>" +
-      '<span class="lobby-badge ' + (ready ? "ready" : "wait") + '">' + (ready ? "READY" : "NOT READY") + "</span>";
+      '<span class="lobby-name">' + escapeHtml(nm) + (id === hostId ? ' <span class="lobby-tag">ХОСТ</span>' : "") + "</span>" +
+      '<span class="lobby-badge ' + (ready ? "ready" : "wait") + '">' + (ready ? "БЭЛЭН" : "БЭЛЭН БИШ") + "</span>";
     list.appendChild(row);
   });
   const present = ids.length;
   const readyCount = ids.filter(id => lobbyReady[id]).length;
   const allReady = present >= 2 && readyCount === present;
   const statusEl = document.getElementById("onlineStatus");
-  if (statusEl) statusEl.textContent = present < 2 ? "Waiting for players to join…" : (readyCount + "/" + present + " ready");
+  if (statusEl) statusEl.textContent = present < 2 ? "Тоглогчид нэгдэхийг хүлээж байна…" : (readyCount + "/" + present + " бэлэн");
   const readyBtn = document.getElementById("readyBtn");
   if (readyBtn) {
     readyBtn.style.display = "block";
-    readyBtn.textContent = myReady ? "✓ READY" : "I'M READY";
+    readyBtn.textContent = myReady ? "✓ БЭЛЭН" : "БЭЛЭН";
     readyBtn.classList.toggle("btn-ready-on", myReady);
   }
   const startBtn = document.getElementById("startGameBtn");
@@ -1118,8 +1122,8 @@ function renderLobby() {
   const hint = document.getElementById("lobbyHint");
   if (hint) {
     hint.textContent = isHost
-      ? (allReady ? "Everyone's ready — tap Start!" : "Start unlocks once all players are ready.")
-      : (myReady ? "Waiting for the host to start…" : "Tap ready when you're set.");
+      ? (allReady ? "Бүгд бэлэн — Эхлүүлэх дар!" : "Бүх тоглогч бэлэн болмогц Эхлүүлэх нээгдэнэ.")
+      : (myReady ? "Хост эхлүүлэхийг хүлээж байна…" : "Бэлэн болсон бол БЭЛЭН гэж дар.");
   }
 }
 // Host only: lock the seats to the present + ready players and deal.
@@ -1141,7 +1145,7 @@ function startBotsGame() {
   onlineOverlay.classList.remove("show");
   handOverlay.classList.remove("show");
   setupOverlay.classList.remove("show");
-  const nm = (myName || "You").slice(0, 10);
+  const nm = (myName || "Та").slice(0, 10);
   numPlayers = 4;                       // "play with bots" is always you + 3 bots
   players = [];
   for (let i = 0; i < numPlayers; i++) {
@@ -1182,13 +1186,13 @@ function startOnlineGame(data) {
   isHost = roomPlayerIds[0] === myId;
   firstDeal = true; lastWinner = -1;
   players = roomPlayerIds.map((id, i) => ({
-    name: (playerMeta[id] && playerMeta[id].name) || (id === myId ? myName : "Player " + (i + 1)),
+    name: (playerMeta[id] && playerMeta[id].name) || (id === myId ? myName : "Тоглогч " + (i + 1)),
     color: PLAYER_COLORS[i], isBot: false, total: 0, out: false
   }));
   meNameEl.textContent = players[mySeat].name;
   setupOverlay.classList.remove("show");
   const os = document.getElementById("onlineStatus");
-  if (os) os.textContent = "Dealing…";
+  if (os) os.textContent = "Хөзөр тарааж байна…";
   onlineOverlay.classList.add("show");   // keep covering the table until the first deal lands
   render();
   Usion.game.requestSync(0);   // catch any actions (e.g. the deal) we missed
@@ -1289,7 +1293,7 @@ function onDeal(d) {
   if (!gameStarted && Array.isArray(d.order) && d.order.indexOf(myId) < 0) {
     onlineOverlay.classList.add("show");
     const s = document.getElementById("onlineStatus");
-    if (s) s.textContent = "The host started without you.";
+    if (s) s.textContent = "Хост таныг оруулалгүй эхлүүллээ.";
     return;
   }
   applyNames(d.names);                 // adopt host-supplied names before seating
