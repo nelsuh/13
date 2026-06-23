@@ -439,7 +439,7 @@ function renderControls() {
   passBtn.disabled = !table;
   if (selected.size === 0) {
     if (!table) meStatusEl.textContent = firstPlay ? ("Эхлүүл — " + lowLabel() + " багтаах ёстой") : "Та эхэлнэ";
-    else meStatusEl.textContent = comboName(table.combo) + "-г дар, эсвэл пас";
+    else meStatusEl.textContent = comboName(table.combo) + "-г дар, эсвэл өнжих";
     meStatusEl.className = "me-status";
   } else if (!combo) {
     meStatusEl.textContent = selected.size > 5 ? "Дээд тал нь 5 хөзөр" : selected.size + " хөзөр — буруу хослол";
@@ -572,7 +572,7 @@ function doPlay(seat, combo) {
 function doPass(seat) {
   passed.add(seat);
   passStreak += 1;
-  lastAction[seat] = { kind: "pass", text: "Пас" };
+  lastAction[seat] = { kind: "pass", text: "Өнжих" };
   // No lock-out: a passer is NOT skipped on later turns. The trick ends only when
   // every OTHER active player has passed in a row since the last play.
   if (table && passStreak >= activeSeats().length - 1) { render(); clearTrick(table.seat); return; }
