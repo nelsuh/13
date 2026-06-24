@@ -223,6 +223,7 @@ let lastAction = {};
 let botTimer = null;
 let turnTimer = null;       // ticks the active player's 2:00 turn clock
 let turnLeft = TURN_SECONDS;
+let netPaused = false;      // true while our connection is dropped — freezes the turn clock so a disconnect can't auto-pass us
 let dealActive = false;
 let lastWinner = -1;
 let loseAt = 30;            // a player who reaches this many penalty points is eliminated
@@ -313,7 +314,9 @@ function stopTurnTimer() { if (turnTimer) { clearInterval(turnTimer); turnTimer 
 function startTurnTimer() {
   stopTurnTimer();
   turnLeft = TURN_SECONDS;
-  if (!dealActive) { updateTimers(); return; }
+  // Frozen while disconnected: keep the clock displayed but don't tick (a dropped
+  // player must not be auto-passed). The reconnect handler restarts it.
+  if (!dealActive || netPaused) { updateTimers(); return; }
   updateTimers();
   turnTimer = setInterval(() => {
     turnLeft -= 1;
@@ -325,7 +328,7 @@ function startTurnTimer() {
 // move is generated (and broadcast online) exactly once. Other clients just let
 // their display sit at 0:00 until the move arrives and resets the clock.
 function onTurnTimeout() {
-  if (!dealActive) return;
+  if (!dealActive || netPaused) return;   // never resolve a timeout while our link is down
   if (online) { if (turn !== mySeat) return; }       // remote seats resolve on their own client
   else if (players[turn].isBot) return;              // local bots act via botTimer, never time out
   autoMove(turn);
@@ -959,7 +962,19 @@ async function setupMultiplayer(roomId) {
     Usion.game.onAction(onNetAction);
     Usion.game.onRealtime(onNetRealtime);
     Usion.game.onSync(onNetSync);
-    if (Usion.game.onReconnect) Usion.game.onReconnect(() => { Usion.game.requestSync(0); Usion.game.realtime("request_state", {}); });
+    // Real pause on a dropped link: freeze the turn clock (so we can't be
+    // auto-passed while offline) and tell the player. onTurnTimeout/startTurnTimer
+    // both honor netPaused, so the clock sits frozen until we're back.
+    if (Usion.game.onDisconnect) Usion.game.onDisconnect(() => {
+      netPaused = true;
+      stopTurnTimer();
+      if (dealActive) toast("Холболт тасарлаа — түр зогссон…");
+    });
+    if (Usion.game.onReconnect) Usion.game.onReconnect(() => {
+      netPaused = false;
+      Usion.game.requestSync(0); Usion.game.realtime("request_state", {});
+      if (dealActive) startTurnTimer();   // resume the active seat's clock from full
+    });
     await Usion.game.join(roomId);
   } catch (err) {
     console.error("Multiplayer failed:", err);
