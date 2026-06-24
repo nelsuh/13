@@ -28,7 +28,7 @@ const SUIT_RANK = [3, 1, 0, 2];
 const RANK_LABEL = { 11: "J", 12: "Q", 13: "K", 14: "A", 15: "2" };
 const PLAYER_COLORS = ["#2ed573", "#ff4757", "#1e90ff", "#ffa502"];
 const BOT_NAMES = ["Та", "Бот Бат", "Бот Болд", "Бот Сүх"];
-const HAND_OVER_SECONDS = 8;
+const HAND_OVER_SECONDS = 5;
 const TURN_SECONDS = 90;   // each player gets 2:00 to act; on expiry they auto-pass (auto-lead if leading)
 
 function rankLabel(r) { return RANK_LABEL[r] || String(r); }
@@ -650,15 +650,29 @@ function showHandOver(winnerSeat, deltas, newlyOut) {
   const cd = document.getElementById("handCountdown");
   const actions = document.getElementById("handActions");
   actions.innerHTML = "";
-  if (online) {
-    cd.textContent = isHost ? "Дараагийн тойргийг тараах…" : "Дараагийн хуваалтыг хүлээж байна…";
-    if (handCdTimeout) clearTimeout(handCdTimeout);
-    if (isHost) handCdTimeout = setTimeout(() => { handOverlay.classList.remove("show"); hostDeal(); }, HAND_OVER_SECONDS * 1000);
-  } else {
-    let left = HAND_OVER_SECONDS;
-    cd.textContent = "Дараагийн тойрог " + left + "с дотор";
-    if (handCdInterval) clearInterval(handCdInterval);
-    handCdInterval = setInterval(() => { left--; cd.textContent = "Дараагийн тойрог " + left + "с дотор"; if (left <= 0) startNextLocal(); }, 1000);
+  if (handCdInterval) clearInterval(handCdInterval);
+  if (handCdTimeout) clearTimeout(handCdTimeout);
+
+  // Big ticking countdown to the next round (5 → 4 → 3 …), shown the same way
+  // online and offline so everyone sees how long until the next deal.
+  let left = HAND_OVER_SECONDS;
+  const renderCd = (pop) => {
+    cd.innerHTML =
+      'Дараагийн тойрог <span class="cd-num' + (pop ? " pop" : "") + '">' + left + '</span> секундын дараа';
+  };
+  renderCd(false);
+  handCdInterval = setInterval(() => {
+    left--;
+    if (left < 0) left = 0;
+    renderCd(true);
+    if (left <= 0) {
+      clearInterval(handCdInterval); handCdInterval = null;
+      if (!online) startNextLocal();
+      else if (isHost) { handOverlay.classList.remove("show"); hostDeal(); }
+    }
+  }, 1000);
+
+  if (!online) {
     const next = document.createElement("button");
     next.className = "btn-next"; next.textContent = "Дараагийн тойрог";
     next.addEventListener("click", startNextLocal);

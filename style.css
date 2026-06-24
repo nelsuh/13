@@ -1,6 +1,7 @@
 /* ── Mongolian Poker — Luxe Casino theme ──────────────────
    Deep felt green + near-black, gold accents, serif display
-   headings (Playfair Display) over a clean sans body (Inter). */
+   headings (Noto Serif) over a clean sans body (Noto Sans) —
+   both with full Mongolian Cyrillic (Ө, Ү …) coverage. */
 :root {
   --bg-0: #06100b;
   --felt-hi: #1a6b46;
@@ -48,13 +49,17 @@ body.skin-red {
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Form controls don't inherit the body font by default — without this,
+   buttons fall back to Arial, which renders Mongolian Ү/Ө poorly. */
+button, input, select, textarea { font-family: inherit; }
+
 body {
   min-height: 100vh;
   min-height: 100dvh;
   background:
     radial-gradient(120% 80% at 50% 0%, rgba(212,175,55,.10) 0%, rgba(0,0,0,0) 42%),
     radial-gradient(circle at 50% 38%, var(--felt-hi) 0%, var(--felt-mid) 40%, var(--felt-lo) 74%, var(--bg-0) 100%);
-  font-family: "Inter", system-ui, sans-serif;
+  font-family: "Noto Sans", system-ui, sans-serif;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -109,7 +114,7 @@ body {
 
 .opp-timer { width: 18px; height: 18px; }
 .opp-pname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.opp-score { margin-left: 2px; font-family: "Playfair Display", serif; font-weight: 800; color: var(--gold-hi); }
+.opp-score { margin-left: 2px; font-family: "Noto Serif", serif; font-weight: 800; color: var(--gold-hi); }
 .opp-fan {
   display: flex; justify-content: center; padding: 4px;
   border: 2px solid transparent; border-radius: 8px;
@@ -155,7 +160,7 @@ body {
 }
 .turn-line {
   position: relative;
-  font-family: "Playfair Display", serif;
+  font-family: "Noto Serif", serif;
   font-size: 16px; font-weight: 800; letter-spacing: .3px;
   color: var(--text);
   padding: 7px 18px; border-radius: 999px;
@@ -175,6 +180,7 @@ body {
 /* ── Playing cards ── */
 .card {
   position: relative;
+  font-family: "Inter", system-ui, sans-serif;   /* ranks are Latin-only; Inter renders J/Q/K crisply */
   font-size: 12px;                 /* base; children use em */
   border-radius: 9px;
   background: linear-gradient(158deg, #ffffff 0%, var(--cream) 70%, #ece3cc 100%);
@@ -214,7 +220,7 @@ body {
 /* ── My hand (fanned) ── */
 .me-area { margin-top: 8px; }
 .me-bar { display: flex; align-items: center; gap: 8px; padding: 0 6px 6px; }
-.me-name { font-family: "Playfair Display", serif; font-size: 14px; font-weight: 800; color: var(--gold-hi); }
+.me-name { font-family: "Noto Serif", serif; font-size: 14px; font-weight: 800; color: var(--gold-hi); }
 .me-status { font-size: 11px; font-weight: 600; color: var(--text-dim); text-align: right; }
 .me-status.good { color: var(--good); }
 .me-status.bad { color: var(--danger); }
@@ -245,7 +251,7 @@ body {
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 13px 0;
-  font-family: "Inter", sans-serif;
+  font-family: "Noto Sans", sans-serif;
   font-size: 14px; font-weight: 700; letter-spacing: .3px;
   cursor: pointer;
   transition: transform .1s, box-shadow .2s, filter .2s;
@@ -283,7 +289,7 @@ body {
 }
 .setup-head { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-bottom: 16px; }
 .setup-title {
-  font-family: "Playfair Display", serif;
+  font-family: "Noto Serif", serif;
   font-size: 27px; font-weight: 900; line-height: 1.05; letter-spacing: .5px;
   color: var(--gold-hi);
   text-shadow: 0 2px 10px rgba(0,0,0,.4);
@@ -296,7 +302,7 @@ body {
   color: var(--ink); text-shadow: none;
   box-shadow: 0 5px 14px rgba(0,0,0,.45), 0 0 16px rgba(212,175,55,.3);
 }
-.title-ace b { position: absolute; top: 5px; left: 7px; font-family: "Inter", sans-serif; font-size: 14px; font-weight: 800; line-height: 1; }
+.title-ace b { position: absolute; top: 5px; left: 7px; font-family: "Noto Sans", sans-serif; font-size: 14px; font-weight: 800; line-height: 1; }
 .title-ace i { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-style: normal; font-size: 32px; }
 .setup-sub { font-size: 12.5px; color: var(--text-dim); margin-bottom: 20px; line-height: 1.5; }
 .count-label { font-size: 11px; font-weight: 700; color: var(--gold); letter-spacing: 2px; margin-bottom: 9px; }
@@ -305,7 +311,7 @@ body {
   width: 54px; height: 54px; border-radius: 14px;
   border: 1px solid var(--line);
   background: var(--panel-2); color: var(--text);
-  font-family: "Playfair Display", serif; font-size: 22px; font-weight: 800; cursor: pointer;
+  font-family: "Noto Serif", serif; font-size: 22px; font-weight: 800; cursor: pointer;
   transition: transform .1s, box-shadow .2s;
 }
 .count-btn:active { transform: scale(.95); }
@@ -335,7 +341,7 @@ body {
 
 /* Online waiting room (ready / host-start lobby) */
 .lobby-card { text-align: center; }
-.lobby-title { font-family: "Playfair Display", serif; font-size: 22px; font-weight: 800; color: var(--gold-hi); margin: 4px 0 2px; }
+.lobby-title { font-family: "Noto Serif", serif; font-size: 22px; font-weight: 800; color: var(--gold-hi); margin: 4px 0 2px; }
 .lobby-list { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; text-align: left; }
 .lobby-row {
   display: flex; align-items: center; gap: 10px;
@@ -351,7 +357,7 @@ body {
 .lobby-badge.wait  { background: rgba(255,255,255,.08); color: var(--text-dim); }
 .lobby-actions { display: flex; flex-direction: column; gap: 9px; margin-top: 4px; }
 .ctrl-btn.btn-ready-on { background: rgba(127,227,166,.2); color: var(--good); border-color: rgba(127,227,166,.45); box-shadow: none; }
-.overlay-text { font-family: "Playfair Display", serif; font-size: 18px; font-weight: 800; margin-top: 12px; color: var(--gold-hi); }
+.overlay-text { font-family: "Noto Serif", serif; font-size: 18px; font-weight: 800; margin-top: 12px; color: var(--gold-hi); }
 .spinner {
   width: 46px; height: 46px; margin: 0 auto;
   border: 3px solid rgba(212,175,55,.2); border-top-color: var(--gold);
@@ -360,7 +366,7 @@ body {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Results / scoreboard */
-.result-title { font-family: "Playfair Display", serif; font-size: 22px; font-weight: 800; color: var(--gold-hi); margin-bottom: 16px; }
+.result-title { font-family: "Noto Serif", serif; font-size: 22px; font-weight: 800; color: var(--gold-hi); margin-bottom: 16px; }
 .scoreboard { display: flex; flex-direction: column; gap: 7px; margin-bottom: 14px; text-align: left; }
 .sb-row {
   display: flex; align-items: center; gap: 9px;
@@ -372,10 +378,16 @@ body {
 .sb-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(255,255,255,.3); }
 .sb-name { flex: 1; font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-delta { font-size: 12px; font-weight: 800; }
-.sb-score { font-family: "Playfair Display", serif; font-size: 17px; font-weight: 800; width: 52px; text-align: right; color: var(--gold-hi); }
+.sb-score { font-family: "Noto Serif", serif; font-size: 17px; font-weight: 800; width: 52px; text-align: right; color: var(--gold-hi); }
 .sb-score small { font-size: 10px; opacity: .6; font-weight: 600; }
 
 .countdown { font-size: 13px; font-weight: 600; color: var(--text-dim); padding: 4px 0 10px; }
+.cd-num { font-weight: 800; color: var(--gold-hi); }
+.cd-num.pop { animation: cdPop .4s ease; }
+@keyframes cdPop {
+  0% { opacity: .35; }
+  100% { opacity: 1; }
+}
 .reveal-actions { display: flex; gap: 9px; }
 .reveal-actions button { flex: 1; border: 1px solid var(--line); border-radius: 11px; padding: 12px; font-size: 14px; font-weight: 800; cursor: pointer; }
 .btn-next { background: linear-gradient(180deg, var(--gold-hi), var(--gold)); color: #2a210a; border-color: var(--gold-hi); }
@@ -383,7 +395,7 @@ body {
 
 .winner-emoji { font-size: 50px; }
 .winner-label { font-size: 13px; letter-spacing: 4px; color: var(--gold); margin-top: 4px; }
-.winner-name { font-family: "Playfair Display", serif; font-size: 28px; font-weight: 900; color: var(--gold-hi); margin: 4px 0 16px; }
+.winner-name { font-family: "Noto Serif", serif; font-size: 28px; font-weight: 900; color: var(--gold-hi); margin: 4px 0 16px; }
 
 /* Toast */
 .toast {
@@ -391,7 +403,7 @@ body {
   transform: translate(-50%, -50%) scale(.8);
   background: var(--panel-2); border: 1px solid var(--gold-deep);
   border-radius: 14px; padding: 12px 26px;
-  font-family: "Playfair Display", serif; font-size: 16px; font-weight: 800; color: var(--gold-hi);
+  font-family: "Noto Serif", serif; font-size: 16px; font-weight: 800; color: var(--gold-hi);
   opacity: 0; pointer-events: none;
   transition: opacity .25s, transform .25s; z-index: 60;
 }
