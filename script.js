@@ -336,13 +336,13 @@ function onTurnTimeout() {
 function autoMove(seat) {
   selected.clear();
   if (table) {                                       // following → forfeit the trick
-    doPass(seat);
     if (online) sendMove({ kind: "pass" });
+    else doPass(seat);
   } else {                                            // leading → can't pass, so play a forced minimal lead
     const combo = botLead(hands[seat], firstPlay);
     if (!combo) return;
-    doPlay(seat, combo);
     if (online) sendMove({ kind: "play", cards: combo.cards.map(cardWire) });
+    else doPlay(seat, combo);
   }
 }
 
@@ -430,6 +430,12 @@ function layoutHand() {
 window.addEventListener("resize", layoutHand);
 function renderControls() {
   const myTurn = dealActive && turn === mySeat;
+  if (pendingAction) {
+    playBtn.disabled = true; passBtn.disabled = true;
+    meStatusEl.textContent = "Илгээж байна…";
+    meStatusEl.className = "me-status";
+    return;
+  }
   if (!myTurn) {
     playBtn.disabled = true; passBtn.disabled = true;
     meStatusEl.textContent = dealActive ? "Хүлээж байна…" : "";
@@ -484,14 +490,14 @@ function humanPlay() {
   const combo = classify(selectedCards());
   if (!isLegalPlay(combo)) { toast("Хүчингүй тавилт"); return; }
   selected.clear();
-  doPlay(mySeat, combo);
   if (online) sendMove({ kind: "play", cards: combo.cards.map(cardWire) });
+  else doPlay(mySeat, combo);
 }
 function humanPass() {
   if (turn !== mySeat || !table) return;
   selected.clear();
-  doPass(mySeat);
   if (online) sendMove({ kind: "pass" });
+  else doPass(mySeat);
 }
 
 // ── Engine ───────────────────────────────────────────────
@@ -787,6 +793,10 @@ let gameStarted = false;
 let lastSeq = 0;
 let curSeed = 0;
 let moveLog = [];
+let checkpointVersion = 0;
+let replayingSync = false;
+let appliedSequences = new Set();
+let pendingAction = false;
 const playerMeta = {};
 // ── Lobby (waiting room): who's connected + their ready state, pre-game ──
 const presentIds = new Set();   // player ids currently in the room (connected)
@@ -879,13 +889,14 @@ function hostCheckpoint() {
       // deal seed, the seating order, this round's moves so far, and the
       // round-start scores/starter context (so replay re-derives the same lead
       // and adds penalties on top of the correct baseline).
-      Usion.game.setState({
+      const checkpoint = Usion.game.setState({
         seed: curSeed, order: roomPlayerIds, moves: moveLog.slice(),
         totals: roundStartTotals, outs: roundStartOuts,
         firstDeal: roundFirstDeal, lastWinner: roundLastWinner,
         names: nameMap(),
         version: Date.now()
       });
+      if (checkpoint && checkpoint.catch) checkpoint.catch(() => {});
     }
   } catch (_) {}
 }
@@ -912,7 +923,11 @@ function applyCheckpoint(state) {
   onlineOverlay.classList.remove("show");
   handOverlay.classList.remove("show");
   startDeal(state.seed);                                 // same seed → same hands & lead
+  checkpointVersion = Number(state.version || checkpointVersion || 0);
+  appliedSequences = new Set();
+  replayingSync = true;
   (state.moves || []).forEach(mv => { moveLog.push(mv); applyRemoteMove(mv); });
+  replayingSync = false;
   return true;
 }
 
@@ -1032,6 +1047,26 @@ function applyLeaveFold(seat) {
   }
 }
 
+function applyLeaveOutcome(seat, endMatch) {
+  applyLeaveFold(seat);
+  if (endMatch || activeSeats().length <= 1) {
+    if (endTimer) { clearTimeout(endTimer); endTimer = null; }
+    dealActive = false;
+    showGameOver();
+  } else {
+    render();
+  }
+}
+
+function sendHostLeaveOutcome(seat, endMatch) {
+  if (!isHostPlayer() || seat < 0) return;
+  Usion.game.action("move", { kind: endMatch ? "forfeit_win" : "leave_fold", seat })
+    .catch(() => {
+      toast("Гаралтын төлөв илгээж чадсангүй");
+      Usion.game.requestSync(0);
+    });
+}
+
 function startForfeitGrace() {
   if (forfeitTimer) clearInterval(forfeitTimer);
   let secs = Math.ceil(FORFEIT_GRACE_MS / 1000);
@@ -1046,14 +1081,7 @@ function startForfeitGrace() {
     if (secs > 0) { if (turnLine) turnLine.textContent = "Тоглогч гарлаа — дахин нэгдэхийг хүлээж байна… (" + secs + "с)"; return; }
     const seat = pendingLeaveSeat;
     clearForfeitGrace();
-    applyLeaveFold(seat);                        // grace expired → the leaver folds for good
-    if (activeSeats().length <= 1) {
-      if (endTimer) { clearTimeout(endTimer); endTimer = null; }
-      dealActive = false;
-      showGameOver();
-    } else {
-      render();
-    }
+    sendHostLeaveOutcome(seat, true);             // grace expired → host stores the forfeit result
   }, 1000);
 }
 
@@ -1069,6 +1097,12 @@ function onPlayerLeft(data) {
   // mid-game: the player who left forfeits (their seat stays fixed)
   const seat = (data && data.player_id != null) ? roomPlayerIds.indexOf(data.player_id) : -1;
   if (seat < 0 || !players[seat] || players[seat].out) { render(); return; }
+  if (!isHostPlayer()) {
+    notifySelf("Өрсөлдөгч гарлаа", "Таны Монгол Покерын тоглолтоос тоглогч гарлаа");
+    Usion.game.requestSync(0);
+    render();
+    return;
+  }
 
   // Decisive case (would leave ≤1 active) → grace window before ending; don't
   // mutate yet, so a rejoin resumes the hand exactly where it was.
@@ -1082,8 +1116,7 @@ function onPlayerLeft(data) {
 
   // Non-decisive: fold the leaver and continue with the remaining players.
   notifySelf("Өрсөлдөгч гарлаа", "Таны Монгол Покерын тоглолтоос тоглогч гарлаа");
-  applyLeaveFold(seat);
-  render();
+  sendHostLeaveOutcome(seat, false);
 }
 function updateOnlineStatus() {
   const s = document.getElementById("onlineStatus");
@@ -1146,7 +1179,7 @@ function renderLobby() {
   const startBtn = document.getElementById("startGameBtn");
   if (startBtn) {
     startBtn.style.display = isHost ? "block" : "none";
-    startBtn.disabled = !allReady;
+    startBtn.disabled = !allReady || pendingAction;
   }
   const hint = document.getElementById("lobbyHint");
   if (hint) {
@@ -1247,34 +1280,74 @@ function applyNames(map) {
   for (const id in map) playerMeta[id] = Object.assign(playerMeta[id] || {}, { name: map[id] });
 }
 function hostDeal() {
-  if (!isHost) return;
+  if (!isHost || pendingAction) return;
   curSeed = randomSeed();
   // carry the starter context so every client picks the SAME leader: firstDeal →
   // lowest-card holder leads; otherwise the previous round's winner leads. Without
   // this, a client with stale firstDeal/lastWinner computes a different starter.
   const d = { seed: curSeed, order: roomPlayerIds, names: nameMap(), firstDeal: firstDeal, lastWinner: lastWinner };
-  Usion.game.action("deal", d).catch(() => {});
-  onDeal(d);   // deal locally immediately — don't wait for our own action to echo back
+  pendingAction = true;
+  renderLobby();
+  Usion.game.action("deal", d)
+    .then(res => {
+      if (res && res.success === false) {
+        pendingAction = false;
+        toast("Тараалт илгээж чадсангүй");
+        renderLobby();
+      }
+    })
+    .catch(() => {
+      pendingAction = false;
+      toast("Тараалт илгээж чадсангүй");
+      renderLobby();
+    });
 }
-function sendMove(move) { moveLog.push(move); Usion.game.action("move", move).catch(() => {}); hostCheckpoint(); }
+function sendMove(move) {
+  if (pendingAction) return;
+  pendingAction = true;
+  renderControls();
+  Usion.game.action("move", move)
+    .then(res => {
+      if (res && res.success === false) {
+        pendingAction = false;
+        toast("Нүүдэл илгээж чадсангүй");
+        render();
+      }
+    })
+    .catch(() => {
+      pendingAction = false;
+      toast("Нүүдэл илгээж чадсангүй");
+      render();
+    });
+}
 // Apply a move from `fromId` (the actual sender). Anchoring to the sender's seat
 // — not the local `turn` — makes the turn pointer self-correcting: if a client
 // ever missed/duplicated/reordered a move, it snaps back instead of drifting and
 // deadlocking the whole table.
 function applyRemoteMove(move, fromId) {
   if (!dealActive) return;
+  if (move.kind === "leave_fold" || move.kind === "forfeit_win") {
+    applyLeaveOutcome(Number(move.seat), move.kind === "forfeit_win");
+    if (!replayingSync) hostCheckpoint();
+    return;
+  }
   let seat = (fromId != null) ? roomPlayerIds.indexOf(fromId) : -1;
   if (seat < 0) seat = turn;                 // no sender info (e.g. checkpoint replay) → in-order
   if (seat !== turn) turn = seat;            // snap to the real actor before applying
   if (move.kind === "pass") doPass(seat);
   else { const combo = classify(move.cards.map(wireCard)); if (combo) doPlay(seat, combo); }
-  hostCheckpoint();   // host only: snapshot after applying the authoritative move
+  if (!replayingSync) hostCheckpoint();   // host only: snapshot after applying the authoritative move
 }
 function onNetAction(data) {
   if (data.sequence !== undefined) lastSeq = Math.max(lastSeq, data.sequence);
+  if (data.sequence !== undefined) {
+    if (appliedSequences.has(data.sequence)) return;
+    appliedSequences.add(data.sequence);
+  }
   const d = data.action_data || {};
-  if (data.action_type === "deal") { if (data.player_id === myId) return; onDeal(d); }
-  else if (data.action_type === "move") { if (data.player_id === myId) return; moveLog.push(d); applyRemoteMove(d, data.player_id); }
+  if (data.player_id === myId) pendingAction = false;
+  if (data.action_type === "deal") onDeal(d);
+  else if (data.action_type === "move") { moveLog.push(d); applyRemoteMove(d, data.player_id); }
 }
 function onNetRealtime(data) {
   if (data.player_id === myId) return;
@@ -1294,27 +1367,45 @@ function onNetSync(data) {
   // Checkpoint path: once the host has setState()'d, the SDK compacts the log —
   // sync carries game_state + only the tail of actions (the original "deal" is
   // gone). Rebuild from the checkpoint, then replay anything newer than it.
-  // Guard on !dealActive so we never clobber a round we're already playing
-  // (e.g. the host that just re-dealt fresh via maybeStart → hostDeal).
-  if (!dealActive && data.game_state && data.game_state.seed !== undefined && applyCheckpoint(data.game_state)) {
-    let baseMoves = Array.isArray(data.game_state.moves) ? data.game_state.moves.length : 0;
-    let movesSeen = 0;
-    actions.forEach(a => {
-      const d = a.action_data || {};
-      if (a.action_type === "deal") {
-        if (d.seed !== curSeed) { onDeal(d); movesSeen = 0; baseMoves = 0; }   // a round newer than the checkpoint
-      } else if (a.action_type === "move") {
-        if (++movesSeen > baseMoves) { moveLog.push(d); applyRemoteMove(d, a.player_id); }   // skip moves already in the checkpoint
-      }
-    });
+  // Apply newer/equal checkpoints even mid-hand: reconnect sync may compact the
+  // stored log into game_state + tail actions, and stale local state must be rebuilt.
+  const checkpoint = data.game_state;
+  const incomingVersion = checkpoint && Number(checkpoint.version || 0);
+  if (checkpoint && checkpoint.seed !== undefined && (!dealActive || incomingVersion >= checkpointVersion) && applyCheckpoint(checkpoint)) {
+    replayingSync = true;
+    try {
+      actions.forEach(a => {
+        if (a.sequence !== undefined) {
+          if (appliedSequences.has(a.sequence)) return;
+          appliedSequences.add(a.sequence);
+        }
+        const d = a.action_data || {};
+        if (a.action_type === "deal") {
+          if (d.seed !== curSeed) onDeal(d);   // a round newer than the checkpoint
+        } else if (a.action_type === "move") {
+          moveLog.push(d); applyRemoteMove(d, a.player_id);   // SDK sends tail actions after game_state
+        }
+      });
+    } finally {
+      replayingSync = false;
+    }
     return;
   }
   // No checkpoint: deterministic full replay from sequence 0.
-  actions.forEach(a => {
-    const d = a.action_data || {};
-    if (a.action_type === "deal") onDeal(d);
-    else if (a.action_type === "move") { moveLog.push(d); applyRemoteMove(d, a.player_id); }
-  });
+  replayingSync = true;
+  try {
+    actions.forEach(a => {
+      if (a.sequence !== undefined) {
+        if (appliedSequences.has(a.sequence)) return;
+        appliedSequences.add(a.sequence);
+      }
+      const d = a.action_data || {};
+      if (a.action_type === "deal") onDeal(d);
+      else if (a.action_type === "move") { moveLog.push(d); applyRemoteMove(d, a.player_id); }
+    });
+  } finally {
+    replayingSync = false;
+  }
 }
 function onDeal(d) {
   // Not seated in this match (e.g. wasn't ready when the host started) → stay in
@@ -1335,7 +1426,7 @@ function onDeal(d) {
   handOverlay.classList.remove("show");
   numPlayers = d.order.length;
   startDeal(d.seed);
-  hostCheckpoint();   // host only: snapshot the fresh deal for reconnecting clients
+  if (!replayingSync) hostCheckpoint();   // host only: snapshot the fresh deal for reconnecting clients
 }
 function refreshNames() {
   roomPlayerIds.forEach((id, i) => { if (players[i] && playerMeta[id] && playerMeta[id].name) players[i].name = playerMeta[id].name; });
