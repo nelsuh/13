@@ -247,6 +247,7 @@ const turnLine = document.getElementById("turnLine");
 const tableComboEl = document.getElementById("tableCombo");
 const tableLabelEl = document.getElementById("tableLabel");
 const meNameEl = document.getElementById("meName");
+const meScoreEl = document.getElementById("meScore");
 const meStatusEl = document.getElementById("meStatus");
 const handEl = document.getElementById("hand");
 const playBtn = document.getElementById("playBtn");
@@ -279,7 +280,8 @@ function makeCardEl(c) {
 }
 
 // ── Rendering ────────────────────────────────────────────
-function render() { renderOpponents(); renderTable(); renderHand(); renderControls(); updateTimers(); }
+function render() { renderOpponents(); renderTable(); renderHand(); renderControls(); updateTimers(); renderMyScore(); }
+function renderMyScore() { if (meScoreEl && players[mySeat]) meScoreEl.textContent = players[mySeat].total; }
 
 // ── Turn clock (per-player 2:00; auto-pass / auto-lead on expiry) ─────────
 function fmtTime(s) { s = Math.max(0, s | 0); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
@@ -387,7 +389,7 @@ function renderTable() {
       tableComboEl.appendChild(row);
     });
   } else {
-    tableLabelEl.textContent = dealActive ? "Ширээ хоосон — дурын хослол эхлүүл" : "";
+    tableLabelEl.textContent = "";
   }
   if (!dealActive) { turnLine.textContent = "—"; turnLine.className = "turn-line"; return; }
   if (turn === mySeat) { turnLine.textContent = "Таны ээлж"; turnLine.className = "turn-line mine"; }
@@ -432,7 +434,7 @@ function renderControls() {
   const myTurn = dealActive && turn === mySeat;
   if (!myTurn) {
     playBtn.disabled = true; passBtn.disabled = true;
-    meStatusEl.textContent = dealActive ? "Хүлээж байна…" : "";
+    meStatusEl.textContent = "";
     meStatusEl.className = "me-status";
     return;
   }
