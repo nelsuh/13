@@ -431,33 +431,17 @@ function layoutHand() {
 }
 window.addEventListener("resize", layoutHand);
 function renderControls() {
+  meStatusEl.textContent = "";
+  meStatusEl.className = "me-status";
   const myTurn = dealActive && turn === mySeat;
   if (!myTurn) {
     playBtn.disabled = true; passBtn.disabled = true;
-    meStatusEl.textContent = "";
-    meStatusEl.className = "me-status";
     return;
   }
   const combo = classify(selectedCards());
   const legal = isLegalPlay(combo);
   playBtn.disabled = !legal;
   passBtn.disabled = !table;
-  if (selected.size === 0) {
-    if (!table) meStatusEl.textContent = firstPlay ? ("Эхлүүл — " + lowLabel() + " багтаах ёстой") : "Та эхэлнэ";
-    else meStatusEl.textContent = comboName(table.combo) + "-г дар, эсвэл өнжих";
-    meStatusEl.className = "me-status";
-  } else if (!combo) {
-    meStatusEl.textContent = selected.size > 5 ? "Дээд тал нь 5 хөзөр" : selected.size + " хөзөр — буруу хослол";
-    meStatusEl.className = "me-status bad";
-  } else if (!legal) {
-    const why = firstPlay && !combo.cards.some(c => sameCard(c, lowCard)) ? (lowLabel() + " багтаах ёстой")
-      : table ? "ширээн дээрхийг давахгүй" : "хүчингүй";
-    meStatusEl.textContent = comboName(combo) + " — " + why;
-    meStatusEl.className = "me-status bad";
-  } else {
-    meStatusEl.textContent = comboName(combo) + " ✓";
-    meStatusEl.className = "me-status good";
-  }
 }
 function lowLabel() { return lowCard ? rankLabel(lowCard.r) + SUITS[lowCard.s] : "the lowest card"; }
 
