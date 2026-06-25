@@ -773,6 +773,9 @@ let gameStarted = false;
 let lastSeq = 0;
 let curSeed = 0;
 let moveLog = [];
+// True for exactly one onNetSync after onJoined already applied the checkpoint, so
+// that follow-up sync doesn't rebuild (and double-apply) the same round.
+let cpAppliedInJoin = false;
 const playerMeta = {};
 // ── Lobby (waiting room): who's connected + their ready state, pre-game ──
 const presentIds = new Set();   // player ids currently in the room (connected)
@@ -981,7 +984,7 @@ function onJoined(data) {
   // live round straight away so a rejoin resumes instead of stalling on
   // "Dealing…". Guarded by !dealActive (don't disturb an in-progress round);
   // applying it marks the game started so maybeStart won't re-deal.
-  if (!dealActive && data.game_state && data.game_state.seed !== undefined) applyCheckpoint(data.game_state);
+  if (!dealActive && data.game_state && data.game_state.seed !== undefined && applyCheckpoint(data.game_state)) cpAppliedInJoin = true;
   Usion.game.requestSync(0);   // SDK replays the stored deal + moves via onSync
   maybeStart();
 }
@@ -1277,13 +1280,22 @@ function onNetRealtime(data) {
 function onNetSync(data) {
   if (data.sequence !== undefined) lastSeq = Math.max(lastSeq, data.sequence);
   const actions = data.actions || [];
+  const cp = (data.game_state && data.game_state.seed !== undefined) ? data.game_state : null;
+
   // Checkpoint path: once the host has setState()'d, the SDK compacts the log —
-  // sync carries game_state + only the tail of actions (the original "deal" is
-  // gone). Rebuild from the checkpoint, then replay anything newer than it.
-  // Guard on !dealActive so we never clobber a round we're already playing
-  // (e.g. the host that just re-dealt fresh via maybeStart → hostDeal).
-  if (!dealActive && data.game_state && data.game_state.seed !== undefined && applyCheckpoint(data.game_state)) {
-    let baseMoves = Array.isArray(data.game_state.moves) ? data.game_state.moves.length : 0;
+  // sync carries game_state + only the TAIL of actions (the original "deal" is
+  // gone). We must NEVER blind-replay that tail, or moves the checkpoint already
+  // contains get applied a second time (the reconnect double-apply bug). Always
+  // reconcile the tail against the checkpoint's move count instead.
+  if (cp) {
+    // Rebuild from the checkpoint unless onJoined just applied it (then the round
+    // is already live and rebuilding would double-apply). On a plain reconnect the
+    // flag is false, so we DO rebuild — that's how we catch up on moves missed
+    // while our link was down.
+    const alreadyApplied = cpAppliedInJoin;
+    cpAppliedInJoin = false;
+    if (!alreadyApplied) { if (!applyCheckpoint(cp)) return; }
+    let baseMoves = Array.isArray(cp.moves) ? cp.moves.length : 0;
     let movesSeen = 0;
     actions.forEach(a => {
       const d = a.action_data || {};
@@ -1295,7 +1307,8 @@ function onNetSync(data) {
     });
     return;
   }
-  // No checkpoint: deterministic full replay from sequence 0.
+
+  // No checkpoint: deterministic full replay from sequence 0 (includes the deal).
   actions.forEach(a => {
     const d = a.action_data || {};
     if (a.action_type === "deal") onDeal(d);
