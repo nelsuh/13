@@ -875,24 +875,50 @@ function maybeNotifyTurn() {
 // missing that move and it's silently lost (the move you see on the table
 // reverts). The actor always holds current state (it just played), so its
 // checkpoint is fresh regardless of who's backgrounded. Callers gate WHO writes.
+// The full snapshot needed to rebuild the live round from scratch: deal seed,
+// seating order, this round's moves so far, and the round-start scores/starter
+// context (so replay re-derives the same lead and adds penalties on the correct
+// baseline). Used both for the server checkpoint and for peer state-pushes.
+function currentCheckpoint() {
+  return {
+    seed: curSeed, order: roomPlayerIds, moves: moveLog.slice(),
+    totals: roundStartTotals, outs: roundStartOuts,
+    firstDeal: roundFirstDeal, lastWinner: roundLastWinner,
+    names: nameMap(),
+    version: Date.now()
+  };
+}
 function writeCheckpoint() {
   try {
     if (window.Usion && Usion.game && Usion.game.setState) {
       dbg("CP", "write seq=" + lastSeq + " mv=" + moveLog.length);
-      // Carry enough to rebuild the live round from the checkpoint alone: the
-      // deal seed, the seating order, this round's moves so far, and the
-      // round-start scores/starter context (so replay re-derives the same lead
-      // and adds penalties on top of the correct baseline).
-      const checkpoint = Usion.game.setState({
-        seed: curSeed, order: roomPlayerIds, moves: moveLog.slice(),
-        totals: roundStartTotals, outs: roundStartOuts,
-        firstDeal: roundFirstDeal, lastWinner: roundLastWinner,
-        names: nameMap(),
-        version: Date.now()
-      });
+      const checkpoint = Usion.game.setState(currentCheckpoint());
       if (checkpoint && checkpoint.catch) checkpoint.catch(() => {});
     }
   } catch (_) {}
+}
+
+// Peer recovery: when a player (re)joins, a present player PUSHES the current
+// state to them over the room broadcast (realtime). A returning player's OWN
+// sync round-trip can silently fail after a socket cycle (host recovers, but a
+// non-host could sit on stale state forever) — but the room broadcast still
+// reaches them once they've rejoined, so this is a reliable second path. Only
+// the host pushes, to avoid a push storm in 3–4p; the host is the authority and
+// is present whenever a non-host returns.
+function broadcastStatePush() {
+  if (!online || !dealActive || !isHostPlayer()) return;
+  try {
+    dbg("PUSH", "send v? mv=" + moveLog.length);
+    if (window.Usion && Usion.game && Usion.game.realtime) Usion.game.realtime("state_push", currentCheckpoint());
+  } catch (_) {}
+}
+// Apply a pushed/synced snapshot if it's newer than what we already have.
+function applyStateSnapshot(state) {
+  if (!state || state.seed === undefined || !Array.isArray(state.order)) return;
+  const incomingVersion = Number(state.version || 0);
+  if (!dealActive || incomingVersion >= checkpointVersion) {
+    if (applyCheckpoint(state)) dbg("PUSH→", "turn=" + (players[turn] ? players[turn].name : turn) + " tbl=" + (table ? comboName(table.combo) : "-"));
+  }
 }
 
 // Rebuild the current round from a host checkpoint (received as game_state on a
@@ -1117,6 +1143,10 @@ function onPlayerJoined(data) {
   isHost = roomPlayerIds[0] === myId;
   if (connectedCount > 1 && forfeitTimer) { clearForfeitGrace(); render(); } // a player returned → cancel pending forfeit
   sendPlayerInfo(); updateOnlineStatus(); maybeStart();
+  // Someone (re)joined — push them the current state so they catch up even if
+  // their own sync is failing. Slight delay so they've finished rejoining the
+  // room (and registered their realtime handlers) before the broadcast lands.
+  if (gameStarted && dealActive) setTimeout(broadcastStatePush, 600);
 }
 // ── Forfeit grace period ──────────────────────────────────
 // When a leave WOULD end the match (one active seat left), defer the forfeit
@@ -1454,6 +1484,11 @@ function onNetRealtime(data) {
     presentIds.add(data.player_id);
     if (typeof d.ready === "boolean") lobbyReady[data.player_id] = d.ready;
     if (gameStarted) { refreshNames(); render(); } else renderLobby();
+  } else if (data.action_type === "state_push") {
+    // The host pushed authoritative state to us (we just rejoined). Apply it —
+    // this is the reliable recovery path when our own sync round-trip is dead.
+    dbg("PUSH", "recv v" + (d && d.version) + " mv" + ((d && d.moves || []).length));
+    applyStateSnapshot(d);
   }
 }
 // Catch-up replay (from requestSync). Each "deal" resets state, so replaying
