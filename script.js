@@ -865,10 +865,17 @@ function maybeNotifyTurn() {
   if (!myTurn) lastTurnNotified = false;
 }
 
-// Host (playerIds[0]) checkpoints authoritative state so reconnecting clients
-// receive it as game_state instead of replaying the whole turn-log from zero.
-function hostCheckpoint() {
-  if (!isHostPlayer()) return;
+// Persist the authoritative round state so a reconnecting/returning client
+// rebuilds from it instead of replaying the whole turn-log from zero.
+//
+// ⚠️ Written by WHOEVER JUST ACTED (the mover / the dealing host) — NOT only the
+// room host. A host-only checkpoint goes STALE the moment the host backgrounds:
+// while the host is away an opponent's move is never snapshotted (only the host
+// used to write it), so on recovery everyone rebuilds from a checkpoint that's
+// missing that move and it's silently lost (the move you see on the table
+// reverts). The actor always holds current state (it just played), so its
+// checkpoint is fresh regardless of who's backgrounded. Callers gate WHO writes.
+function writeCheckpoint() {
   try {
     if (window.Usion && Usion.game && Usion.game.setState) {
       // Carry enough to rebuild the live round from the checkpoint alone: the
@@ -1367,7 +1374,7 @@ function applyRemoteMove(move, fromId) {
   if (!dealActive) return;
   if (move.kind === "leave_fold" || move.kind === "forfeit_win") {
     applyLeaveOutcome(Number(move.seat), move.kind === "forfeit_win");
-    if (!replayingSync) hostCheckpoint();
+    if (!replayingSync && fromId === myId) writeCheckpoint();   // the sender (host) persists the outcome
     return;
   }
   let seat = (fromId != null) ? roomPlayerIds.indexOf(fromId) : -1;
@@ -1375,7 +1382,9 @@ function applyRemoteMove(move, fromId) {
   if (seat !== turn) turn = seat;            // snap to the real actor before applying
   if (move.kind === "pass") doPass(seat);
   else { const combo = classify(move.cards.map(wireCard)); if (combo) doPlay(seat, combo); }
-  if (!replayingSync) hostCheckpoint();   // host only: snapshot after applying the authoritative move
+  // The ACTOR (the player who just moved) persists the fresh state — not the
+  // host — so a move made while the host is backgrounded is never lost.
+  if (!replayingSync && fromId === myId) writeCheckpoint();
 }
 function onNetAction(data) {
   if (data.sequence !== undefined) lastSeq = Math.max(lastSeq, data.sequence);
@@ -1466,7 +1475,7 @@ function onDeal(d) {
   handOverlay.classList.remove("show");
   numPlayers = d.order.length;
   startDeal(d.seed);
-  if (!replayingSync) hostCheckpoint();   // host only: snapshot the fresh deal for reconnecting clients
+  if (!replayingSync && isHostPlayer()) writeCheckpoint();   // only the host deals → host snapshots the fresh deal
 }
 function refreshNames() {
   roomPlayerIds.forEach((id, i) => { if (players[i] && playerMeta[id] && playerMeta[id].name) players[i].name = playerMeta[id].name; });
