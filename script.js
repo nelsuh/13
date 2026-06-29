@@ -1020,7 +1020,10 @@ var _resyncDeadline = 0;
 function beginResync(reason) {
   dbg("RESYNC", reason + " base=" + lastSeq);
   _resyncBaseSeq = lastSeq;
-  _resyncDeadline = Date.now() + 30000;   // keep trying for up to 30s
+  // Keep trying for ~60s: with the host zombie-socket fix this resolves almost
+  // immediately; WITHOUT it, a dead socket only self-heals via Socket.IO's own
+  // ping-timeout (~45s), so we must outlast that to recover at all.
+  _resyncDeadline = Date.now() + 60000;
   pumpResync();
 }
 function pumpResync() {
