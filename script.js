@@ -1011,10 +1011,30 @@ function foregroundResync() {
   if (dealActive) { startTurnTimer(); render(); }
 }
 
+// On resume the host socket can take several seconds to reconnect + rejoin the
+// room; a few fixed retries can ALL fire during that gap and get no response
+// (observed: 5× requestSync, 0× sync back). So keep requesting until our own
+// sequence actually advances (a response landed) or we hit a long timeout.
+var _resyncBaseSeq = -1;
+var _resyncDeadline = 0;
+function beginResync(reason) {
+  dbg("RESYNC", reason + " base=" + lastSeq);
+  _resyncBaseSeq = lastSeq;
+  _resyncDeadline = Date.now() + 30000;   // keep trying for up to 30s
+  pumpResync();
+}
+function pumpResync() {
+  if (!online || !gameStarted) return;
+  if (lastSeq > _resyncBaseSeq) { dbg("RESYNC", "ok seq=" + lastSeq); return; }   // a response/live move advanced us
+  if (Date.now() > _resyncDeadline) { dbg("RESYNC", "timeout"); return; }
+  foregroundResync();
+  setTimeout(pumpResync, 1200);
+}
+
 // Web fires visibilitychange on tab refocus — use it there.
 if (typeof document !== "undefined" && document.addEventListener) {
   document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState === "visible") foregroundResync();
+    if (document.visibilityState === "visible") beginResync("visible");
   });
 }
 
@@ -1031,10 +1051,7 @@ if (typeof document !== "undefined" && document.addEventListener) {
     var gap = now - lastBeat;
     lastBeat = now;
     if (gap > 3000 && online && gameStarted) {
-      dbg("RESUME", "gap=" + Math.round(gap / 1000) + "s");
-      foregroundResync();
-      setTimeout(foregroundResync, 1500);
-      setTimeout(foregroundResync, 3500);
+      beginResync("gap=" + Math.round(gap / 1000) + "s");
     }
   }, 1000);
 })();
@@ -1052,13 +1069,15 @@ async function setupMultiplayer(roomId) {
     // auto-passed while offline) and tell the player. onTurnTimeout/startTurnTimer
     // both honor netPaused, so the clock sits frozen until we're back.
     if (Usion.game.onDisconnect) Usion.game.onDisconnect(() => {
+      dbg("NET", "disconnect");
       netPaused = true;
       stopTurnTimer();
       if (dealActive) toast("Холболт тасарлаа — түр зогссон…");
     });
     if (Usion.game.onReconnect) Usion.game.onReconnect(() => {
+      dbg("NET", "reconnect");
       netPaused = false;
-      Usion.game.requestSync(0); Usion.game.realtime("request_state", {});
+      beginResync("reconnect");   // persistent retry — the round-trip can be flaky right after reconnect
       if (dealActive) startTurnTimer();   // resume the active seat's clock from full
     });
     await Usion.game.join(roomId);
@@ -1072,6 +1091,7 @@ function sendPlayerInfo() { Usion.game.realtime("player_info", { name: myName, a
 function targetSeats() { return Math.max(2, Math.min(4, roomPlayerIds.length || 2)); }
 
 function onJoined(data) {
+  dbg("JOINED", "seq=" + data.sequence + " cp=" + (data.game_state && data.game_state.seed !== undefined ? "yes" : "no"));
   roomPlayerIds = data.player_ids || [];
   connectedCount = Number(data.connected_count || 0);
   if (data.sequence !== undefined) lastSeq = data.sequence;
