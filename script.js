@@ -955,28 +955,57 @@ if (window.Usion && Usion.init) {
   } catch (e) { /* standalone preview */ }
 }
 
-// Foreground catch-up safety net. While the app/iframe is backgrounded the
-// WebView is suspended: our turn clock freezes and any move the host relays in
-// that window can be dropped (postMessage to a frozen WebView). A quick (<3s)
-// app-switch never trips the socket reconnect either, so onReconnect doesn't
-// fire and we silently miss the move — our turn pointer ends up one behind and
-// the table deadlocks (each player sees the OTHER's turn). On EVERY return to
-// the foreground, force a fresh sync so we deterministically catch up, then
-// restart the frozen clock and repaint. onSync replay is idempotent (deduped
-// by sequence + host checkpoint), so an unnecessary resync is a harmless no-op.
+// ── Foreground catch-up ──────────────────────────────────────────────────
+// While the app/iframe is backgrounded the WebView is suspended: our turn clock
+// freezes and any move the host relays in that window is dropped (postMessage to
+// a frozen WebView). Nothing in the platform reliably tells us we missed it —
+// so on return we'd sit on stale state (you see the opponent's old card; they
+// see your turn) until a full exit+rejoin.
+//
+// Recovery rule: ask the server to replay everything AFTER OUR OWN last-applied
+// sequence (lastSeq) — NOT from 0 (which would re-walk old rounds) and NOT from
+// the host's checkpoint alone (it only holds the HOST's view; a non-host move
+// made while the host was away isn't in it — the missing move lives in the
+// action log). requestSync(lastSeq) returns the host checkpoint PLUS the action
+// log past our point, so we replay exactly what we missed. Idempotent.
+function foregroundResync() {
+  if (!online || !gameStarted) return;
+  netPaused = false;
+  try {
+    if (window.Usion && Usion.game) {
+      if (Usion.game.requestSync) Usion.game.requestSync(lastSeq);   // from OUR watermark, not 0
+      if (Usion.game.realtime) Usion.game.realtime("request_state", {});
+    }
+  } catch (_) {}
+  if (dealActive) { startTurnTimer(); render(); }
+}
+
+// Web fires visibilitychange on tab refocus — use it there.
 if (typeof document !== "undefined" && document.addEventListener) {
   document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState !== "visible" || !online) return;
-    netPaused = false;
-    try {
-      if (window.Usion && Usion.game) {
-        if (Usion.game.requestSync) Usion.game.requestSync(0);
-        if (Usion.game.realtime) Usion.game.realtime("request_state", {});
-      }
-    } catch (_) {}
-    if (dealActive) { startTurnTimer(); render(); }   // only when a hand is live (players populated)
+    if (document.visibilityState === "visible") foregroundResync();
   });
 }
+
+// Mobile: React Native WebViews do NOT fire visibilitychange on app
+// background/foreground, so the line above never runs in the Usion app. Detect
+// the resume from the wall clock instead: a 1s heartbeat that sees a big jump
+// means our JS was frozen (we were backgrounded). The host socket may still be
+// reconnecting/rejoining the room on return, so retry the sync a few times over
+// the next few seconds until our state catches up.
+(function resumeWatchdog() {
+  var lastBeat = Date.now();
+  setInterval(function () {
+    var now = Date.now();
+    var gap = now - lastBeat;
+    lastBeat = now;
+    if (gap > 3000 && online && gameStarted) {
+      foregroundResync();
+      setTimeout(foregroundResync, 1500);
+      setTimeout(foregroundResync, 3500);
+    }
+  }, 1000);
+})();
 
 async function setupMultiplayer(roomId) {
   try {
