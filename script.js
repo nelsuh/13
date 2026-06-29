@@ -954,6 +954,30 @@ if (window.Usion && Usion.init) {
     });
   } catch (e) { /* standalone preview */ }
 }
+
+// Foreground catch-up safety net. While the app/iframe is backgrounded the
+// WebView is suspended: our turn clock freezes and any move the host relays in
+// that window can be dropped (postMessage to a frozen WebView). A quick (<3s)
+// app-switch never trips the socket reconnect either, so onReconnect doesn't
+// fire and we silently miss the move — our turn pointer ends up one behind and
+// the table deadlocks (each player sees the OTHER's turn). On EVERY return to
+// the foreground, force a fresh sync so we deterministically catch up, then
+// restart the frozen clock and repaint. onSync replay is idempotent (deduped
+// by sequence + host checkpoint), so an unnecessary resync is a harmless no-op.
+if (typeof document !== "undefined" && document.addEventListener) {
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState !== "visible" || !online) return;
+    netPaused = false;
+    try {
+      if (window.Usion && Usion.game) {
+        if (Usion.game.requestSync) Usion.game.requestSync(0);
+        if (Usion.game.realtime) Usion.game.realtime("request_state", {});
+      }
+    } catch (_) {}
+    if (dealActive) { startTurnTimer(); render(); }   // only when a hand is live (players populated)
+  });
+}
+
 async function setupMultiplayer(roomId) {
   try {
     await Usion.game.connect();
