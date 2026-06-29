@@ -878,6 +878,7 @@ function maybeNotifyTurn() {
 function writeCheckpoint() {
   try {
     if (window.Usion && Usion.game && Usion.game.setState) {
+      dbg("CP", "write seq=" + lastSeq + " mv=" + moveLog.length);
       // Carry enough to rebuild the live round from the checkpoint alone: the
       // deal seed, the seating order, this round's moves so far, and the
       // round-start scores/starter context (so replay re-derives the same lead
@@ -962,6 +963,28 @@ if (window.Usion && Usion.init) {
   } catch (e) { /* standalone preview */ }
 }
 
+// ── TEMP on-screen diagnostics (remove once the resync bug is closed) ──────
+// A tiny green log pinned under the header so a returning player can screenshot
+// exactly what fired: RESUME (heartbeat saw a freeze / app resumed), FG (resync
+// requested), SYNC (what the server sent back), CP (a checkpoint we wrote),
+// ACT (a live move arrived).
+var _dbgLog = [];
+var _dbgEl = null;
+function dbg(tag, msg) {
+  try {
+    var d = new Date();
+    var ts = ("0" + d.getMinutes()).slice(-2) + ":" + ("0" + d.getSeconds()).slice(-2);
+    _dbgLog.push(ts + " " + tag + (msg != null ? " " + msg : ""));
+    while (_dbgLog.length > 10) _dbgLog.shift();
+    if (!_dbgEl && document.body) {
+      _dbgEl = document.createElement("div");
+      _dbgEl.style.cssText = "position:fixed;left:4px;right:4px;top:58px;z-index:99999;font:10px/1.3 monospace;color:#5f5;background:rgba(0,0,0,.74);padding:4px 6px;border-radius:6px;white-space:pre;pointer-events:none;max-height:44vh;overflow:hidden";
+      document.body.appendChild(_dbgEl);
+    }
+    if (_dbgEl) _dbgEl.textContent = _dbgLog.join("\n");
+  } catch (_) {}
+}
+
 // ── Foreground catch-up ──────────────────────────────────────────────────
 // While the app/iframe is backgrounded the WebView is suspended: our turn clock
 // freezes and any move the host relays in that window is dropped (postMessage to
@@ -976,14 +999,15 @@ if (window.Usion && Usion.init) {
 // action log). requestSync(lastSeq) returns the host checkpoint PLUS the action
 // log past our point, so we replay exactly what we missed. Idempotent.
 function foregroundResync() {
+  dbg("FG", "on=" + online + " started=" + gameStarted + " deal=" + dealActive + " seq=" + lastSeq);
   if (!online || !gameStarted) return;
   netPaused = false;
   try {
     if (window.Usion && Usion.game) {
-      if (Usion.game.requestSync) Usion.game.requestSync(lastSeq);   // from OUR watermark, not 0
+      if (Usion.game.requestSync) { Usion.game.requestSync(lastSeq); dbg("FG", "requestSync(" + lastSeq + ")"); }
       if (Usion.game.realtime) Usion.game.realtime("request_state", {});
     }
-  } catch (_) {}
+  } catch (e) { dbg("FG", "err " + (e && e.message)); }
   if (dealActive) { startTurnTimer(); render(); }
 }
 
@@ -1007,6 +1031,7 @@ if (typeof document !== "undefined" && document.addEventListener) {
     var gap = now - lastBeat;
     lastBeat = now;
     if (gap > 3000 && online && gameStarted) {
+      dbg("RESUME", "gap=" + Math.round(gap / 1000) + "s");
       foregroundResync();
       setTimeout(foregroundResync, 1500);
       setTimeout(foregroundResync, 3500);
@@ -1394,6 +1419,7 @@ function onNetAction(data) {
   }
   const d = data.action_data || {};
   if (data.player_id === myId) pendingAction = false;
+  dbg("ACT", (data.action_type || "?") + " seq=" + data.sequence + " seat=" + roomPlayerIds.indexOf(data.player_id) + " " + (d.kind || ""));
   if (data.action_type === "deal") onDeal(d);
   else if (data.action_type === "move") { moveLog.push(d); applyRemoteMove(d, data.player_id); }
 }
@@ -1420,6 +1446,7 @@ function onNetSync(data) {
   // stored log into game_state + tail actions, and stale local state must be rebuilt.
   const checkpoint = data.game_state;
   const incomingVersion = checkpoint && Number(checkpoint.version || 0);
+  dbg("SYNC", "acts=" + actions.length + " cp=" + (checkpoint && checkpoint.seed !== undefined ? ("v" + incomingVersion + ",mv" + ((checkpoint.moves || []).length)) : "none") + " locv=" + checkpointVersion + " deal=" + dealActive);
   if (checkpoint && checkpoint.seed !== undefined && (!dealActive || incomingVersion >= checkpointVersion) && applyCheckpoint(checkpoint)) {
     replayingSync = true;
     try {
@@ -1438,6 +1465,7 @@ function onNetSync(data) {
     } finally {
       replayingSync = false;
     }
+    dbg("SYNC→cp", "turn=" + (players[turn] ? players[turn].name : turn) + " tbl=" + (table ? comboName(table.combo) : "-"));
     return;
   }
   // No checkpoint: deterministic full replay from sequence 0.
@@ -1455,6 +1483,7 @@ function onNetSync(data) {
   } finally {
     replayingSync = false;
   }
+  dbg("SYNC→full", "turn=" + (players[turn] ? players[turn].name : turn) + " tbl=" + (table ? comboName(table.combo) : "-"));
 }
 function onDeal(d) {
   // Not seated in this match (e.g. wasn't ready when the host started) → stay in
