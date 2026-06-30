@@ -892,7 +892,6 @@ function currentCheckpoint() {
 function writeCheckpoint() {
   try {
     if (window.Usion && Usion.game && Usion.game.setState) {
-      dbg("CP", "write seq=" + lastSeq + " mv=" + moveLog.length);
       const checkpoint = Usion.game.setState(currentCheckpoint());
       if (checkpoint && checkpoint.catch) checkpoint.catch(() => {});
     }
@@ -909,7 +908,6 @@ function writeCheckpoint() {
 function broadcastStatePush() {
   if (!online || !dealActive || !isHostPlayer()) return;
   try {
-    dbg("PUSH", "send v? mv=" + moveLog.length);
     if (window.Usion && Usion.game && Usion.game.realtime) Usion.game.realtime("state_push", currentCheckpoint());
   } catch (_) {}
 }
@@ -918,7 +916,7 @@ function applyStateSnapshot(state) {
   if (!state || state.seed === undefined || !Array.isArray(state.order)) return;
   const incomingVersion = Number(state.version || 0);
   if (!dealActive || incomingVersion >= checkpointVersion) {
-    if (applyCheckpoint(state)) dbg("PUSH→", "turn=" + (players[turn] ? players[turn].name : turn) + " tbl=" + (table ? comboName(table.combo) : "-"));
+    applyCheckpoint(state);
   }
 }
 
@@ -990,28 +988,6 @@ if (window.Usion && Usion.init) {
   } catch (e) { /* standalone preview */ }
 }
 
-// ── TEMP on-screen diagnostics (remove once the resync bug is closed) ──────
-// A tiny green log pinned under the header so a returning player can screenshot
-// exactly what fired: RESUME (heartbeat saw a freeze / app resumed), FG (resync
-// requested), SYNC (what the server sent back), CP (a checkpoint we wrote),
-// ACT (a live move arrived).
-var _dbgLog = [];
-var _dbgEl = null;
-function dbg(tag, msg) {
-  try {
-    var d = new Date();
-    var ts = ("0" + d.getMinutes()).slice(-2) + ":" + ("0" + d.getSeconds()).slice(-2);
-    _dbgLog.push(ts + " " + tag + (msg != null ? " " + msg : ""));
-    while (_dbgLog.length > 10) _dbgLog.shift();
-    if (!_dbgEl && document.body) {
-      _dbgEl = document.createElement("div");
-      _dbgEl.style.cssText = "position:fixed;left:4px;right:4px;top:58px;z-index:99999;font:10px/1.3 monospace;color:#5f5;background:rgba(0,0,0,.74);padding:4px 6px;border-radius:6px;white-space:pre;pointer-events:none;max-height:44vh;overflow:hidden";
-      document.body.appendChild(_dbgEl);
-    }
-    if (_dbgEl) _dbgEl.textContent = _dbgLog.join("\n");
-  } catch (_) {}
-}
-
 // ── Foreground catch-up ──────────────────────────────────────────────────
 // While the app/iframe is backgrounded the WebView is suspended: our turn clock
 // freezes and any move the host relays in that window is dropped (postMessage to
@@ -1026,15 +1002,14 @@ function dbg(tag, msg) {
 // action log). requestSync(lastSeq) returns the host checkpoint PLUS the action
 // log past our point, so we replay exactly what we missed. Idempotent.
 function foregroundResync() {
-  dbg("FG", "on=" + online + " started=" + gameStarted + " deal=" + dealActive + " seq=" + lastSeq);
   if (!online || !gameStarted) return;
   netPaused = false;
   try {
     if (window.Usion && Usion.game) {
-      if (Usion.game.requestSync) { Usion.game.requestSync(lastSeq); dbg("FG", "requestSync(" + lastSeq + ")"); }
+      if (Usion.game.requestSync) Usion.game.requestSync(lastSeq);
       if (Usion.game.realtime) Usion.game.realtime("request_state", {});
     }
-  } catch (e) { dbg("FG", "err " + (e && e.message)); }
+  } catch (_) {}
   if (dealActive) { startTurnTimer(); render(); }
 }
 
@@ -1045,7 +1020,6 @@ function foregroundResync() {
 var _resyncBaseSeq = -1;
 var _resyncDeadline = 0;
 function beginResync(reason) {
-  dbg("RESYNC", reason + " base=" + lastSeq);
   _resyncBaseSeq = lastSeq;
   // Keep trying for ~60s: with the host zombie-socket fix this resolves almost
   // immediately; WITHOUT it, a dead socket only self-heals via Socket.IO's own
@@ -1055,8 +1029,8 @@ function beginResync(reason) {
 }
 function pumpResync() {
   if (!online || !gameStarted) return;
-  if (lastSeq > _resyncBaseSeq) { dbg("RESYNC", "ok seq=" + lastSeq); return; }   // a response/live move advanced us
-  if (Date.now() > _resyncDeadline) { dbg("RESYNC", "timeout"); return; }
+  if (lastSeq > _resyncBaseSeq) return;   // caught up
+  if (Date.now() > _resyncDeadline) return;
   foregroundResync();
   setTimeout(pumpResync, 1200);
 }
@@ -1099,13 +1073,11 @@ async function setupMultiplayer(roomId) {
     // auto-passed while offline) and tell the player. onTurnTimeout/startTurnTimer
     // both honor netPaused, so the clock sits frozen until we're back.
     if (Usion.game.onDisconnect) Usion.game.onDisconnect(() => {
-      dbg("NET", "disconnect");
       netPaused = true;
       stopTurnTimer();
       if (dealActive) toast("Холболт тасарлаа — түр зогссон…");
     });
     if (Usion.game.onReconnect) Usion.game.onReconnect(() => {
-      dbg("NET", "reconnect");
       netPaused = false;
       beginResync("reconnect");   // persistent retry — the round-trip can be flaky right after reconnect
       if (dealActive) startTurnTimer();   // resume the active seat's clock from full
@@ -1121,7 +1093,6 @@ function sendPlayerInfo() { Usion.game.realtime("player_info", { name: myName, a
 function targetSeats() { return Math.max(2, Math.min(4, roomPlayerIds.length || 2)); }
 
 function onJoined(data) {
-  dbg("JOINED", "seq=" + data.sequence + " cp=" + (data.game_state && data.game_state.seed !== undefined ? "yes" : "no"));
   roomPlayerIds = data.player_ids || [];
   connectedCount = Number(data.connected_count || 0);
   if (data.sequence !== undefined) lastSeq = data.sequence;
@@ -1477,7 +1448,6 @@ function onNetAction(data) {
     appliedSequences.add(data.sequence);
   }
   const d = data.action_data || {};
-  dbg("ACT", (data.action_type || "?") + " seq=" + data.sequence + " seat=" + roomPlayerIds.indexOf(data.player_id) + " " + (d.kind || ""));
   if (data.action_type === "deal") onDeal(d);
   else if (data.action_type === "move") { moveLog.push(d); applyRemoteMove(d, data.player_id); }
 }
@@ -1492,7 +1462,6 @@ function onNetRealtime(data) {
   } else if (data.action_type === "state_push") {
     // The host pushed authoritative state to us (we just rejoined). Apply it —
     // this is the reliable recovery path when our own sync round-trip is dead.
-    dbg("PUSH", "recv v" + (d && d.version) + " mv" + ((d && d.moves || []).length));
     applyStateSnapshot(d);
   }
 }
@@ -1505,7 +1474,7 @@ function onNetSync(data) {
   // re-applies the checkpoint (re-deal + replay), which wipes the live UI mid-
   // hand (your card selection, "your turn" state). If the server has nothing
   // past what we've applied, treat it as a no-op.
-  if (syncTop <= lastSeq) { dbg("SYNC", "current top=" + syncTop + " seq=" + lastSeq); return; }
+  if (syncTop <= lastSeq) return;
   if (data.sequence !== undefined) lastSeq = Math.max(lastSeq, data.sequence);
   const actions = data.actions || [];
 
@@ -1516,7 +1485,6 @@ function onNetSync(data) {
   // stored log into game_state + tail actions, and stale local state must be rebuilt.
   const checkpoint = data.game_state;
   const incomingVersion = checkpoint && Number(checkpoint.version || 0);
-  dbg("SYNC", "acts=" + actions.length + " cp=" + (checkpoint && checkpoint.seed !== undefined ? ("v" + incomingVersion + ",mv" + ((checkpoint.moves || []).length)) : "none") + " locv=" + checkpointVersion + " deal=" + dealActive);
   if (checkpoint && checkpoint.seed !== undefined && (!dealActive || incomingVersion >= checkpointVersion) && applyCheckpoint(checkpoint)) {
     // The checkpoint already includes every action up to checkpoint.seq. The
     // server's get_game_actions(last_sequence) is INCLUSIVE, so the tail re-sends
@@ -1542,7 +1510,6 @@ function onNetSync(data) {
     } finally {
       replayingSync = false;
     }
-    dbg("SYNC→cp", "turn=" + (players[turn] ? players[turn].name : turn) + " tbl=" + (table ? comboName(table.combo) : "-"));
     return;
   }
   // No checkpoint: deterministic full replay from sequence 0.
@@ -1560,7 +1527,6 @@ function onNetSync(data) {
   } finally {
     replayingSync = false;
   }
-  dbg("SYNC→full", "turn=" + (players[turn] ? players[turn].name : turn) + " tbl=" + (table ? comboName(table.combo) : "-"));
 }
 function onDeal(d) {
   // Not seated in this match (e.g. wasn't ready when the host started) → stay in
