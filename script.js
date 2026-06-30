@@ -1467,12 +1467,16 @@ function applyRemoteMove(move, fromId) {
 }
 function onNetAction(data) {
   if (data.sequence !== undefined) lastSeq = Math.max(lastSeq, data.sequence);
+  // Clear our "sending…" state the moment we SEE our own action echoed — BEFORE
+  // the dedup return. If a resync already applied this seq, the echo is a dup and
+  // we'd skip out below; without clearing here first, pendingAction sticks true
+  // forever and we can never move again ("Sending…" with the Play button dead).
+  if (data.player_id === myId) pendingAction = false;
   if (data.sequence !== undefined) {
-    if (appliedSequences.has(data.sequence)) return;
+    if (appliedSequences.has(data.sequence)) { renderControls(); return; }
     appliedSequences.add(data.sequence);
   }
   const d = data.action_data || {};
-  if (data.player_id === myId) pendingAction = false;
   dbg("ACT", (data.action_type || "?") + " seq=" + data.sequence + " seat=" + roomPlayerIds.indexOf(data.player_id) + " " + (d.kind || ""));
   if (data.action_type === "deal") onDeal(d);
   else if (data.action_type === "move") { moveLog.push(d); applyRemoteMove(d, data.player_id); }
@@ -1495,6 +1499,13 @@ function onNetRealtime(data) {
 // Catch-up replay (from requestSync). Each "deal" resets state, so replaying
 // the whole log from sequence 0 deterministically rebuilds the current round.
 function onNetSync(data) {
+  const syncTop = data.sequence !== undefined ? data.sequence : 0;
+  // Already current? Don't rebuild. The resync watchdog fires requestSync a few
+  // times and several replies can land after we've already caught up — each
+  // re-applies the checkpoint (re-deal + replay), which wipes the live UI mid-
+  // hand (your card selection, "your turn" state). If the server has nothing
+  // past what we've applied, treat it as a no-op.
+  if (syncTop <= lastSeq) { dbg("SYNC", "current top=" + syncTop + " seq=" + lastSeq); return; }
   if (data.sequence !== undefined) lastSeq = Math.max(lastSeq, data.sequence);
   const actions = data.actions || [];
 
