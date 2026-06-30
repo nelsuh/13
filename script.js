@@ -885,7 +885,8 @@ function currentCheckpoint() {
     totals: roundStartTotals, outs: roundStartOuts,
     firstDeal: roundFirstDeal, lastWinner: roundLastWinner,
     names: nameMap(),
-    version: Date.now()
+    version: Date.now(),
+    seq: lastSeq          // the action sequence this snapshot already includes
   };
 }
 function writeCheckpoint() {
@@ -1506,9 +1507,16 @@ function onNetSync(data) {
   const incomingVersion = checkpoint && Number(checkpoint.version || 0);
   dbg("SYNC", "acts=" + actions.length + " cp=" + (checkpoint && checkpoint.seed !== undefined ? ("v" + incomingVersion + ",mv" + ((checkpoint.moves || []).length)) : "none") + " locv=" + checkpointVersion + " deal=" + dealActive);
   if (checkpoint && checkpoint.seed !== undefined && (!dealActive || incomingVersion >= checkpointVersion) && applyCheckpoint(checkpoint)) {
+    // The checkpoint already includes every action up to checkpoint.seq. The
+    // server's get_game_actions(last_sequence) is INCLUSIVE, so the tail re-sends
+    // the checkpoint's own last move(s) — applying those again double-pushes the
+    // play onto the trick (duplicate cards on the table). Skip anything the
+    // checkpoint already baked in.
+    const cpSeq = Number(checkpoint.seq || 0);
     replayingSync = true;
     try {
       actions.forEach(a => {
+        if (a.sequence !== undefined && a.sequence <= cpSeq) return;   // already in the checkpoint
         if (a.sequence !== undefined) {
           if (appliedSequences.has(a.sequence)) return;
           appliedSequences.add(a.sequence);
