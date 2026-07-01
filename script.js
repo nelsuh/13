@@ -834,8 +834,8 @@ function submitLeaderboard() {
 }
 
 function notifySelf(title, body) {
-  // Only fires when the app is backgrounded (banner if online elsewhere, OS push if offline).
-  try { if (window.Usion && Usion.notify && document.hidden) Usion.notify.send({ title, body }); } catch (_) {}
+  // Notifications disabled — no push/banner is sent.
+  // try { if (window.Usion && Usion.notify && document.hidden) Usion.notify.send({ title, body }); } catch (_) {}
 }
 
 // Record MY outcome exactly once per multiplayer match (idempotent across paths).
