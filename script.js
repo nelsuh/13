@@ -950,9 +950,8 @@ function applyCheckpoint(state) {
   return true;
 }
 
-// Heuristic: did the platform open us in "play with bots"/solo mode? Such a
-// launch should go straight to the offline vs-bots setup, NOT the online lobby.
-// Checks the launch ref/path the host passes (config + getLaunchParams).
+// Legacy hint: some hosts pass a "play with bots"/solo ref or path. Kept only as
+// a fallback signal inside launchedSolo (below) for SDKs that don't expose mode.
 function isBotsLaunch(config) {
   try {
     let lp = {};
@@ -960,6 +959,26 @@ function isBotsLaunch(config) {
     const hint = [config && config.ref, config && config.launchPath, lp.ref, lp.path]
       .filter(Boolean).join(" ").toLowerCase();
     return /\b(bot|bots|solo|practice|single|ai|offline)\b/.test(hint);
+  } catch (_) { return false; }
+}
+
+// Did the platform open us solo (GameTok / Explore) rather than a real chat
+// game-invite? Trust the launch MODE — never infer from roomId alone, because a
+// solo launch may still be handed an auto-created (standalone_) room for SDK
+// plumbing (gametok.md / sdk-reference). Only a 'multiplayer' launch goes online.
+function launchedSolo(config) {
+  try {
+    let lp = {};
+    if (window.Usion && typeof Usion.getLaunchParams === "function") lp = Usion.getLaunchParams() || {};
+    if (lp.mode === "single") return true;
+    if (lp.mode === "multiplayer") return false;
+    // SDK without the mode field: boolean shortcut, then the legacy bot/solo hint,
+    // then "only a non-standalone roomId is a real multiplayer room".
+    if (window.Usion && Usion.game && typeof Usion.game.isMultiplayer === "function")
+      return !Usion.game.isMultiplayer();
+    if (isBotsLaunch(config)) return true;
+    const rid = config && config.roomId ? String(config.roomId) : "";
+    return !rid || /^standalone[_-]/i.test(rid);
   } catch (_) { return false; }
 }
 
@@ -973,16 +992,17 @@ if (window.Usion && Usion.init) {
       playerMeta[myId] = { name: myName, avatar: myAvatar };
       presentIds.add(myId);
       loadStats(); // fire-and-forget; never block init/render
-      // "Play with bots" launches solo — skip the room/waiting-room entirely and
-      // fall through to the offline setup (you vs bots). Only a real "play with
-      // friends" room (roomId, not a bots/solo launch) goes online to the lobby.
-      if (config.roomId && !isBotsLaunch(config)) {
+      // Solo launch (GameTok / Explore, mode 'single') → drop straight into a
+      // zero-tap 4-player round vs bots (road to 20), no menu and no lobby. Only a
+      // real multiplayer launch (chat game invite, roomId) goes online to the
+      // waiting room — chat-invite play is preserved.
+      if (!launchedSolo(config) && config.roomId) {
         online = true;
         setupOverlay.classList.remove("show");
         onlineOverlay.classList.add("show");
         await setupMultiplayer(config.roomId);
-      } else if (isBotsLaunch(config)) {
-        startBotsGame();   // "play with bots" → straight into you + 3 bots
+      } else {
+        startBotsGame();   // GameTok / Explore solo → zero-tap you + 3 bots, road to 20
       }
     });
   } catch (e) { /* standalone preview */ }
@@ -1305,6 +1325,7 @@ function startBotsGame() {
   setupOverlay.classList.remove("show");
   const nm = (myName || "Та").slice(0, 10);
   numPlayers = 4;                       // "play with bots" is always you + 3 bots
+  loseAt = 20;                          // GameTok: 4-player road to 20 points
   players = [];
   for (let i = 0; i < numPlayers; i++) {
     players.push({ name: i === 0 ? nm : BOT_NAMES[i], color: PLAYER_COLORS[i], isBot: i !== 0, total: 0, out: false });
