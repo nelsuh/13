@@ -16,8 +16,9 @@
 // Auto-win: being dealt all 13 ranks (a 3→A straight plus a 2).
 //
 // Modes: local = you (seat 0) + bots; online = humans via a shared deal seed
-// and a turn-log of moves (deterministic engine on every client).
-// See memory: thirteen-game (this dir's history), ludo-powerups (turn-log).
+// and a turn-log of moves (deterministic engine on every client). A solo launch
+// can be promoted into a live room mid-session (Usion.game.onRoomAssigned).
+// UI is bilingual (mn/en) via the STR table + Usion.getLanguage().
 
 // ── Card model ───────────────────────────────────────────
 // rank: 3..15 where 11=J 12=Q 13=K 14=A 15=2 ; suit id: 0♠ 1♣ 2♦ 3♥
@@ -27,9 +28,183 @@ const SUIT_RED = [false, false, true, true];
 const SUIT_RANK = [3, 1, 0, 2];
 const RANK_LABEL = { 11: "J", 12: "Q", 13: "K", 14: "A", 15: "2" };
 const PLAYER_COLORS = ["#2ed573", "#ff4757", "#1e90ff", "#ffa502"];
-const BOT_NAMES = ["Та", "Бот Бат", "Бот Болд", "Бот Сүх"];
 const HAND_OVER_SECONDS = 5;
 const TURN_SECONDS = 90;   // each player gets 2:00 to act; on expiry they auto-pass (auto-lead if leading)
+
+// ── i18n ─────────────────────────────────────────────────
+// Mongolian is the default; every other host language falls back to English.
+// The language comes from the platform (Usion.getLanguage(), i.e. the user's
+// app-wide setting) — never hardcode UI strings to one locale.
+const STR = {
+  mn: {
+    you: "Та",
+    botNames: ["Та", "Бот Бат", "Бот Болд", "Бот Сүх"],
+    pair: r => r + " хос",
+    triple: r => r + " гурав",
+    four: r => r + " дөрөв",
+    sflush: r => r + " дараалал флэш",
+    fourplus: r => "дөрөв+1 (" + r + ")",
+    fullhouse: r => "фулл хаус (" + r + ")",
+    flush: s => "флэш " + s,
+    straight: r => r + " дараалал",
+    max5: "Дээд тал нь 5 хөзөр",
+    invalidPlay: "Хүчингүй тавилт",
+    sending: "Илгээж байна…",
+    yourTurn: "Таны ээлж",
+    turnOf: n => n + "-ийн ээлж…",
+    pass: "Өнжих",
+    play: "Тавих",
+    finished: "ДУУСГАВ! 🎉",
+    leftGame: "Гарсан",
+    dragon: n => n + " — ЛУУ! 🐉",
+    youWonRound: "Та тойргийг хожлоо!",
+    wonRound: n => n + " тойргийг хожлоо!",
+    eliminatedTag: "ХОЖИГДСОН",
+    wonTag: "🏆 хожлоо",
+    cardsLeft: n => n + " үлдсэн",
+    nextRoundIn: num => "Дараагийн тойрог " + num + " секундын дараа",
+    nextRound: "Дараагийн тойрог",
+    newGame: "Шинэ тоглоом",
+    winnerLabel: "ЯЛАГЧ",
+    survived: "үлдсэн",
+    lostTag: "хожигдсон",
+    playAgain: "ДАХИН ТОГЛОХ",
+    lobbyTitle: "Хүлээх танхим",
+    connecting: "Холбогдож байна…",
+    waitingPlayers: (a, b) => "Тоглогчдыг хүлээж байна… (" + a + "/" + b + ")",
+    readyStarting: n => n + " тоглогч бэлэн — эхэлж байна…",
+    waitingJoin: "Тоглогчид нэгдэхийг хүлээж байна…",
+    readyCount: (a, b) => a + "/" + b + " бэлэн",
+    ready: "БЭЛЭН",
+    readyOn: "✓ БЭЛЭН",
+    notReady: "БЭЛЭН БИШ",
+    hostTag: "ХОСТ",
+    hintHostGo: "Бүгд бэлэн — Эхлүүлэх дар!",
+    hintHostWait: "Бүх тоглогч бэлэн болмогц Эхлүүлэх нээгдэнэ.",
+    hintWaitHost: "Хост эхлүүлэхийг хүлээж байна…",
+    hintPressReady: "Бэлэн болсон бол БЭЛЭН гэж дар.",
+    playerN: i => "Тоглогч " + i,
+    startedWithoutYou: "Хост таныг оруулалгүй эхлүүллээ.",
+    dealing: "Хөзөр тарааж байна…",
+    startGame: "ТОГЛООМ ЭХЛҮҮЛЭХ",
+    playBots: "БОТТОЙ ТОГЛОХ",
+    disconnectedPaused: "Холболт тасарлаа — түр зогссон…",
+    dealFail: "Тараалт илгээж чадсангүй",
+    moveFail: "Нүүдэл илгээж чадсангүй",
+    leaveFail: "Гаралтын төлөв илгээж чадсангүй",
+    leftGrace: s => "Тоглогч гарлаа — дахин нэгдэхийг хүлээж байна… (" + s + "с)",
+    nWonTitle: "Та хожлоо! 🎉",
+    nWonBody: "Та Монгол Покерын тоглолтод хожлоо",
+    nLostTitle: "Тоглолт дууслаа",
+    nLostBody: "Таны Монгол Покерын тоглолт дууслаа",
+    nTurnTitle: "Таны ээлж",
+    nTurnBody: "Монгол Покерт таны явах ээлж",
+    nLeftTitle: "Өрсөлдөгч гарлаа",
+    nLeftBody: "Таны Монгол Покерын тоглолтоос тоглогч гарлаа",
+    rematchWait: "Хост дахин тоглолт эхлүүлэхийг хүлээж байна…",
+    rematchWants: n => n + " дахин тоглохыг хүсэж байна",
+    title: "МОНГОЛ ПОКЕР",
+    docTitle: "Монгол Покер",
+    setupSub: "2–4 тоглогч, тус бүр 13 хөзөр — хөзрөө хамгийн түрүүнд дуусга. Ганц, хос, гурав, дөрөв, эсвэл 5 хөзрийн хослол (дараалал, флэш, фулл хаус, дөрөв+1, дараалал флэш) тавь. Ширээн дээрхийг ижил тооны илүү том хослолоор дар, эсвэл Өнжих. ♠>♥>♣>♦.",
+    playersLabel: "ТОГЛОГЧ",
+    loseLabel: "ХОЖИГДОХ ОНОО",
+    nameLabel: "ТАНЫ НЭР",
+    setupFoot: "Офлайн та ботуудтай. Онлайн бол ширээний бүх тоглогч тоглоно.",
+    skinToggle: "Ширээний өнгө солих",
+  },
+  en: {
+    you: "You",
+    botNames: ["You", "Bot Bat", "Bot Bold", "Bot Sukh"],
+    pair: r => r + " pair",
+    triple: r => r + " triple",
+    four: r => r + " four",
+    sflush: r => r + "-high straight flush",
+    fourplus: r => "four+1 (" + r + ")",
+    fullhouse: r => "full house (" + r + ")",
+    flush: s => "flush " + s,
+    straight: r => r + "-high straight",
+    max5: "Max 5 cards",
+    invalidPlay: "Invalid play",
+    sending: "Sending…",
+    yourTurn: "Your turn",
+    turnOf: n => n + "'s turn…",
+    pass: "Pass",
+    play: "Play",
+    finished: "FINISHED! 🎉",
+    leftGame: "Left",
+    dragon: n => n + " — DRAGON! 🐉",
+    youWonRound: "You won the round!",
+    wonRound: n => n + " won the round!",
+    eliminatedTag: "ELIMINATED",
+    wonTag: "🏆 won",
+    cardsLeft: n => n + " left",
+    nextRoundIn: num => "Next round in " + num + " seconds",
+    nextRound: "Next round",
+    newGame: "New game",
+    winnerLabel: "WINNER",
+    survived: "survived",
+    lostTag: "eliminated",
+    playAgain: "PLAY AGAIN",
+    lobbyTitle: "Waiting room",
+    connecting: "Connecting…",
+    waitingPlayers: (a, b) => "Waiting for players… (" + a + "/" + b + ")",
+    readyStarting: n => n + " players ready — starting…",
+    waitingJoin: "Waiting for players to join…",
+    readyCount: (a, b) => a + "/" + b + " ready",
+    ready: "READY",
+    readyOn: "✓ READY",
+    notReady: "NOT READY",
+    hostTag: "HOST",
+    hintHostGo: "Everyone is ready — press Start!",
+    hintHostWait: "Start unlocks once every player is ready.",
+    hintWaitHost: "Waiting for the host to start…",
+    hintPressReady: "Press READY when you're set.",
+    playerN: i => "Player " + i,
+    startedWithoutYou: "The host started without you.",
+    dealing: "Dealing…",
+    startGame: "START GAME",
+    playBots: "PLAY VS BOTS",
+    disconnectedPaused: "Connection lost — paused…",
+    dealFail: "Couldn't send the deal",
+    moveFail: "Couldn't send the move",
+    leaveFail: "Couldn't send the leave outcome",
+    leftGrace: s => "A player left — waiting for them to rejoin… (" + s + "s)",
+    nWonTitle: "You won! 🎉",
+    nWonBody: "You won your Mongol Poker match",
+    nLostTitle: "Match over",
+    nLostBody: "Your Mongol Poker match has ended",
+    nTurnTitle: "Your turn",
+    nTurnBody: "It's your move in Mongol Poker",
+    nLeftTitle: "Opponent left",
+    nLeftBody: "A player left your Mongol Poker match",
+    rematchWait: "Waiting for the host to start a rematch…",
+    rematchWants: n => n + " wants a rematch",
+    title: "MONGOL POKER",
+    docTitle: "Mongol Poker",
+    setupSub: "2–4 players, 13 cards each — be the first to empty your hand. Play a single, pair, triple, four, or a 5-card hand (straight, flush, full house, four+1, straight flush). Beat the table with a bigger combo of the same size, or Pass. ♠>♥>♣>♦.",
+    playersLabel: "PLAYERS",
+    loseLabel: "LOSE AT",
+    nameLabel: "YOUR NAME",
+    setupFoot: "Offline you play bots. Online everyone at the table plays.",
+    skinToggle: "Change table colour",
+  },
+};
+let LANG = "mn";
+function t(key) {
+  let v = STR[LANG] ? STR[LANG][key] : undefined;
+  if (v === undefined) v = STR.mn[key];
+  if (typeof v === "function") return v.apply(null, Array.prototype.slice.call(arguments, 1));
+  return v !== undefined ? v : key;
+}
+function detectLang() {
+  try {
+    if (window.Usion && typeof Usion.getLanguage === "function") {
+      const l = String(Usion.getLanguage() || "");
+      if (l) return /^mn/i.test(l) ? "mn" : "en";
+    }
+  } catch (_) {}
+  try { return /^mn/i.test(String(navigator.language || "mn")) ? "mn" : "en"; } catch (_) { return "mn"; }
+}
 
 function rankLabel(r) { return RANK_LABEL[r] || String(r); }
 function cardStrength(c) { return c.r * 4 + SUIT_RANK[c.s]; }            // 2 highest single
@@ -56,9 +231,9 @@ function classify(cards) {
   const top = sorted[n - 1];
   const allSame = ranks.every(r => r === ranks[0]);
   if (n === 1) return mk("single", sorted, [cardStrength(top)], rankLabel(top.r));
-  if (n === 2) return allSame ? mk("pair", sorted, [cardStrength(top)], rankLabel(top.r) + " хос") : null;
-  if (n === 3) return allSame ? mk("triple", sorted, [ranks[0]], rankLabel(ranks[0]) + " гурав") : null;
-  if (n === 4) return allSame ? mk("four", sorted, [ranks[0]], rankLabel(ranks[0]) + " дөрөв") : null;
+  if (n === 2) return allSame ? mk("pair", sorted, [cardStrength(top)], t("pair", rankLabel(top.r))) : null;
+  if (n === 3) return allSame ? mk("triple", sorted, [ranks[0]], t("triple", rankLabel(ranks[0]))) : null;
+  if (n === 4) return allSame ? mk("four", sorted, [ranks[0]], t("four", rankLabel(ranks[0]))) : null;
   if (n === 5) return classify5(sorted);
   return null;
 }
@@ -77,11 +252,11 @@ function classify5(sorted) {
   const sizes = groups.map(g => g[0]).join("");
   // straights / straight flushes display in run order
   const runOrder = sorted.slice().sort((a, b) => straightPos(a.r) - straightPos(b.r));
-  if (isStraight && isFlush) return mk("sflush", runOrder, [4, ...straightKey], rankLabel(topS.r) + " дараалал флэш");
-  if (sizes === "41") return mk("fourplus", sorted, [3, groups[0][1]], "дөрөв+1 (" + rankLabel(groups[0][1]) + ")");
-  if (sizes === "32") return mk("fullhouse", sorted, [2, groups[0][1]], "фулл хаус (" + rankLabel(groups[0][1]) + ")");
-  if (isFlush) return mk("flush", sorted, [1, ...sorted.map(cardStrength).sort((a, b) => b - a)], "флэш " + SUITS[sorted[0].s]);
-  if (isStraight) return mk("straight", runOrder, [0, ...straightKey], rankLabel(topS.r) + " дараалал");
+  if (isStraight && isFlush) return mk("sflush", runOrder, [4, ...straightKey], t("sflush", rankLabel(topS.r)));
+  if (sizes === "41") return mk("fourplus", sorted, [3, groups[0][1]], t("fourplus", rankLabel(groups[0][1])));
+  if (sizes === "32") return mk("fullhouse", sorted, [2, groups[0][1]], t("fullhouse", rankLabel(groups[0][1])));
+  if (isFlush) return mk("flush", sorted, [1, ...sorted.map(cardStrength).sort((a, b) => b - a)], t("flush", SUITS[sorted[0].s]));
+  if (isStraight) return mk("straight", runOrder, [0, ...straightKey], t("straight", rankLabel(topS.r)));
   return null;
 }
 function comboName(c) { return c ? c.label : ""; }
@@ -268,6 +443,29 @@ function toast(msg) {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
+// Apply the chosen language to the static DOM (overlays, buttons, <html lang>).
+// Runs once at load (navigator fallback) and again in Usion.init once the
+// platform's language setting arrives.
+function applyLang(lang) {
+  LANG = lang === "en" ? "en" : "mn";
+  document.documentElement.lang = LANG;
+  document.title = t("docTitle");
+  const set = (id, key) => { const el = document.getElementById(id); if (el) el.textContent = t(key); };
+  set("setupTitle", "title"); set("setupSub", "setupSub");
+  set("playersLabel", "playersLabel"); set("loseLabel", "loseLabel"); set("nameLabelText", "nameLabel");
+  set("startBtn", "startGame"); set("setupFoot", "setupFoot");
+  set("lobbyTitle", "lobbyTitle"); set("startGameBtn", "startGame"); set("lobbyBotsBtn", "playBots");
+  set("winnerLabel", "winnerLabel"); set("playAgainBtn", "playAgain");
+  set("passBtn", "pass"); set("playBtn", "play");
+  const skinBtn = document.getElementById("skinToggle");
+  if (skinBtn) skinBtn.setAttribute("aria-label", t("skinToggle"));
+  // Swap the default placeholder name only if the user hasn't typed their own.
+  const nameInput = document.getElementById("nameInput");
+  if (nameInput && (!nameInput.value || nameInput.value === STR.mn.you || nameInput.value === STR.en.you)) nameInput.value = t("you");
+  if (meNameEl && (meNameEl.textContent === STR.mn.you || meNameEl.textContent === STR.en.you)) meNameEl.textContent = t("you");
+}
+applyLang(detectLang());
+
 function makeCardEl(c) {
   const el = document.createElement("div");
   el.className = "card" + (SUIT_RED[c.s] ? " red" : "");
@@ -392,8 +590,8 @@ function renderTable() {
     tableLabelEl.textContent = "";
   }
   if (!dealActive) { turnLine.textContent = "—"; turnLine.className = "turn-line"; return; }
-  if (turn === mySeat) { turnLine.textContent = "Таны ээлж"; turnLine.className = "turn-line mine"; }
-  else { turnLine.textContent = players[turn].name + "-ийн ээлж…"; turnLine.className = "turn-line"; }
+  if (turn === mySeat) { turnLine.textContent = t("yourTurn"); turnLine.className = "turn-line mine"; }
+  else { turnLine.textContent = t("turnOf", players[turn].name); turnLine.className = "turn-line"; }
 }
 function renderHand() {
   handEl.innerHTML = "";
@@ -436,7 +634,7 @@ function renderControls() {
   const myTurn = dealActive && turn === mySeat;
   if (pendingAction) {
     playBtn.disabled = true; passBtn.disabled = true;
-    meStatusEl.textContent = "Илгээж байна…";
+    meStatusEl.textContent = t("sending");
     meStatusEl.className = "me-status";
     return;
   }
@@ -464,7 +662,7 @@ function isLegalPlay(combo) {
 // ── Selection / human input ──────────────────────────────
 function toggleCard(i) {
   if (selected.has(i)) selected.delete(i);
-  else if (selected.size >= 5) { toast("Дээд тал нь 5 хөзөр"); return; }   // never select/raise more than 5
+  else if (selected.size >= 5) { toast(t("max5")); return; }   // never select/raise more than 5
   else selected.add(i);
   renderHand(); renderControls();   // selection only — playing happens via the Play button
 }
@@ -474,7 +672,7 @@ passBtn.addEventListener("click", () => { if (!passBtn.disabled) humanPass(); })
 function humanPlay() {
   if (turn !== mySeat) return;
   const combo = classify(selectedCards());
-  if (!isLegalPlay(combo)) { toast("Хүчингүй тавилт"); return; }
+  if (!isLegalPlay(combo)) { toast(t("invalidPlay")); return; }
   selected.clear();
   if (online) sendMove({ kind: "play", cards: combo.cards.map(cardWire) });
   else doPlay(mySeat, combo);
@@ -534,7 +732,7 @@ function startDeal(seed) {
   handOverlay.classList.remove("show");
   onlineOverlay.classList.remove("show");   // cards are in — clear the "Dealing…" cover
   render();
-  if (dragon !== undefined) { toast(players[dragon].name + " — ЛУУ! 🐉"); dealActive = false; endHand(dragon, true); return; }
+  if (dragon !== undefined) { toast(t("dragon", players[dragon].name)); dealActive = false; endHand(dragon, true); return; }
   beginTurn();
 }
 
@@ -561,13 +759,13 @@ function doPlay(seat, combo) {
   firstPlay = false;
   passStreak = 0;                       // a play resets the consecutive-pass count
   lastAction[seat] = { kind: "play", text: comboName(combo) };
-  if (hand.length === 0) { lastAction[seat] = { kind: "win", text: "ДУУСГАВ! 🎉" }; dealActive = false; endHand(seat, false); return; }
+  if (hand.length === 0) { lastAction[seat] = { kind: "win", text: t("finished") }; dealActive = false; endHand(seat, false); return; }
   advanceTurn();
 }
 function doPass(seat) {
   passed.add(seat);
   passStreak += 1;
-  lastAction[seat] = { kind: "pass", text: "Өнжих" };
+  lastAction[seat] = { kind: "pass", text: t("pass") };
   // No lock-out: a passer is NOT skipped on later turns. The trick ends only when
   // every OTHER active player has passed in a row since the last play.
   if (table && passStreak >= activeSeats().length - 1) { render(); clearTrick(table.seat); return; }
@@ -622,7 +820,7 @@ function endHand(winnerSeat, dragon) {
 let handCdInterval = null, handCdTimeout = null;
 function showHandOver(winnerSeat, deltas, newlyOut) {
   newlyOut = newlyOut || [];
-  document.getElementById("handTitle").textContent = winnerSeat === mySeat ? "Та тойргийг хожлоо!" : players[winnerSeat].name + " тойргийг хожлоо!";
+  document.getElementById("handTitle").textContent = winnerSeat === mySeat ? t("youWonRound") : t("wonRound", players[winnerSeat].name);
   const sb = document.getElementById("handScoreboard");
   sb.innerHTML = "";
   // lower total is safer → list best (lowest) first
@@ -633,7 +831,7 @@ function showHandOver(winnerSeat, deltas, newlyOut) {
     const justOut = newlyOut.includes(seat);
     const row = document.createElement("div");
     row.className = "sb-row" + (!p.out && p.total === best ? " lead" : "");
-    const tag = p.out ? '<span class="rv-foul">ХОЖИГДСОН</span>' : (seat === winnerSeat ? "🏆 хожлоо" : hands[seat].length + " үлдсэн");
+    const tag = p.out ? '<span class="rv-foul">' + t("eliminatedTag") + "</span>" : (seat === winnerSeat ? t("wonTag") : t("cardsLeft", hands[seat].length));
     row.innerHTML =
       '<div class="sb-dot" style="background:' + p.color + (p.out ? ";opacity:.4" : "") + '"></div>' +
       '<div class="sb-name"' + (p.out ? ' style="opacity:.55"' : "") + '>' + escapeHtml(p.name) + "</div>" +
@@ -652,8 +850,7 @@ function showHandOver(winnerSeat, deltas, newlyOut) {
   // online and offline so everyone sees how long until the next deal.
   let left = HAND_OVER_SECONDS;
   const renderCd = (pop) => {
-    cd.innerHTML =
-      'Дараагийн тойрог <span class="cd-num' + (pop ? " pop" : "") + '">' + left + '</span> секундын дараа';
+    cd.innerHTML = t("nextRoundIn", '<span class="cd-num' + (pop ? " pop" : "") + '">' + left + "</span>");
   };
   renderCd(false);
   handCdInterval = setInterval(() => {
@@ -669,10 +866,10 @@ function showHandOver(winnerSeat, deltas, newlyOut) {
 
   if (!online) {
     const next = document.createElement("button");
-    next.className = "btn-next"; next.textContent = "Дараагийн тойрог";
+    next.className = "btn-next"; next.textContent = t("nextRound");
     next.addEventListener("click", startNextLocal);
     const quit = document.createElement("button");
-    quit.className = "btn-quit"; quit.textContent = "Шинэ тоглоом";
+    quit.className = "btn-quit"; quit.textContent = t("newGame");
     quit.addEventListener("click", backToSetup);
     actions.appendChild(next); actions.appendChild(quit);
   }
@@ -705,7 +902,7 @@ function showGameOver() {
   const ranked = players.map((p, s) => s).sort((a, b) => players[a].total - players[b].total);
   const champ = survivors.length ? survivors[0] : ranked[0];
   recordOutcome(champ === mySeat);   // multiplayer-only, idempotent per match
-  document.getElementById("winnerName").textContent = champ === mySeat ? "Та" : players[champ].name;
+  document.getElementById("winnerName").textContent = champ === mySeat ? t("you") : players[champ].name;
   const sb = document.getElementById("finalScoreboard");
   sb.innerHTML = "";
   ranked.forEach(seat => {
@@ -715,15 +912,26 @@ function showGameOver() {
     row.innerHTML =
       '<div class="sb-dot" style="background:' + p.color + '"></div>' +
       '<div class="sb-name">' + escapeHtml(p.name) + "</div>" +
-      '<div class="sb-rank" style="width:auto;opacity:.7">' + (seat === champ ? "үлдсэн" : "хожигдсон") + "</div>" +
+      '<div class="sb-rank" style="width:auto;opacity:.7">' + (seat === champ ? t("survived") : t("lostTag")) + "</div>" +
       '<div class="sb-score">' + p.total + "</div>";
     sb.appendChild(row);
   });
   document.getElementById("winnerOverlay").classList.add("show");
 }
+// Play again. Offline: reset locally. Online: platform mode has no server-side
+// restart event — the HOST restarts by broadcasting a normal stored `deal`
+// action with reset:true (every client zeroes its match state in onDeal), and a
+// non-host asks for one via Usion.game.requestRematch() (a pure broadcast: the
+// other players' onRematchRequest fires, so the host sees who wants a rematch).
 document.getElementById("playAgainBtn").addEventListener("click", () => {
+  if (online) {
+    if (isHostPlayer()) { hostDeal(true); return; }   // reset deal → every client restarts
+    try { if (window.Usion && Usion.game && Usion.game.requestRematch) Usion.game.requestRematch(); } catch (_) {}
+    const rs = document.getElementById("rematchStatus");
+    if (rs) rs.textContent = t("rematchWait");
+    return;
+  }
   document.getElementById("winnerOverlay").classList.remove("show");
-  if (online) { location.reload(); return; }   // fresh room/seed online
   players.forEach(p => { p.total = 0; p.out = false; });
   firstDeal = true; lastWinner = -1;
   startDeal(randomSeed());
@@ -756,10 +964,10 @@ document.querySelectorAll("#loseRow .count-btn").forEach(btn => {
   });
 });
 document.getElementById("startBtn").addEventListener("click", () => {
-  const myName = (document.getElementById("nameInput").value || "Та").slice(0, 10);
+  const myName = (document.getElementById("nameInput").value || t("you")).slice(0, 10);
   players = [];
   for (let i = 0; i < numPlayers; i++) {
-    players.push({ name: i === 0 ? myName : BOT_NAMES[i], color: PLAYER_COLORS[i], isBot: i !== 0, total: 0, out: false });
+    players.push({ name: i === 0 ? myName : t("botNames")[i], color: PLAYER_COLORS[i], isBot: i !== 0, total: 0, out: false });
   }
   online = false;
   mySeat = 0;
@@ -771,7 +979,7 @@ document.getElementById("startBtn").addEventListener("click", () => {
 
 // ── Online (Usion) ───────────────────────────────────────
 let online = false;
-let myId = null, myName = "Та", myAvatar = null;
+let myId = null, myName = "", myAvatar = null;   // display-name fallback is t("you")
 let roomPlayerIds = [];
 let connectedCount = 0;
 let isHost = false;
@@ -833,9 +1041,30 @@ function submitLeaderboard() {
   } catch (_) {}
 }
 
+// Notifications are permission-gated (SDK ≥ 2.17): without a grant,
+// Usion.notify.send() returns delivered:'blocked'. We ask ONCE when an online
+// match starts, remember the answer, and only send while the app is hidden
+// (foreground play doesn't need a banner about itself). The host prefixes the
+// app's name as the notification title, so `title` here is the actual message.
+let notifyAsked = false;
+let notifyGranted = false;
+async function ensureNotifyPermission() {
+  if (notifyAsked) return;
+  notifyAsked = true;
+  try {
+    if (window.Usion && Usion.permissions && Usion.permissions.request) {
+      const res = await Usion.permissions.request(["notifications"]);
+      notifyGranted = !!(res && (res.granted === true || (res.permissions && res.permissions.notifications)));
+    }
+  } catch (_) {}
+}
 function notifySelf(title, body) {
-  // Notifications disabled — no push/banner is sent.
-  // try { if (window.Usion && Usion.notify && document.hidden) Usion.notify.send({ title, body }); } catch (_) {}
+  try {
+    if (notifyGranted && window.Usion && Usion.notify && document.hidden) {
+      const p = Usion.notify.send({ title, body });
+      if (p && p.catch) p.catch(() => {});
+    }
+  } catch (_) {}
 }
 
 // Record MY outcome exactly once per multiplayer match (idempotent across paths).
@@ -845,10 +1074,10 @@ function recordOutcome(iWon) {
   myStats.games += 1;
   if (iWon) {
     myStats.wins += 1;
-    notifySelf("Та хожлоо! 🎉", "Та Монгол Покерын тоглолтод хожлоо");
+    notifySelf(t("nWonTitle"), t("nWonBody"));
   } else {
     myStats.losses += 1;
-    notifySelf("Тоглолт дууслаа", "Таны Монгол Покерын тоглолт дууслаа");
+    notifySelf(t("nLostTitle"), t("nLostBody"));
   }
   persistStats();
   submitLeaderboard();
@@ -860,7 +1089,7 @@ function maybeNotifyTurn() {
   const myTurn = turn === mySeat;
   if (myTurn && document.hidden && !lastTurnNotified) {
     lastTurnNotified = true;
-    notifySelf("Таны ээлж", "Монгол Покерт таны явах ээлж");
+    notifySelf(t("nTurnTitle"), t("nTurnBody"));
   }
   if (!myTurn) lastTurnNotified = false;
 }
@@ -985,13 +1214,19 @@ function launchedSolo(config) {
 if (window.Usion && Usion.init) {
   try {
     Usion.init(async function (config) {
+      applyLang(detectLang());   // the platform's language setting is known now
       myId = config.userId;
       if (config.userName) myName = config.userName;
       if (config.userAvatar) myAvatar = config.userAvatar;
       if (config.playerIds) roomPlayerIds = config.playerIds.slice();   // platform-provided roster (playerIds[0] = host)
-      playerMeta[myId] = { name: myName, avatar: myAvatar };
+      playerMeta[myId] = { name: myName || t("you"), avatar: myAvatar };
       presentIds.add(myId);
       loadStats(); // fire-and-forget; never block init/render
+      // Registered up front REGARDLESS of launch mode: a solo launch can be
+      // promoted into a live room mid-session via the host's Share button.
+      try {
+        if (Usion.game && Usion.game.onRoomAssigned) Usion.game.onRoomAssigned(function () { onRoomPromoted(); });
+      } catch (_) {}
       // Solo launch (GameTok / Explore, mode 'single') → drop straight into a
       // zero-tap 4-player round vs bots (road to 20), no menu and no lobby. Only a
       // real multiplayer launch (chat game invite, roomId) goes online to the
@@ -1080,35 +1315,88 @@ if (typeof document !== "undefined" && document.addEventListener) {
   }, 1000);
 })();
 
+// All game handlers in one place, registered exactly once. Kept separate from
+// setupMultiplayer so a solo launch can register them the moment it is PROMOTED
+// into a room (onRoomAssigned) — per the multiplayer contract, never gate
+// handler registration behind the launch mode.
+let netHandlersRegistered = false;
+function registerNetHandlers() {
+  if (netHandlersRegistered) return;
+  netHandlersRegistered = true;
+  Usion.game.onJoined(onJoined);
+  Usion.game.onPlayerJoined(onPlayerJoined);
+  Usion.game.onPlayerLeft(onPlayerLeft);
+  Usion.game.onAction(onNetAction);
+  Usion.game.onRealtime(onNetRealtime);
+  Usion.game.onSync(onNetSync);
+  // A rematch request is a pure broadcast (no server-side restart in platform
+  // mode) — surface WHO wants one; the actual restart is the host's reset deal.
+  if (Usion.game.onRematchRequest) Usion.game.onRematchRequest((d) => {
+    if (dealActive || !gameStarted) return;   // only meaningful on the game-over screen
+    const seat = (d && d.player_id) ? roomPlayerIds.indexOf(d.player_id) : -1;
+    const nm = (d && d.player_id && playerMeta[d.player_id] && playerMeta[d.player_id].name) ||
+               (seat >= 0 && players[seat] && players[seat].name) || t("playerN", seat + 1);
+    const rs = document.getElementById("rematchStatus");
+    if (rs) rs.textContent = t("rematchWants", nm);
+  });
+  // Real pause on a dropped link: freeze the turn clock (so we can't be
+  // auto-passed while offline) and tell the player. onTurnTimeout/startTurnTimer
+  // both honor netPaused, so the clock sits frozen until we're back.
+  if (Usion.game.onDisconnect) Usion.game.onDisconnect(() => {
+    netPaused = true;
+    stopTurnTimer();
+    if (dealActive) toast(t("disconnectedPaused"));
+  });
+  if (Usion.game.onReconnect) Usion.game.onReconnect(() => {
+    netPaused = false;
+    beginResync("reconnect");   // persistent retry — the round-trip can be flaky right after reconnect
+    if (dealActive) startTurnTimer();   // resume the active seat's clock from full
+  });
+}
+
 async function setupMultiplayer(roomId) {
   try {
     await Usion.game.connect();
-    Usion.game.onJoined(onJoined);
-    Usion.game.onPlayerJoined(onPlayerJoined);
-    Usion.game.onPlayerLeft(onPlayerLeft);
-    Usion.game.onAction(onNetAction);
-    Usion.game.onRealtime(onNetRealtime);
-    Usion.game.onSync(onNetSync);
-    // Real pause on a dropped link: freeze the turn clock (so we can't be
-    // auto-passed while offline) and tell the player. onTurnTimeout/startTurnTimer
-    // both honor netPaused, so the clock sits frozen until we're back.
-    if (Usion.game.onDisconnect) Usion.game.onDisconnect(() => {
-      netPaused = true;
-      stopTurnTimer();
-      if (dealActive) toast("Холболт тасарлаа — түр зогссон…");
-    });
-    if (Usion.game.onReconnect) Usion.game.onReconnect(() => {
-      netPaused = false;
-      beginResync("reconnect");   // persistent retry — the round-trip can be flaky right after reconnect
-      if (dealActive) startTurnTimer();   // resume the active seat's clock from full
-    });
+    registerNetHandlers();
     await Usion.game.join(roomId);
   } catch (err) {
     console.error("Multiplayer failed:", err);
     online = false; onlineOverlay.classList.remove("show"); setupOverlay.classList.add("show");
   }
 }
-function sendPlayerInfo() { Usion.game.realtime("player_info", { name: myName, avatar: myAvatar || null, ready: myReady }); }
+
+// Solo → host promotion (SDK ≥ 2.20): the user tapped the host's top-bar Share
+// button mid-solo and invited someone. The SDK has ALREADY updated
+// getLaunchParams().roomId and is connect()+join()ing us as playerIds[0] — our
+// job is to drop the bots round, register the handlers, and open the waiting
+// room; onJoined lands right after and the normal lobby flow takes over.
+function onRoomPromoted() {
+  if (online) return;   // already in a room — nothing to flip
+  stopLocalRound();
+  online = true; gameStarted = false; dealActive = false;
+  myReady = false; lobbyReady = {}; presentIds.clear(); presentIds.add(myId);
+  players = []; hands = [];
+  setupOverlay.classList.remove("show");
+  handOverlay.classList.remove("show");
+  document.getElementById("winnerOverlay").classList.remove("show");
+  const s = document.getElementById("onlineStatus");
+  if (s) s.textContent = t("connecting");
+  onlineOverlay.classList.add("show");
+  registerNetHandlers();
+}
+
+// Tear down a local (vs-bots) round completely: every timer that could fire
+// into the promoted online state.
+function stopLocalRound() {
+  if (botTimer) { clearTimeout(botTimer); botTimer = null; }
+  if (endTimer) { clearTimeout(endTimer); endTimer = null; }
+  if (dealWaitTimer) { clearInterval(dealWaitTimer); dealWaitTimer = null; }
+  if (handCdInterval) { clearInterval(handCdInterval); handCdInterval = null; }
+  if (handCdTimeout) { clearTimeout(handCdTimeout); handCdTimeout = null; }
+  stopTurnTimer();
+  selected.clear();
+}
+function sendPlayerInfo() { Usion.game.realtime("player_info", { name: myName || t("you"), avatar: myAvatar || null, ready: myReady }); }
 // number of seats this online match has, from the authorized roster (2–4)
 function targetSeats() { return Math.max(2, Math.min(4, roomPlayerIds.length || 2)); }
 
@@ -1156,7 +1444,7 @@ function clearForfeitGrace() {
 function applyLeaveFold(seat) {
   if (seat < 0 || !players[seat] || players[seat].out) return;
   players[seat].out = true;
-  lastAction[seat] = { kind: "pass", text: "Гарсан" };
+  lastAction[seat] = { kind: "pass", text: t("leftGame") };
   if (dealActive && turn === seat) {
     if (table) doPass(seat);                              // was following → pass & advance
     else { turn = nextActiveAfter(seat); beginTurn(); }   // was leading → hand the lead to the next active seat
@@ -1178,7 +1466,7 @@ function sendHostLeaveOutcome(seat, endMatch) {
   if (!isHostPlayer() || seat < 0) return;
   Usion.game.action("move", { kind: endMatch ? "forfeit_win" : "leave_fold", seat })
     .catch(() => {
-      toast("Гаралтын төлөв илгээж чадсангүй");
+      toast(t("leaveFail"));
       Usion.game.requestSync(0);
     });
 }
@@ -1186,7 +1474,7 @@ function sendHostLeaveOutcome(seat, endMatch) {
 function startForfeitGrace() {
   if (forfeitTimer) clearInterval(forfeitTimer);
   let secs = Math.ceil(FORFEIT_GRACE_MS / 1000);
-  if (turnLine) { turnLine.textContent = "Тоглогч гарлаа — дахин нэгдэхийг хүлээж байна… (" + secs + "с)"; turnLine.className = "turn-line"; }
+  if (turnLine) { turnLine.textContent = t("leftGrace", secs); turnLine.className = "turn-line"; }
   forfeitTimer = setInterval(() => {
     if (!gameStarted || connectedCount > 1) {   // someone returned → resume
       clearForfeitGrace();
@@ -1194,7 +1482,7 @@ function startForfeitGrace() {
       return;
     }
     secs -= 1;
-    if (secs > 0) { if (turnLine) turnLine.textContent = "Тоглогч гарлаа — дахин нэгдэхийг хүлээж байна… (" + secs + "с)"; return; }
+    if (secs > 0) { if (turnLine) turnLine.textContent = t("leftGrace", secs); return; }
     const seat = pendingLeaveSeat;
     clearForfeitGrace();
     sendHostLeaveOutcome(seat, true);             // grace expired → host stores the forfeit result
@@ -1214,7 +1502,7 @@ function onPlayerLeft(data) {
   const seat = (data && data.player_id != null) ? roomPlayerIds.indexOf(data.player_id) : -1;
   if (seat < 0 || !players[seat] || players[seat].out) { render(); return; }
   if (!isHostPlayer()) {
-    notifySelf("Өрсөлдөгч гарлаа", "Таны Монгол Покерын тоглолтоос тоглогч гарлаа");
+    notifySelf(t("nLeftTitle"), t("nLeftBody"));
     Usion.game.requestSync(0);
     render();
     return;
@@ -1224,14 +1512,14 @@ function onPlayerLeft(data) {
   // mutate yet, so a rejoin resumes the hand exactly where it was.
   const activeAfter = activeSeats().filter(s => s !== seat).length;
   if (activeAfter <= 1) {
-    notifySelf("Өрсөлдөгч гарлаа", "Таны Монгол Покерын тоглолтоос тоглогч гарлаа");
+    notifySelf(t("nLeftTitle"), t("nLeftBody"));
     pendingLeaveSeat = seat;
     startForfeitGrace();
     return;
   }
 
   // Non-decisive: fold the leaver and continue with the remaining players.
-  notifySelf("Өрсөлдөгч гарлаа", "Таны Монгол Покерын тоглолтоос тоглогч гарлаа");
+  notifySelf(t("nLeftTitle"), t("nLeftBody"));
   sendHostLeaveOutcome(seat, false);
 }
 function updateOnlineStatus() {
@@ -1239,8 +1527,8 @@ function updateOnlineStatus() {
   if (!s) return;
   const n = targetSeats();
   s.textContent = connectedCount < n
-    ? ("Тоглогчдыг хүлээж байна… (" + Math.min(connectedCount, n) + "/" + n + ")")
-    : (n + " тоглогч бэлэн — эхэлж байна…");
+    ? t("waitingPlayers", Math.min(connectedCount, n), n)
+    : t("readyStarting", n);
 }
 // Players gather in a waiting room, each toggles READY, and the host starts the
 // match once everyone present is ready (2–4 seats). The host's "deal" action
@@ -1271,25 +1559,25 @@ function renderLobby() {
   if (spinner) spinner.style.display = ids.length ? "none" : "block";
   list.innerHTML = "";
   ids.forEach((id, i) => {
-    const nm = (playerMeta[id] && playerMeta[id].name) || (id === myId ? myName : "Тоглогч " + (i + 1));
+    const nm = (playerMeta[id] && playerMeta[id].name) || (id === myId ? (myName || t("you")) : t("playerN", i + 1));
     const ready = !!lobbyReady[id];
     const row = document.createElement("div");
     row.className = "lobby-row" + (id === myId ? " me" : "");
     row.innerHTML =
       '<span class="lobby-seat">' + (i + 1) + "</span>" +
-      '<span class="lobby-name">' + escapeHtml(nm) + (id === hostId ? ' <span class="lobby-tag">ХОСТ</span>' : "") + "</span>" +
-      '<span class="lobby-badge ' + (ready ? "ready" : "wait") + '">' + (ready ? "БЭЛЭН" : "БЭЛЭН БИШ") + "</span>";
+      '<span class="lobby-name">' + escapeHtml(nm) + (id === hostId ? ' <span class="lobby-tag">' + t("hostTag") + "</span>" : "") + "</span>" +
+      '<span class="lobby-badge ' + (ready ? "ready" : "wait") + '">' + (ready ? t("ready") : t("notReady")) + "</span>";
     list.appendChild(row);
   });
   const present = ids.length;
   const readyCount = ids.filter(id => lobbyReady[id]).length;
   const allReady = present >= 2 && readyCount === present;
   const statusEl = document.getElementById("onlineStatus");
-  if (statusEl) statusEl.textContent = present < 2 ? "Тоглогчид нэгдэхийг хүлээж байна…" : (readyCount + "/" + present + " бэлэн");
+  if (statusEl) statusEl.textContent = present < 2 ? t("waitingJoin") : t("readyCount", readyCount, present);
   const readyBtn = document.getElementById("readyBtn");
   if (readyBtn) {
     readyBtn.style.display = "block";
-    readyBtn.textContent = myReady ? "✓ БЭЛЭН" : "БЭЛЭН";
+    readyBtn.textContent = myReady ? t("readyOn") : t("ready");
     readyBtn.classList.toggle("btn-ready-on", myReady);
   }
   const startBtn = document.getElementById("startGameBtn");
@@ -1300,8 +1588,8 @@ function renderLobby() {
   const hint = document.getElementById("lobbyHint");
   if (hint) {
     hint.textContent = isHost
-      ? (allReady ? "Бүгд бэлэн — Эхлүүлэх дар!" : "Бүх тоглогч бэлэн болмогц Эхлүүлэх нээгдэнэ.")
-      : (myReady ? "Хост эхлүүлэхийг хүлээж байна…" : "Бэлэн болсон бол БЭЛЭН гэж дар.");
+      ? (allReady ? t("hintHostGo") : t("hintHostWait"))
+      : (myReady ? t("hintWaitHost") : t("hintPressReady"));
   }
 }
 // Host only: lock the seats to the present + ready players and deal.
@@ -1323,12 +1611,13 @@ function startBotsGame() {
   onlineOverlay.classList.remove("show");
   handOverlay.classList.remove("show");
   setupOverlay.classList.remove("show");
-  const nm = (myName || "Та").slice(0, 10);
+  document.getElementById("winnerOverlay").classList.remove("show");
+  const nm = (myName || t("you")).slice(0, 10);
   numPlayers = 4;                       // "play with bots" is always you + 3 bots
   loseAt = 20;                          // GameTok: 4-player road to 20 points
   players = [];
   for (let i = 0; i < numPlayers; i++) {
-    players.push({ name: i === 0 ? nm : BOT_NAMES[i], color: PLAYER_COLORS[i], isBot: i !== 0, total: 0, out: false });
+    players.push({ name: i === 0 ? nm : t("botNames")[i], color: PLAYER_COLORS[i], isBot: i !== 0, total: 0, out: false });
   }
   mySeat = 0;
   firstDeal = true; lastWinner = -1;
@@ -1359,19 +1648,20 @@ function startOnlineGame(data) {
   gameStarted = true; online = true;
   statsRecordedThisGame = false;   // new match → allow recording its outcome once
   lastTurnNotified = false;
+  ensureNotifyPermission();        // one-time host prompt; fire-and-forget
   roomPlayerIds = data.order;
   numPlayers = roomPlayerIds.length;
   mySeat = roomPlayerIds.indexOf(myId);
   isHost = roomPlayerIds[0] === myId;
   firstDeal = true; lastWinner = -1;
   players = roomPlayerIds.map((id, i) => ({
-    name: (playerMeta[id] && playerMeta[id].name) || (id === myId ? myName : "Тоглогч " + (i + 1)),
+    name: (playerMeta[id] && playerMeta[id].name) || (id === myId ? (myName || t("you")) : t("playerN", i + 1)),
     color: PLAYER_COLORS[i], isBot: false, total: 0, out: false
   }));
   meNameEl.textContent = players[mySeat].name;
   setupOverlay.classList.remove("show");
   const os = document.getElementById("onlineStatus");
-  if (os) os.textContent = "Хөзөр тарааж байна…";
+  if (os) os.textContent = t("dealing");
   onlineOverlay.classList.add("show");   // keep covering the table until the first deal lands
   render();
   Usion.game.requestSync(0);   // catch any actions (e.g. the deal) we missed
@@ -1396,26 +1686,30 @@ function applyNames(map) {
   if (!map) return;
   for (const id in map) playerMeta[id] = Object.assign(playerMeta[id] || {}, { name: map[id] });
 }
-function hostDeal() {
+function hostDeal(reset) {
   if (!isHost || pendingAction) return;
   curSeed = randomSeed();
   // carry the starter context so every client picks the SAME leader: firstDeal →
   // lowest-card holder leads; otherwise the previous round's winner leads. Without
   // this, a client with stale firstDeal/lastWinner computes a different starter.
-  const d = { seed: curSeed, order: roomPlayerIds, names: nameMap(), firstDeal: firstDeal, lastWinner: lastWinner };
+  // reset:true = a REMATCH deal — every client zeroes its match state (totals,
+  // eliminations) in onDeal before dealing, so the whole table restarts as one.
+  const d = { seed: curSeed, order: roomPlayerIds, names: nameMap(),
+              firstDeal: reset ? true : firstDeal, lastWinner: reset ? -1 : lastWinner };
+  if (reset) d.reset = true;
   pendingAction = true;
   renderLobby();
   Usion.game.action("deal", d)
     .then(res => {
       if (res && res.success === false) {
         pendingAction = false;
-        toast("Тараалт илгээж чадсангүй");
+        toast(t("dealFail"));
         renderLobby();
       }
     })
     .catch(() => {
       pendingAction = false;
-      toast("Тараалт илгээж чадсангүй");
+      toast(t("dealFail"));
       renderLobby();
     });
 }
@@ -1427,13 +1721,13 @@ function sendMove(move) {
     .then(res => {
       if (res && res.success === false) {
         pendingAction = false;
-        toast("Нүүдэл илгээж чадсангүй");
+        toast(t("moveFail"));
         render();
       }
     })
     .catch(() => {
       pendingAction = false;
-      toast("Нүүдэл илгээж чадсангүй");
+      toast(t("moveFail"));
       render();
     });
 }
@@ -1555,12 +1849,23 @@ function onDeal(d) {
   if (!gameStarted && Array.isArray(d.order) && d.order.indexOf(myId) < 0) {
     onlineOverlay.classList.add("show");
     const s = document.getElementById("onlineStatus");
-    if (s) s.textContent = "Хост таныг оруулалгүй эхлүүллээ.";
+    if (s) s.textContent = t("startedWithoutYou");
     return;
   }
   applyNames(d.names);                 // adopt host-supplied names before seating
   if (!gameStarted) startOnlineGame({ order: d.order });
   else refreshNames();                 // later rounds: update any "Player N" already shown
+  // Rematch: the host's reset deal zeroes the whole match before dealing, so
+  // every client restarts on the same baseline (replay-safe: a reset deal in
+  // the action log re-zeroes deterministically).
+  if (d.reset) {
+    players.forEach(p => { p.total = 0; p.out = false; });
+    statsRecordedThisGame = false;
+    lastTurnNotified = false;
+  }
+  document.getElementById("winnerOverlay").classList.remove("show");
+  const rs = document.getElementById("rematchStatus");
+  if (rs) rs.textContent = "";
   // authoritative starter context from the host → identical leader on every client
   if (typeof d.firstDeal === "boolean") firstDeal = d.firstDeal;
   if (typeof d.lastWinner === "number") lastWinner = d.lastWinner;
