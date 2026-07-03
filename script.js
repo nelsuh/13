@@ -1113,6 +1113,7 @@ function currentCheckpoint() {
     seed: curSeed, order: roomPlayerIds, moves: moveLog.slice(),
     totals: roundStartTotals, outs: roundStartOuts,
     firstDeal: roundFirstDeal, lastWinner: roundLastWinner,
+    loseAt: loseAt,          // host's elimination threshold, so reconnects/late joiners match
     names: nameMap(),
     version: Date.now(),
     seq: lastSeq          // the action sequence this snapshot already includes
@@ -1166,6 +1167,7 @@ function applyCheckpoint(state) {
   if (Array.isArray(state.outs)) state.outs.forEach((o, s) => { if (players[s]) players[s].out = o; });
   firstDeal = !!state.firstDeal;
   lastWinner = (typeof state.lastWinner === "number") ? state.lastWinner : -1;
+  if (typeof state.loseAt === "number") loseAt = state.loseAt;   // adopt host's elimination threshold
   curSeed = state.seed;
   moveLog = [];
   onlineOverlay.classList.remove("show");
@@ -1695,7 +1697,8 @@ function hostDeal(reset) {
   // reset:true = a REMATCH deal — every client zeroes its match state (totals,
   // eliminations) in onDeal before dealing, so the whole table restarts as one.
   const d = { seed: curSeed, order: roomPlayerIds, names: nameMap(),
-              firstDeal: reset ? true : firstDeal, lastWinner: reset ? -1 : lastWinner };
+              firstDeal: reset ? true : firstDeal, lastWinner: reset ? -1 : lastWinner,
+              loseAt: loseAt };   // host owns the elimination threshold → every client adopts it
   if (reset) d.reset = true;
   pendingAction = true;
   renderLobby();
@@ -1869,6 +1872,7 @@ function onDeal(d) {
   // authoritative starter context from the host → identical leader on every client
   if (typeof d.firstDeal === "boolean") firstDeal = d.firstDeal;
   if (typeof d.lastWinner === "number") lastWinner = d.lastWinner;
+  if (typeof d.loseAt === "number") loseAt = d.loseAt;   // adopt host's elimination threshold
   curSeed = d.seed; moveLog = [];
   handOverlay.classList.remove("show");
   numPlayers = d.order.length;
