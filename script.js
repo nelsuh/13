@@ -211,13 +211,10 @@ function t(key) {
   return v !== undefined ? v : key;
 }
 function detectLang() {
-  try {
-    if (window.Usion && typeof Usion.getLanguage === "function") {
-      const l = String(Usion.getLanguage() || "");
-      if (l) return /^mn/i.test(l) ? "mn" : "en";
-    }
-  } catch (_) {}
-  try { return /^mn/i.test(String(navigator.language || "mn")) ? "mn" : "en"; } catch (_) { return "mn"; }
+  // This game ships Mongolian, so it always opens in Mongolian regardless of the
+  // platform/browser language. The English (STR.en) table stays only as an
+  // internal fallback for any key missing from STR.mn.
+  return "mn";
 }
 
 function rankLabel(r) { return RANK_LABEL[r] || String(r); }
