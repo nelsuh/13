@@ -111,6 +111,13 @@ const STR = {
     nameLabel: "ТАНЫ НЭР",
     setupFoot: "Офлайн та ботуудтай. Онлайн бол ширээний бүх тоглогч тоглоно.",
     skinToggle: "Ширээний өнгө солих",
+    chatAria: "Түргэн харилцах",
+    qcHurry: "Хурдлаач",
+    qcBad: "Муу юм бэ",
+    qcBring: "Идэн тат",
+    qcGotit: "Чи болчихжээ",
+    qcNice: "Юм авцаан",
+    qcWow: "Аймар аймар",
   },
   en: {
     you: "You",
@@ -187,6 +194,13 @@ const STR = {
     nameLabel: "YOUR NAME",
     setupFoot: "Offline you play bots. Online everyone at the table plays.",
     skinToggle: "Change table colour",
+    chatAria: "Quick chat",
+    qcHurry: "Hurry up!",
+    qcBad: "So bad!",
+    qcBring: "Bring it on!",
+    qcGotit: "You got it!",
+    qcNice: "Nice one!",
+    qcWow: "Wow wow!",
   },
 };
 let LANG = "mn";
@@ -459,6 +473,9 @@ function applyLang(lang) {
   set("passBtn", "pass"); set("playBtn", "play");
   const skinBtn = document.getElementById("skinToggle");
   if (skinBtn) skinBtn.setAttribute("aria-label", t("skinToggle"));
+  const chatBtn = document.getElementById("chatToggle");
+  if (chatBtn) chatBtn.setAttribute("aria-label", t("chatAria"));
+  buildChatPicker();
   // Swap the default placeholder name only if the user hasn't typed their own.
   const nameInput = document.getElementById("nameInput");
   if (nameInput && (!nameInput.value || nameInput.value === STR.mn.you || nameInput.value === STR.en.you)) nameInput.value = t("you");
@@ -478,7 +495,7 @@ function makeCardEl(c) {
 }
 
 // ── Rendering ────────────────────────────────────────────
-function render() { renderOpponents(); renderTable(); renderHand(); renderControls(); updateTimers(); renderMyScore(); }
+function render() { renderOpponents(); renderTable(); renderHand(); renderControls(); updateTimers(); renderMyScore(); updateChatButton(); }
 function renderMyScore() { if (meScoreEl && players[mySeat]) meScoreEl.textContent = players[mySeat].total; }
 
 // ── Turn clock (per-player 2:00; auto-pass / auto-lead on expiry) ─────────
@@ -947,6 +964,115 @@ function applySkin(s) {
 }
 applySkin(skin);
 document.getElementById("skinToggle").addEventListener("click", () => applySkin(skin === "green" ? "red" : "green"));
+
+// ── Quick chat (emoji reactions + canned phrases) ────────
+// A tap sends a realtime "reaction" broadcast and pops a bubble over the
+// sender's seat. Purely cosmetic — no game state, never blocks play.
+// NB: the emoji/phrase lists live INSIDE buildChatPicker so applyLang() can
+// call it during early module init without tripping a const TDZ.
+function buildChatPicker() {
+  const REACTION_EMOJIS = ["👍", "😂", "🔥", "👏", "🎉", "😎", "😴", "😱"];
+  const REACTION_PHRASE_KEYS = ["qcHurry", "qcBad", "qcBring", "qcGotit", "qcNice", "qcWow"];
+  const em = document.getElementById("chatEmojis");
+  const ph = document.getElementById("chatPhrases");
+  if (!em || !ph) return;
+  em.innerHTML = ""; ph.innerHTML = "";
+  REACTION_EMOJIS.forEach(e => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chat-emoji"; b.textContent = e;
+    b.addEventListener("click", () => sendReaction("emoji", e));
+    em.appendChild(b);
+  });
+  REACTION_PHRASE_KEYS.forEach(k => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chat-phrase"; b.textContent = t(k);
+    b.addEventListener("click", () => sendReaction("text", t(k)));
+    ph.appendChild(b);
+  });
+}
+
+let chatOpen = false;
+function openChatPicker() {
+  const p = document.getElementById("chatPicker");
+  if (!p) return;
+  chatOpen = true;
+  p.classList.add("show"); p.setAttribute("aria-hidden", "false");
+}
+function closeChatPicker() {
+  const p = document.getElementById("chatPicker");
+  if (!p) return;
+  chatOpen = false;
+  p.classList.remove("show"); p.setAttribute("aria-hidden", "true");
+}
+function toggleChatPicker() { chatOpen ? closeChatPicker() : openChatPicker(); }
+
+let lastReactionAt = 0;
+function sendReaction(kind, value) {
+  closeChatPicker();
+  const now = Date.now();
+  if (now - lastReactionAt < 700) return;   // throttle spam
+  lastReactionAt = now;
+  const seat = (typeof mySeat === "number" && mySeat >= 0) ? mySeat : 0;
+  showReaction(seat, kind, value);
+  if (online && window.Usion && Usion.game && Usion.game.realtime) {
+    try { Usion.game.realtime("reaction", { kind: kind, value: value }); } catch (e) {}
+  }
+}
+
+// Pop a transient bubble anchored over a seat's on-screen element. Uses a
+// fixed-position layer + live bounding rects so it survives seat re-renders.
+function showReaction(seat, kind, value) {
+  const layer = document.getElementById("reactionLayer");
+  if (!layer) return;
+  let anchor;
+  if (seat === mySeat) anchor = document.querySelector(".me-bar") || document.querySelector(".me-area");
+  else anchor = oppEl.querySelector('.opp[data-seat="' + seat + '"]');
+  if (!anchor) return;
+  const r = anchor.getBoundingClientRect();
+  const bubble = document.createElement("div");
+  bubble.className = "reaction-bubble " + (kind === "emoji" ? "is-emoji" : "is-text");
+  bubble.textContent = value;
+  layer.appendChild(bubble);
+  const bw = bubble.offsetWidth, bh = bubble.offsetHeight;
+  let left = r.left + r.width / 2 - bw / 2;
+  left = Math.max(6, Math.min(left, window.innerWidth - bw - 6));
+  const below = anchor.classList.contains("opp--top");   // top seat: drop the bubble below it
+  let top = below ? r.bottom + 8 : r.top - bh - 8;
+  top = Math.max(6, Math.min(top, window.innerHeight - bh - 6));
+  bubble.style.left = left + "px";
+  bubble.style.top = top + "px";
+  requestAnimationFrame(() => bubble.classList.add("pop"));
+  setTimeout(() => bubble.classList.add("out"), 1900);
+  setTimeout(() => bubble.remove(), 2400);
+}
+
+// The chat button is only meaningful once a match is on screen — i.e. seats are
+// dealt and we're past the setup/lobby overlays (works for both offline vs-bots
+// and online play; gameStarted is only set on the online path).
+function updateChatButton() {
+  const btn = document.getElementById("chatToggle");
+  if (!btn) return;
+  const setup = document.getElementById("setupOverlay");
+  const lobby = document.getElementById("onlineOverlay");
+  const show = players.length > 0 &&
+    !(setup && setup.classList.contains("show")) &&
+    !(lobby && lobby.classList.contains("show"));
+  btn.classList.toggle("show-btn", show);
+  if (!show && chatOpen) closeChatPicker();
+}
+
+document.getElementById("chatToggle").addEventListener("click", (e) => { e.stopPropagation(); toggleChatPicker(); });
+// Tap anywhere outside the picker closes it.
+document.addEventListener("click", (e) => {
+  if (!chatOpen) return;
+  const p = document.getElementById("chatPicker");
+  const btn = document.getElementById("chatToggle");
+  if (p && !p.contains(e.target) && e.target !== btn) closeChatPicker();
+});
+buildChatPicker();
+// NB: no load-time updateChatButton() — it reads `gameStarted`, which is
+// declared later (TDZ). The button stays hidden by default (CSS) until
+// render() reveals it once a match begins.
 
 // ── Setup (local) ────────────────────────────────────────
 document.querySelectorAll("#countRow .count-btn").forEach(btn => {
@@ -1781,6 +1907,12 @@ function onNetRealtime(data) {
     // The host pushed authoritative state to us (we just rejoined). Apply it —
     // this is the reliable recovery path when our own sync round-trip is dead.
     applyStateSnapshot(d);
+  } else if (data.action_type === "reaction") {
+    // Cosmetic quick-chat: pop the sender's bubble over their seat.
+    const seat = roomPlayerIds.indexOf(data.player_id);
+    if (seat >= 0 && (d.kind === "emoji" || d.kind === "text") && typeof d.value === "string") {
+      showReaction(seat, d.kind, d.value.slice(0, 24));
+    }
   }
 }
 // Catch-up replay (from requestSync). Each "deal" resets state, so replaying

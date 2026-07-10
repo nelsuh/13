@@ -411,3 +411,68 @@ body {
   transition: opacity .25s, transform .25s; z-index: 60;
 }
 .toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+/* ── Quick chat (emoji reactions + canned phrases) ──────── */
+.chat-toggle {
+  position: fixed; top: 8px; right: 8px; z-index: 70;
+  width: 34px; height: 34px; border-radius: 50%; padding: 0;
+  display: none; align-items: center; justify-content: center;
+  font-size: 17px; line-height: 1; cursor: pointer;
+  border: 2px solid var(--gold); color: var(--gold-hi);
+  background: var(--panel-2);
+  box-shadow: 0 2px 8px rgba(0,0,0,.5);
+}
+.chat-toggle.show-btn { display: flex; }
+.chat-toggle:active { transform: scale(.94); }
+
+.chat-picker {
+  position: fixed; top: 48px; right: 8px; z-index: 71;
+  width: min(320px, calc(100vw - 16px));
+  background: var(--panel-2);
+  border: 1px solid var(--gold-deep); border-radius: 16px;
+  padding: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.55);
+  opacity: 0; transform: translateY(-8px) scale(.96); transform-origin: top right;
+  pointer-events: none; transition: opacity .18s, transform .18s;
+}
+.chat-picker.show { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+.chat-emojis {
+  display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px;
+  padding-bottom: 10px; margin-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.chat-emoji {
+  aspect-ratio: 1; padding: 0; border-radius: 10px; cursor: pointer;
+  font-size: 19px; line-height: 1;
+  border: 1px solid transparent; background: rgba(255,255,255,.05);
+  transition: background .12s, transform .08s;
+}
+.chat-emoji:hover { background: rgba(212,175,55,.16); }
+.chat-emoji:active { transform: scale(.9); }
+.chat-phrases { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.chat-phrase {
+  padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  font-size: 12.5px; font-weight: 700; color: var(--text);
+  border: 1px solid var(--line); background: rgba(255,255,255,.05);
+  transition: background .12s, transform .08s;
+}
+.chat-phrase:hover { background: rgba(212,175,55,.16); border-color: var(--gold-deep); }
+.chat-phrase:active { transform: scale(.95); }
+
+/* Floating reaction bubbles over seats */
+.reaction-layer { position: fixed; inset: 0; z-index: 62; pointer-events: none; }
+.reaction-bubble {
+  position: fixed; max-width: 60vw; white-space: nowrap;
+  opacity: 0; transform: translateY(6px) scale(.6);
+  transition: opacity .18s ease, transform .22s cubic-bezier(.2,1.4,.5,1);
+  will-change: transform, opacity;
+}
+.reaction-bubble.pop { opacity: 1; transform: translateY(0) scale(1); }
+.reaction-bubble.out { opacity: 0; transform: translateY(-10px) scale(.9); transition: opacity .4s, transform .4s; }
+.reaction-bubble.is-emoji { font-size: 32px; line-height: 1; filter: drop-shadow(0 2px 5px rgba(0,0,0,.5)); }
+.reaction-bubble.is-text {
+  padding: 7px 13px; border-radius: 14px;
+  font-family: "Noto Serif", serif; font-size: 14px; font-weight: 800;
+  color: var(--ink); background: var(--cream);
+  border: 1px solid var(--gold-deep);
+  box-shadow: 0 4px 12px rgba(0,0,0,.4);
+}

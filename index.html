@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600;700;800&family=Noto+Sans:wght@400;500;600;700;800&family=Noto+Serif:wght@700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=35">
+<link rel="stylesheet" href="style.css?v=37">
 </head>
 
 <body>
@@ -120,11 +120,21 @@
 <!-- Floating toast -->
 <div class="toast" id="toast"></div>
 
+<!-- Quick-chat: emoji reactions + canned phrases that pop over your seat -->
+<button id="chatToggle" class="chat-toggle" aria-label="Түргэн харилцах">💬</button>
+<div id="chatPicker" class="chat-picker" aria-hidden="true">
+  <div class="chat-emojis" id="chatEmojis"></div>
+  <div class="chat-phrases" id="chatPhrases"></div>
+</div>
+
+<!-- Floating reaction bubbles (positioned over seats) -->
+<div id="reactionLayer" class="reaction-layer"></div>
+
 <!-- Table-colour skin toggle (green ↔ red velvet) -->
 <button id="skinToggle" class="skin-toggle" aria-label="Ширээний өнгө солих"></button>
 
 <script src="https://usions.com/usion-sdk.js"></script>
-<script src="script.js?v=38"></script>
+<script src="script.js?v=43"></script>
 
 </body>
 </html>
