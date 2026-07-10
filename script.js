@@ -114,7 +114,6 @@ const STR = {
     chatAria: "Түргэн харилцах",
     qcHurry: "Хурдлаач",
     qcBad: "Муу юм бэ",
-    qcBring: "Идэн тат",
     qcGotit: "Чи болчихжээ",
     qcNice: "Юм авцаан",
     qcWow: "Аймар аймар",
@@ -197,7 +196,6 @@ const STR = {
     chatAria: "Quick chat",
     qcHurry: "Hurry up!",
     qcBad: "So bad!",
-    qcBring: "Bring it on!",
     qcGotit: "You got it!",
     qcNice: "Nice one!",
     qcWow: "Wow wow!",
@@ -969,7 +967,7 @@ document.getElementById("skinToggle").addEventListener("click", () => applySkin(
 // call it during early module init without tripping a const TDZ.
 function buildChatPicker() {
   const REACTION_EMOJIS = ["👍", "😂", "🔥", "👏", "🎉", "😎", "😴", "😱"];
-  const REACTION_PHRASE_KEYS = ["qcHurry", "qcBad", "qcBring", "qcGotit", "qcNice", "qcWow"];
+  const REACTION_PHRASE_KEYS = ["qcHurry", "qcBad", "qcGotit", "qcNice", "qcWow"];
   const em = document.getElementById("chatEmojis");
   const ph = document.getElementById("chatPhrases");
   if (!em || !ph) return;
