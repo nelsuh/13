@@ -1544,7 +1544,8 @@ function onPlayerJoined(data) {
   if (typeof data.connected_count === "number") connectedCount = data.connected_count;
   else if (data.player && data.player.is_connected) connectedCount = Math.min(roomPlayerIds.length, connectedCount + 1);
   isHost = roomPlayerIds[0] === myId;
-  if (connectedCount > 1 && forfeitTimer) { clearForfeitGrace(); render(); } // a player returned → cancel pending forfeit
+  // The player we were waiting on is back (presentIds was just re-populated above) → cancel the pending fold.
+  if (forfeitTimer && pendingLeaveId != null && presentIds.has(pendingLeaveId)) { clearForfeitGrace(); render(); }
   sendPlayerInfo(); updateOnlineStatus(); maybeStart();
   // Someone (re)joined — push them the current state so they catch up even if
   // their own sync is failing. Slight delay so they've finished rejoining the
@@ -1557,11 +1558,15 @@ function onPlayerJoined(data) {
 // leaves (3–4p with others still in) fold the leaver and play continues as before.
 let forfeitTimer = null;
 let pendingLeaveSeat = -1;
+let pendingLeaveId = null;      // player id we're waiting on, so a rejoin by THAT player cancels the fold
+let pendingEndMatch = false;    // grace resolves to a match-ending forfeit (true) or a plain fold (false)
 const FORFEIT_GRACE_MS = 20000;
 
 function clearForfeitGrace() {
   if (forfeitTimer) { clearInterval(forfeitTimer); forfeitTimer = null; }
   pendingLeaveSeat = -1;
+  pendingLeaveId = null;
+  pendingEndMatch = false;
 }
 
 function applyLeaveFold(seat) {
@@ -1594,21 +1599,25 @@ function sendHostLeaveOutcome(seat, endMatch) {
     });
 }
 
-function startForfeitGrace() {
+function startForfeitGrace(endMatch) {
   if (forfeitTimer) clearInterval(forfeitTimer);
+  pendingEndMatch = !!endMatch;
   let secs = Math.ceil(FORFEIT_GRACE_MS / 1000);
   if (turnLine) { turnLine.textContent = t("leftGrace", secs); turnLine.className = "turn-line"; }
   forfeitTimer = setInterval(() => {
-    if (!gameStarted || connectedCount > 1) {   // someone returned → resume
+    // Resume the instant the SPECIFIC player who dropped is back in the room.
+    // presentIds is the source of truth here — connectedCount can't tell us this
+    // in a 3–4p game, where it stays > 1 the whole time even though ONE seat left.
+    if (!gameStarted || (pendingLeaveId != null && presentIds.has(pendingLeaveId))) {
       clearForfeitGrace();
       render();
       return;
     }
     secs -= 1;
     if (secs > 0) { if (turnLine) turnLine.textContent = t("leftGrace", secs); return; }
-    const seat = pendingLeaveSeat;
+    const seat = pendingLeaveSeat, em = pendingEndMatch;
     clearForfeitGrace();
-    sendHostLeaveOutcome(seat, true);             // grace expired → host stores the forfeit result
+    sendHostLeaveOutcome(seat, em);   // grace expired → host records the fold (or match-ending forfeit)
   }, 1000);
 }
 
@@ -1631,19 +1640,19 @@ function onPlayerLeft(data) {
     return;
   }
 
-  // Decisive case (would leave ≤1 active) → grace window before ending; don't
-  // mutate yet, so a rejoin resumes the hand exactly where it was.
+  // ALWAYS run a grace window before folding — a brief drop (backgrounded app,
+  // network blip) surfaces as onPlayerLeft too, and folding immediately writes a
+  // DURABLE leave_fold that permanently eliminates the player even after they
+  // rejoin. Don't mutate yet; a rejoin by this player cancels the fold and
+  // resumes the hand exactly where it was. Only if they're still gone when the
+  // window expires does the host record the outcome:
+  //   activeAfter ≤ 1 → match-ending forfeit;  else → plain fold, play continues.
   const activeAfter = activeSeats().filter(s => s !== seat).length;
-  if (activeAfter <= 1) {
-    notifySelf(t("nLeftTitle"), t("nLeftBody"));
-    pendingLeaveSeat = seat;
-    startForfeitGrace();
-    return;
-  }
-
-  // Non-decisive: fold the leaver and continue with the remaining players.
   notifySelf(t("nLeftTitle"), t("nLeftBody"));
-  sendHostLeaveOutcome(seat, false);
+  presentIds.delete(data.player_id);   // mark them absent so the grace check below (and onPlayerJoined's cancel) key off THEIR return
+  pendingLeaveSeat = seat;
+  pendingLeaveId = data.player_id;
+  startForfeitGrace(activeAfter <= 1);
 }
 function updateOnlineStatus() {
   const s = document.getElementById("onlineStatus");
