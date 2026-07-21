@@ -804,6 +804,10 @@ function clearTrick(winnerSeat) {
 function endHand(winnerSeat, dragon) {
   if (botTimer) { clearTimeout(botTimer); botTimer = null; }
   stopTurnTimer();
+  // The round is over — no move can legitimately be awaiting its echo now. Clear the
+  // latch so a stale pendingAction (e.g. an own-move echo dropped mid-round) can never
+  // block the host's next-round hostDeal() and freeze the whole table on the last trick.
+  pendingAction = false;
   lastWinner = winnerSeat;
   // losers ADD their leftover-card penalty toward the lose-at threshold
   const deltas = Array(numPlayers).fill(0);
@@ -1869,6 +1873,12 @@ function sendMove(move) {
 // ever missed/duplicated/reordered a move, it snaps back instead of drifting and
 // deadlocking the whole table.
 function applyRemoteMove(move, fromId) {
+  // Our own move just landed — via the live echo (onNetAction) OR recovered through
+  // a resync/checkpoint replay after a dropped echo. Clear the "sending…" latch on
+  // EVERY path, not just the live one, or a resync-recovered own move leaves us
+  // stuck on "Sending…" (dead buttons) — and if we're the host, a stuck pendingAction
+  // silently blocks hostDeal(), freezing the WHOLE table on the next round transition.
+  if (fromId != null && fromId === myId) { pendingAction = false; renderControls(); }
   if (!dealActive) return;
   if (move.kind === "leave_fold" || move.kind === "forfeit_win") {
     applyLeaveOutcome(Number(move.seat), move.kind === "forfeit_win");
