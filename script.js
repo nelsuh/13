@@ -918,6 +918,7 @@ function showGameOver() {
   const ranked = players.map((p, s) => s).sort((a, b) => players[a].total - players[b].total);
   const champ = survivors.length ? survivors[0] : ranked[0];
   recordOutcome(champ === mySeat);   // multiplayer-only, idempotent per match
+  reportMatchToDM(champ);            // 1-on-1 result card into both players' DM
   document.getElementById("winnerName").textContent = champ === mySeat ? t("you") : players[champ].name;
   const sb = document.getElementById("finalScoreboard");
   sb.innerHTML = "";
@@ -1207,6 +1208,31 @@ function recordOutcome(iWon) {
   persistStats();
   submitLeaderboard();
   try { if (window.Usion && Usion.cloud && Usion.cloud.shared) Usion.cloud.shared.incr("games_total", 1); } catch (_) {}
+}
+
+// Report the final result so the platform drops a result card into both players'
+// direct chat ("You beat Bob" / "Bob beat you"), each written from their own
+// perspective, with a tap-to-play button. Host-authoritative: only roomPlayerIds[0]
+// reports, once per match; the backend re-validates the roster and dedupes.
+// ONLY 1-on-1 — reportResult v1 renders a card for 2 players only, and a 3–4p
+// road-to-20 has no single "loser". No scores line: 13 is elimination (lower total
+// wins), so a numeric scoreline would read backwards. champSeat = winning seat.
+let matchSeq = 0;
+let resultReportedThisGame = false;
+function reportMatchToDM(champSeat) {
+  if (resultReportedThisGame) return;
+  if (!online || !Array.isArray(roomPlayerIds) || roomPlayerIds.length !== 2) return;
+  if (roomPlayerIds[0] !== myId) return; // host-only
+  if (champSeat == null || champSeat < 0 || champSeat > 1) return;
+  if (!window.Usion || !Usion.game || typeof Usion.game.reportResult !== "function") return; // older injected SDK
+  resultReportedThisGame = true;
+  matchSeq++;
+  try {
+    Usion.game.reportResult({
+      winnerId: roomPlayerIds[champSeat],
+      matchId: "t13-" + matchSeq,
+    }).catch(function () {}); // fire-and-forget — never block the win screen
+  } catch (e) { /* ignore */ }
 }
 
 function maybeNotifyTurn() {
@@ -1783,6 +1809,7 @@ function startOnlineGame(data) {
   clearForfeitGrace();
   gameStarted = true; online = true;
   statsRecordedThisGame = false;   // new match → allow recording its outcome once
+  resultReportedThisGame = false;
   lastTurnNotified = false;
   ensureNotifyPermission();        // one-time host prompt; fire-and-forget
   roomPlayerIds = data.order;
@@ -2010,6 +2037,7 @@ function onDeal(d) {
   if (d.reset) {
     players.forEach(p => { p.total = 0; p.out = false; });
     statsRecordedThisGame = false;
+    resultReportedThisGame = false;
     lastTurnNotified = false;
   }
   document.getElementById("winnerOverlay").classList.remove("show");
