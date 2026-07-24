@@ -918,7 +918,7 @@ function showGameOver() {
   const ranked = players.map((p, s) => s).sort((a, b) => players[a].total - players[b].total);
   const champ = survivors.length ? survivors[0] : ranked[0];
   recordOutcome(champ === mySeat);   // multiplayer-only, idempotent per match
-  reportMatchToDM(champ);            // 1-on-1 result card into both players' DM
+  reportMatchResult(champ, ranked);  // host reports to the originating group or players' DMs
   document.getElementById("winnerName").textContent = champ === mySeat ? t("you") : players[champ].name;
   const sb = document.getElementById("finalScoreboard");
   sb.innerHTML = "";
@@ -1162,7 +1162,7 @@ function submitLeaderboard() {
   try {
     if (window.Usion && Usion.leaderboard) {
       // Score = total cumulative wins; ranked highest-first. (Needs leaderboard.enabled on the service.)
-      Usion.leaderboard.submit(myStats.wins, { games: myStats.games });
+      Usion.leaderboard.submit(myStats.wins);
     }
   } catch (_) {}
 }
@@ -1210,29 +1210,58 @@ function recordOutcome(iWon) {
   try { if (window.Usion && Usion.cloud && Usion.cloud.shared) Usion.cloud.shared.incr("games_total", 1); } catch (_) {}
 }
 
-// Report the final result so the platform drops a result card into both players'
-// direct chat ("You beat Bob" / "Bob beat you"), each written from their own
-// perspective, with a tap-to-play button. Host-authoritative: only roomPlayerIds[0]
-// reports, once per match; the backend re-validates the roster and dedupes.
-// ONLY 1-on-1 — reportResult v1 renders a card for 2 players only, and a 3–4p
-// road-to-20 has no single "loser". No scores line: 13 is elimination (lower total
-// wins), so a numeric scoreline would read backwards. champSeat = winning seat.
-let matchSeq = 0;
+// Report the authoritative 2–4 player result once. Explicit standings make the
+// lower-is-better penalty system unambiguous. Usion routes the card to the
+// originating group chat or to the players' DMs automatically.
 let resultReportedThisGame = false;
-function reportMatchToDM(champSeat) {
+function reportMatchResult(champSeat, rankedSeats) {
   if (resultReportedThisGame) return;
-  if (!online || !Array.isArray(roomPlayerIds) || roomPlayerIds.length !== 2) return;
-  if (roomPlayerIds[0] !== myId) return; // host-only
-  if (champSeat == null || champSeat < 0 || champSeat > 1) return;
-  if (!window.Usion || !Usion.game || typeof Usion.game.reportResult !== "function") return; // older injected SDK
+  if (!online || !isHostPlayer()) return;
+  if (!Array.isArray(roomPlayerIds) || roomPlayerIds.length < 2 || roomPlayerIds.length > 4) return;
+  const champ = Number(champSeat);
+  if (!Number.isInteger(champ) || champ < 0 || champ >= roomPlayerIds.length) return;
+  if (!window.Usion || !Usion.game || typeof Usion.game.reportResult !== "function") return;
+
+  // Champion first, then the final lower-penalty ranking. This keeps a forfeit
+  // winner first even when a folded player happened to have fewer penalty points.
+  const forfeitedSeats = players
+    .map((p, seat) => ({ p, seat }))
+    .filter(({ p, seat }) => seat !== champ && p && p.out && p.total < loseAt)
+    .map(({ seat }) => seat);
+  const orderedSeats = [champ];
+  for (const seat of Array.isArray(rankedSeats) ? rankedSeats : []) {
+    const s = Number(seat);
+    if (Number.isInteger(s) && s >= 0 && s < roomPlayerIds.length &&
+        !forfeitedSeats.includes(s) && !orderedSeats.includes(s)) orderedSeats.push(s);
+  }
+  for (let s = 0; s < roomPlayerIds.length; s++) {
+    if (!forfeitedSeats.includes(s) && !orderedSeats.includes(s)) orderedSeats.push(s);
+  }
+  for (const seat of forfeitedSeats) if (!orderedSeats.includes(seat)) orderedSeats.push(seat);
+
+  const payload = { winnerId: roomPlayerIds[champ] };
+  if (roomPlayerIds.length > 2) payload.standings = orderedSeats.map((seat) => roomPlayerIds[seat]);
+
+  // Normal elimination: penalty totals are meaningful (lower is better).
+  // Forfeit/fold: omit them because they did not determine the placement.
+  const hasForfeit = forfeitedSeats.length > 0;
+  if (!hasForfeit) {
+    const scores = {};
+    for (let seat = 0; seat < roomPlayerIds.length; seat++) {
+      if (players[seat] && Number.isFinite(Number(players[seat].total))) {
+        scores[roomPlayerIds[seat]] = Number(players[seat].total);
+      }
+    }
+    if (Object.keys(scores).length) {
+      payload.scores = scores;
+      payload.metric = "penalty points";
+    }
+  }
+
   resultReportedThisGame = true;
-  matchSeq++;
   try {
-    Usion.game.reportResult({
-      winnerId: roomPlayerIds[champSeat],
-      matchId: "t13-" + matchSeq,
-    }).catch(function () {}); // fire-and-forget — never block the win screen
-  } catch (e) { /* ignore */ }
+    Usion.game.reportResult(payload).catch(function () {});
+  } catch (_) { /* result delivery must never block the winner screen */ }
 }
 
 function maybeNotifyTurn() {
