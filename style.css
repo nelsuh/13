@@ -356,6 +356,16 @@ body {
 .lobby-badge { font-size: 10px; font-weight: 800; padding: 3px 9px; border-radius: 999px; letter-spacing: .3px; }
 .lobby-badge.ready { background: rgba(127,227,166,.18); color: var(--good); }
 .lobby-badge.wait  { background: rgba(255,255,255,.08); color: var(--text-dim); }
+/* Match length picker in the waiting room. Compact variant of the setup-screen
+   count buttons so three of them sit on one row inside the narrower lobby card.
+   Non-hosts see the same row read-only (.readonly) rather than a hidden control,
+   so everyone can check the target before readying up. */
+.lobby-limit { margin: 2px 0 14px; }
+.lobby-limit .count-label { margin-bottom: 7px; }
+.lobby-limit .count-row { gap: 8px; margin-bottom: 0; }
+.lobby-limit .count-btn { flex: 1; width: auto; height: 42px; font-size: 17px; border-radius: 11px; }
+.lobby-limit.readonly .count-btn { cursor: default; opacity: .55; }
+.lobby-limit.readonly .count-btn.selected { opacity: 1; box-shadow: none; }
 .lobby-actions { display: flex; flex-direction: column; gap: 9px; margin-top: 4px; }
 .ctrl-btn.btn-ready-on { background: rgba(127,227,166,.2); color: var(--good); border-color: rgba(127,227,166,.45); box-shadow: none; }
 .overlay-text { font-family: "Noto Serif", serif; font-size: 18px; font-weight: 800; margin-top: 12px; color: var(--gold-hi); }

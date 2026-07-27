@@ -479,6 +479,7 @@ function applyLang(lang) {
   set("playersLabel", "playersLabel"); set("loseLabel", "loseLabel"); set("nameLabelText", "nameLabel");
   set("startBtn", "startGame"); set("setupFoot", "setupFoot");
   set("lobbyTitle", "lobbyTitle"); set("startGameBtn", "startGame"); set("lobbyBotsBtn", "playBots");
+  set("lobbyLoseLabel", "loseLabel");
   set("winnerLabel", "winnerLabel"); set("playAgainBtn", "playAgain");
   set("passBtn", "pass"); set("playBtn", "play");
   const skinBtn = document.getElementById("skinToggle");
@@ -1755,7 +1756,18 @@ function stopLocalRound() {
   stopTurnTimer();
   selected.clear();
 }
-function sendPlayerInfo() { Usion.game.realtime("player_info", { name: myName || t("you"), avatar: myAvatar || null, ready: myReady }); }
+// The host's player_info doubles as the lobby-settings broadcast: it already
+// fires on join, on every (re)join of a peer, and on each ready toggle, so the
+// match length reaches late arrivals without a channel of its own.
+function sendPlayerInfo() {
+  const info = { name: myName || t("you"), avatar: myAvatar || null, ready: myReady };
+  if (isHostPlayer()) info.loseAt = loseAt;
+  Usion.game.realtime("player_info", info);
+}
+// Point targets offered in the waiting room. The deal carries the chosen value,
+// so this list only has to agree with itself — older clients still adopt
+// whatever the host deals.
+const LOSE_OPTIONS = [15, 20, 30];
 // number of seats this online match has, from the authorized roster (2–4)
 function targetSeats() { return Math.max(2, Math.min(4, roomPlayerIds.length || 2)); }
 
@@ -1977,12 +1989,29 @@ function renderLobby() {
     startBtn.style.display = isHost ? "block" : "none";
     startBtn.disabled = !allReady || pendingAction;
   }
+  renderLobbyLimit();
   const hint = document.getElementById("lobbyHint");
   if (hint) {
     hint.textContent = isHost
       ? (allReady ? t("hintHostGo") : t("hintHostWait"))
       : (myReady ? t("hintWaitHost") : t("hintPressReady"));
   }
+}
+// Show the match length to everyone; only the host can change it. Hidden until
+// we're actually in a room (the overlay also covers the "connecting…" state).
+function renderLobbyLimit() {
+  const wrap = document.getElementById("lobbyLimit");
+  if (!wrap) return;
+  // isHostPlayer() reads the roster directly — the `isHost` flag is only assigned
+  // once onJoined lands, which would render the host's own picker read-only for
+  // the first moment of the lobby.
+  const amHost = isHostPlayer();
+  wrap.style.display = (online && roomPlayerIds.length > 0) ? "block" : "none";
+  wrap.classList.toggle("readonly", !amHost);
+  document.querySelectorAll("#lobbyLoseRow .count-btn").forEach(btn => {
+    btn.classList.toggle("selected", Number(btn.dataset.lose) === loseAt);
+    btn.disabled = !amHost;
+  });
 }
 // Host only: lock the seats to the present + ready players and deal.
 function hostStartGame() {
@@ -2033,6 +2062,18 @@ function leaveForBots() {
   });
   if (startBtn) startBtn.addEventListener("click", hostStartGame);
   if (botsBtn) botsBtn.addEventListener("click", leaveForBots);
+  // Host picks how many penalty points knock a player out. Broadcast immediately
+  // so everyone in the room sees the target before they ready up.
+  document.querySelectorAll("#lobbyLoseRow .count-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (!isHostPlayer() || gameStarted) return;
+      const v = Number(btn.dataset.lose);
+      if (LOSE_OPTIONS.indexOf(v) < 0 || v === loseAt) return;
+      loseAt = v;
+      if (online && window.Usion && Usion.game) sendPlayerInfo();
+      renderLobby();
+    });
+  });
 })();
 function startOnlineGame(data) {
   if (gameStarted) return;
@@ -2204,6 +2245,10 @@ function onNetRealtime(data) {
     playerMeta[data.player_id] = { name: d.name, avatar: d.avatar };
     presentIds.add(data.player_id);
     if (typeof d.ready === "boolean") lobbyReady[data.player_id] = d.ready;
+    // Adopt the match length only from the host, and only from the offered set —
+    // it's the host's setting, and the deal will carry it authoritatively anyway.
+    if (!gameStarted && data.player_id === roomPlayerIds[0] &&
+        LOSE_OPTIONS.indexOf(Number(d.loseAt)) >= 0) loseAt = Number(d.loseAt);
     if (gameStarted) { refreshNames(); render(); } else renderLobby();
   } else if (data.action_type === "state_push") {
     // The host pushed authoritative state to us (we just rejoined). Apply it —
