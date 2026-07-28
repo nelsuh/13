@@ -571,10 +571,8 @@ function resumeTurnTimer() {
 // case exactly as before. But a locked phone runs NO javascript, so if we stopped
 // there a suspended player would hang the whole table forever (their auto-pass can
 // only ever come from the one client that is asleep). After a further grace window
-// any other seated client will act FOR them, staggered by seat so the lowest-ranked
-// live client goes first and the rest stand down as soon as the move lands.
+// the elected lowest-ranked live client will act FOR them.
 const PROXY_GRACE_MS = 10000;
-const PROXY_STAGGER_MS = 3000;
 function onTurnTimeout() {
   if (!dealActive || netPaused) return;   // never resolve a timeout while our link is down
   if (!online) {
@@ -594,7 +592,9 @@ function proxyRank(seat) {
 function scheduleProxyMove(seat) {
   if (proxyTimer) { clearTimeout(proxyTimer); proxyTimer = null; }
   const rank = proxyRank(seat);
-  if (rank < 0) return;                              // not seated / not in the room → not our job
+  // A single deterministic authority covers the stalled seat. Letting every peer
+  // send a staggered `auto:true` move makes another player's seat forgeable.
+  if (rank !== 0) return;                            // not elected / not in the room → not our job
   // If we didn't watch this turn start our clock is meaningless, so we hang back a
   // whole extra turn and let the clients that DID see it go first. We still act
   // eventually: if every client rebuilt during this turn, somebody has to, or the
@@ -604,16 +604,16 @@ function scheduleProxyMove(seat) {
   proxyTimer = setTimeout(() => {
     proxyTimer = null;
     // Stand down if anything moved on: the player woke up and acted, the round
-    // rolled over, we lost our link, or someone with a lower rank covered it.
+    // rolled over, or we lost our link.
     if (!online || !dealActive || netPaused) return;
     if (epoch !== dealEpoch || moveNo !== roundMoveNo || turn !== seat) return;
     autoMove(seat, true);
-  }, extra + PROXY_GRACE_MS + rank * PROXY_STAGGER_MS);
+  }, extra + PROXY_GRACE_MS);
 }
 // `proxy` = we are acting on behalf of a seat that isn't ours. Every client holds
 // every hand (same seed → same deal), so the forced move is identical whoever
 // generates it; `seat` on the wire tells receivers who it belongs to and `ti`
-// makes a double-cover a no-op.
+// ties it to the exact turn state it was generated for.
 function autoMove(seat, proxy) {
   if (!proxy) selected.clear();
   if (table) {                                       // following → forfeit the trick
@@ -1442,8 +1442,8 @@ function currentCheckpoint() {
 // whose version is a Date.now() timestamp and therefore incomparable to ours).
 function snapshotIsNewer(state) {
   const seq = Number(state && state.seq);
-  if (Number.isFinite(seq)) return seq >= appliedBaseSeq;
-  return Number((state && state.version) || 0) >= checkpointVersion;
+  if (Number.isFinite(seq)) return seq > lastSeq;
+  return Number((state && state.version) || 0) > checkpointVersion;
 }
 function writeCheckpoint() {
   try {
@@ -1478,7 +1478,23 @@ function broadcastStatePush() {
 // Apply a pushed/synced snapshot if it's newer than what we already have.
 function applyStateSnapshot(state) {
   if (!state || state.seed === undefined || !Array.isArray(state.order)) return;
-  if (!dealActive || snapshotIsNewer(state)) applyCheckpoint(state);
+  if (!gameStarted || snapshotIsNewer(state)) applyCheckpoint(state);
+}
+
+function validSeatOrder(order) {
+  return Array.isArray(order) && order.length >= 2 && order.length <= 4 &&
+    new Set(order).size === order.length;
+}
+
+function sameSeatOrder(a, b) {
+  return Array.isArray(a) && Array.isArray(b) && a.length === b.length &&
+    a.every((id, i) => id === b[i]);
+}
+
+function showNotSeated() {
+  onlineOverlay.classList.add("show");
+  const status = document.getElementById("onlineStatus");
+  if (status) status.textContent = t("startedWithoutYou");
 }
 
 // Rebuild the current round from a host checkpoint (received as game_state on a
@@ -1486,19 +1502,26 @@ function applyStateSnapshot(state) {
 // replays the round's moves so the board matches everyone else's. Returns true
 // if a valid checkpoint was applied.
 function applyCheckpoint(state) {
-  if (!state || typeof state !== "object" || state.seed === undefined || !Array.isArray(state.order)) return false;
+  if (!state || typeof state !== "object" || state.seed === undefined || !validSeatOrder(state.order)) return false;
+  if (state.order.indexOf(myId) < 0) { showNotSeated(); return false; }
+  // A live match has frozen seating. A checkpoint may restore that match, but it
+  // must never be able to replace its roster (including via a forged state_push).
+  if (gameStarted && !sameSeatOrder(state.order, roomPlayerIds)) return false;
   applyNames(state.names);                              // host-supplied names before seating
-  if (!gameStarted) startOnlineGame({ order: state.order });
+  if (!gameStarted && !startOnlineGame({ order: state.order })) return false;
   roomPlayerIds = state.order.slice();
   numPlayers = roomPlayerIds.length;
   mySeat = roomPlayerIds.indexOf(myId);
   // restore round-start scores/elimination (startOnlineGame zeroes them), then
   // replaying the moves re-applies this round's penalties exactly once.
-  if (Array.isArray(state.totals)) state.totals.forEach((t, s) => { if (players[s]) players[s].total = t; });
-  if (Array.isArray(state.outs)) state.outs.forEach((o, s) => { if (players[s]) players[s].out = o; });
+  if (Array.isArray(state.totals)) state.totals.forEach((total, s) => {
+    const value = Number(total);
+    if (players[s] && Number.isFinite(value) && value >= 0) players[s].total = value;
+  });
+  if (Array.isArray(state.outs)) state.outs.forEach((o, s) => { if (players[s]) players[s].out = o === true; });
   firstDeal = !!state.firstDeal;
   lastWinner = (typeof state.lastWinner === "number") ? state.lastWinner : -1;
-  if (typeof state.loseAt === "number") loseAt = state.loseAt;   // adopt host's elimination threshold
+  if (Number.isFinite(state.loseAt) && state.loseAt > 0) loseAt = state.loseAt;   // adopt host's elimination threshold
   curSeed = state.seed;
   moveLog = [];
   onlineOverlay.classList.remove("show");
@@ -1508,7 +1531,7 @@ function applyCheckpoint(state) {
   appliedSequences = new Set();
   const cpSeq = Number(state.seq);
   if (Number.isFinite(cpSeq)) {
-    appliedBaseSeq = Math.max(appliedBaseSeq, cpSeq);
+    appliedBaseSeq = cpSeq;
     lastSeq = Math.max(lastSeq, cpSeq);   // else a later requestSync(lastSeq) re-sends what we just applied
   }
   replayingSync = true;
@@ -1520,7 +1543,9 @@ function applyCheckpoint(state) {
 // because a checkpoint at/above it rebuilt our state.
 function alreadyApplied(seq) {
   if (seq === undefined) return false;
-  return Number(seq) <= appliedBaseSeq || appliedSequences.has(seq);
+  const n = Number(seq);
+  if (!Number.isFinite(n)) return false;
+  return n <= appliedBaseSeq || appliedSequences.has(n);
 }
 
 // Legacy hint: some hosts pass a "play with bots"/solo ref or path. Kept only as
@@ -1777,9 +1802,14 @@ function onJoined(data) {
   // also lists spectators who never got a seat — must not renumber us. Mid-game
   // seating comes from the checkpoint/deal `order` alone.
   if (!gameStarted) roomPlayerIds = data.player_ids || [];
+  // The join acknowledgement is the authoritative CURRENT room membership.
+  // Replace (rather than append to) presence so a leave missed while this client
+  // was offline cannot keep a departed authority alive locally.
+  presentIds.clear();
   (data.player_ids || []).forEach(id => presentIds.add(id));
   connectedCount = Number(data.connected_count || 0);
-  if (data.sequence !== undefined) lastSeq = data.sequence;
+  // data.sequence is the SERVER'S high-water mark, not proof that this client has
+  // applied those actions. lastSeq advances only while processing onAction/onSync.
   isHost = roomPlayerIds[0] === myId;
   sendPlayerInfo(); updateOnlineStatus();
   // The join ack may carry the host's checkpoint as game_state — rebuild the
@@ -1795,13 +1825,23 @@ function onPlayerJoined(data) {
     if (data.player_ids) roomPlayerIds = data.player_ids;
     else if (data.player && data.player.id && !roomPlayerIds.includes(data.player.id)) roomPlayerIds.push(data.player.id);
   }
-  if (data.player_ids) data.player_ids.forEach(id => presentIds.add(id));
-  if (data.player && data.player.id) presentIds.add(data.player.id);
+  if (data.player_ids) {
+    presentIds.clear();
+    data.player_ids.forEach(id => presentIds.add(id));
+  } else if (data.player && data.player.id) {
+    presentIds.add(data.player.id);
+  }
   if (typeof data.connected_count === "number") connectedCount = data.connected_count;
   else if (data.player && data.player.is_connected) connectedCount = Math.min(roomPlayerIds.length, connectedCount + 1);
   isHost = roomPlayerIds[0] === myId;
-  // The player we were waiting on is back (presentIds was just re-populated above) → cancel the pending fold.
-  if (forfeitTimer && pendingLeaveId != null && presentIds.has(pendingLeaveId)) { clearForfeitGrace(); render(); }
+  // Cancel only the returning player's pending fold. Other simultaneous leaves
+  // keep their own grace windows.
+  if (pendingLeaves.size) {
+    presentIds.forEach(id => {
+      if (pendingLeaves.has(id)) clearForfeitGrace(id);
+    });
+    render();
+  }
   sendPlayerInfo(); updateOnlineStatus(); maybeStart();
   // Someone (re)joined — push them the current state so they catch up even if
   // their own sync is failing. Slight delay so they've finished rejoining the
@@ -1809,29 +1849,46 @@ function onPlayerJoined(data) {
   if (gameStarted && dealActive) setTimeout(broadcastStatePush, 600);
 }
 // ── Forfeit grace period ──────────────────────────────────
-// When a leave WOULD end the match (one active seat left), defer the forfeit
-// for a grace window so a quick rejoin resumes the hand untouched. Non-decisive
-// leaves (3–4p with others still in) fold the leaver and play continues as before.
+// Defer every departure for a grace window so a quick rejoin does not create a
+// durable fold. If the player stays gone, settle their seat after the deadline.
 let forfeitTimer = null;
-let pendingLeaveSeat = -1;
-let pendingLeaveId = null;      // player id we're waiting on, so a rejoin by THAT player cancels the fold
-let pendingEndMatch = false;    // grace resolves to a match-ending forfeit (true) or a plain fold (false)
+// More than one player can disappear inside the same grace window. Track each
+// departure independently instead of letting the latest one overwrite the first.
+const pendingLeaves = new Map();   // player id → { seat, deadline }
 const FORFEIT_GRACE_MS = 20000;
 
-function clearForfeitGrace() {
-  if (forfeitTimer) { clearInterval(forfeitTimer); forfeitTimer = null; }
-  pendingLeaveSeat = -1;
-  pendingLeaveId = null;
-  pendingEndMatch = false;
+function clearForfeitGrace(playerId) {
+  if (playerId != null) pendingLeaves.delete(playerId);
+  else pendingLeaves.clear();
+  if (!pendingLeaves.size && forfeitTimer) {
+    clearInterval(forfeitTimer);
+    forfeitTimer = null;
+  }
+}
+
+function renderForfeitGrace() {
+  if (!pendingLeaves.size || !turnLine) return;
+  let nearest = FORFEIT_GRACE_MS;
+  pendingLeaves.forEach(p => { nearest = Math.min(nearest, Math.max(0, p.deadline - Date.now())); });
+  turnLine.textContent = t("leftGrace", Math.max(1, Math.ceil(nearest / 1000)));
+  turnLine.className = "turn-line";
 }
 
 function applyLeaveFold(seat) {
   if (seat < 0 || !players[seat] || players[seat].out) return;
   players[seat].out = true;
+  passed.delete(seat);
   lastAction[seat] = { kind: "pass", text: t("leftGame") };
-  if (dealActive && turn === seat) {
-    if (table) doPass(seat);                              // was following → pass & advance
-    else { turn = nextActiveAfter(seat); beginTurn(); }   // was leading → hand the lead to the next active seat
+  if (!dealActive) return;
+
+  // A folded seat is removed, not counted as a pass. Counting it after marking it
+  // out lowers activeSeats().length and can clear the trick before the next live
+  // player gets a chance to respond.
+  if (table && passStreak >= activeSeats().length - 1) {
+    clearTrick(table.seat);
+  } else if (turn === seat) {
+    turn = nextActiveAfter(seat);
+    beginTurn();
   }
 }
 
@@ -1846,12 +1903,14 @@ function applyLeaveOutcome(seat, endMatch) {
   }
 }
 
-// Record the fold/forfeit durably. Staggered by rank like the deal: the lowest
-// live seat writes immediately, the rest only if it hasn't landed by their slot.
+// Record the fold/forfeit durably. Exactly one deterministic authority (the
+// lowest live seat) may write it.
 function sendHostLeaveOutcome(seat, endMatch) {
   if (seat < 0) return;
   const rank = authorityRank();
-  if (rank < 0) return;
+  // Only the elected lowest present seat may write a fold. Accepting staggered
+  // writes from every peer makes `auto:true`/leave outcomes forgeable.
+  if (rank !== 0) return;
   const write = () => {
     if (players[seat] && players[seat].out) return;   // already folded — someone beat us to it
     Usion.game.action("move", { kind: endMatch ? "forfeit_win" : "leave_fold", seat })
@@ -1860,29 +1919,43 @@ function sendHostLeaveOutcome(seat, endMatch) {
         Usion.game.requestSync(lastSeq);
       });
   };
-  if (rank === 0) write();
-  else setTimeout(write, rank * DEAL_STAGGER_MS);
+  write();
 }
 
-function startForfeitGrace(endMatch) {
-  if (forfeitTimer) clearInterval(forfeitTimer);
-  pendingEndMatch = !!endMatch;
-  let secs = Math.ceil(FORFEIT_GRACE_MS / 1000);
-  if (turnLine) { turnLine.textContent = t("leftGrace", secs); turnLine.className = "turn-line"; }
+function startForfeitGrace(seat, playerId) {
+  if (seat < 0 || playerId == null) return;
+  pendingLeaves.set(playerId, { seat, deadline: Date.now() + FORFEIT_GRACE_MS });
+  renderForfeitGrace();
+  if (forfeitTimer) return;
   forfeitTimer = setInterval(() => {
-    // Resume the instant the SPECIFIC player who dropped is back in the room.
-    // presentIds is the source of truth here — connectedCount can't tell us this
-    // in a 3–4p game, where it stays > 1 the whole time even though ONE seat left.
-    if (!gameStarted || (pendingLeaveId != null && presentIds.has(pendingLeaveId))) {
+    if (!gameStarted) {
       clearForfeitGrace();
       render();
       return;
     }
-    secs -= 1;
-    if (secs > 0) { if (turnLine) turnLine.textContent = t("leftGrace", secs); return; }
-    const seat = pendingLeaveSeat, em = pendingEndMatch;
-    clearForfeitGrace();
-    sendHostLeaveOutcome(seat, em);   // grace expired → host records the fold (or match-ending forfeit)
+
+    const now = Date.now();
+    const expired = [];
+    pendingLeaves.forEach((pending, id) => {
+      if (presentIds.has(id) || (players[pending.seat] && players[pending.seat].out)) {
+        pendingLeaves.delete(id);
+      } else if (now >= pending.deadline) {
+        expired.push([id, pending.seat]);
+      }
+    });
+
+    expired.forEach(([id, seat]) => {
+      pendingLeaves.delete(id);
+      const endMatch = activeSeats().filter(s => s !== seat).length <= 1;
+      sendHostLeaveOutcome(seat, endMatch);
+    });
+
+    if (!pendingLeaves.size) {
+      clearForfeitGrace();
+      render();
+    } else {
+      renderForfeitGrace();
+    }
   }, 1000);
 }
 
@@ -1918,13 +1991,9 @@ function onPlayerLeft(data) {
   // window expires is the outcome recorded:
   //   activeAfter ≤ 1 → match-ending forfeit;  else → plain fold, play continues.
   // EVERY client runs the countdown (it's also the on-screen "left — 20s" line);
-  // the write itself is staggered by rank, so a sleeping or departed host can no
-  // longer strand the table with a seat that never folds.
-  const activeAfter = activeSeats().filter(s => s !== seat).length;
+  // exactly one elected live client writes each expired outcome.
   notifySelf(t("nLeftTitle"), t("nLeftBody"));
-  pendingLeaveSeat = seat;
-  pendingLeaveId = data.player_id;
-  startForfeitGrace(activeAfter <= 1);
+  startForfeitGrace(seat, data.player_id);
 }
 function updateOnlineStatus() {
   const s = document.getElementById("onlineStatus");
@@ -2076,7 +2145,11 @@ function leaveForBots() {
   });
 })();
 function startOnlineGame(data) {
-  if (gameStarted) return;
+  if (gameStarted) return true;
+  if (!data || !validSeatOrder(data.order) || data.order.indexOf(myId) < 0) {
+    showNotSeated();
+    return false;
+  }
   clearForfeitGrace();
   gameStarted = true; online = true;
   statsRecordedThisGame = false;   // new match → allow recording its outcome once
@@ -2107,6 +2180,7 @@ function startOnlineGame(data) {
       Usion.game.requestSync(0);
     }, 2000);
   }
+  return true;
 }
 // names the host knows for the current roster — carried in stored deal/checkpoint
 // so every client (and reconnects) gets real names, not "Player N", even if they
@@ -2173,10 +2247,40 @@ function sendMove(move, seat, proxy) {
       render();
     });
 }
-// Apply a move from `fromId` (the actual sender). Anchoring to the sender's seat
-// — not the local `turn` — makes the turn pointer self-correcting: if a client
-// ever missed/duplicated/reordered a move, it snaps back instead of drifting and
-// deadlocking the whole table.
+function proxyAuthorityId(targetSeat) {
+  for (let s = 0; s < roomPlayerIds.length; s++) {
+    if (s !== targetSeat && presentIds.has(roomPlayerIds[s])) return roomPlayerIds[s];
+  }
+  return null;
+}
+
+function decodeMoveCards(values) {
+  if (!Array.isArray(values) || values.length < 1 || values.length > 5) return null;
+  const decoded = [];
+  for (const raw of values) {
+    const value = Number(raw);
+    if (!Number.isInteger(value)) return null;
+    const card = wireCard(value);
+    if (card.r < 3 || card.r > 15 || card.s < 0 || card.s > 3 || cardWire(card) !== value) return null;
+    decoded.push(card);
+  }
+  return decoded;
+}
+
+function handOwnsCards(seat, cards) {
+  const remaining = (hands[seat] || []).slice();
+  for (const card of cards) {
+    const index = remaining.findIndex(c => sameCard(c, card));
+    if (index < 0) return false;
+    remaining.splice(index, 1);
+  }
+  return true;
+}
+
+// Validate an incoming action against the same deterministic state on every
+// client. The relay sequences and stores actions; it does not know this game's
+// hand/turn rules, so accepting first and "snapping" the turn to the sender lets
+// a client play out of turn, fabricate cards, or force another seat to pass.
 function applyRemoteMove(move, fromId) {
   // Our own move just landed — via the live echo (onNetAction) OR recovered through
   // a resync/checkpoint replay after a dropped echo. Clear the "sending…" latch on
@@ -2184,33 +2288,65 @@ function applyRemoteMove(move, fromId) {
   // stuck on "Sending…" (dead buttons) — and if we're the host, a stuck pendingAction
   // silently blocks hostDeal(), freezing the WHOLE table on the next round transition.
   if (fromId != null && fromId === myId) { pendingAction = false; renderControls(); }
-  if (!dealActive) return false;
+  if (!move || typeof move !== "object") return false;
   if (move.kind === "leave_fold" || move.kind === "forfeit_win") {
-    applyLeaveOutcome(Number(move.seat), move.kind === "forfeit_win");
+    const leaveSeat = Number(move.seat);
+    if (!Number.isInteger(leaveSeat) || leaveSeat < 0 || leaveSeat >= numPlayers ||
+        !players[leaveSeat] || players[leaveSeat].out) return false;
+    if (!replayingSync) {
+      const targetId = roomPlayerIds[leaveSeat];
+      // A connected player cannot be folded, and only the elected authority may
+      // durably settle a departed seat.
+      if (presentIds.has(targetId) || fromId !== proxyAuthorityId(leaveSeat)) return false;
+    }
+    const endMatch = activeSeats().filter(s => s !== leaveSeat).length <= 1;
+    applyLeaveOutcome(leaveSeat, endMatch);
     moveLog.push(move);
     if (!replayingSync && fromId === myId) writeCheckpoint();   // the sender persists the outcome
     return true;
   }
+  if (!dealActive) return false;
   // Duplicate/stale guard. Two clients can legitimately cover the SAME stalled
   // seat (staggered proxies) and both actions reach the server; `ti` is the move
   // index each was built for, so the loser is dropped instead of being applied on
   // top and desynchronising the round.
-  if (move.ti !== undefined && Number(move.ti) < roundMoveNo) return false;
-  let seat = -1;
-  // A proxy move carries the seat it is FOR. Trust it only when the sender is
-  // actually covering someone (auto) — otherwise a client could claim any seat.
-  if (move.seat !== undefined && Number.isInteger(Number(move.seat))) {
-    const claimed = Number(move.seat);
-    const senderSeat = (fromId != null) ? roomPlayerIds.indexOf(fromId) : -1;
-    if (claimed >= 0 && claimed < numPlayers && (move.auto || senderSeat < 0 || senderSeat === claimed)) seat = claimed;
+  if (move.ti !== undefined &&
+      (!Number.isInteger(Number(move.ti)) || Number(move.ti) !== roundMoveNo)) return false;
+
+  const senderSeat = (fromId != null) ? roomPlayerIds.indexOf(fromId) : -1;
+  const claimed = Number(move.seat);
+  let seat = Number.isInteger(claimed) && claimed >= 0 && claimed < numPlayers ? claimed : -1;
+  if (seat < 0) seat = senderSeat >= 0 ? senderSeat : turn;
+
+  if (!replayingSync) {
+    if (senderSeat < 0) return false;
+    if (move.auto === true) {
+      if (seat === senderSeat || fromId !== proxyAuthorityId(seat)) return false;
+    } else if (seat !== senderSeat) {
+      return false;
+    }
+  } else if (move.auto !== true && senderSeat >= 0 && seat !== senderSeat) {
+    return false;
   }
-  if (seat < 0 && fromId != null) seat = roomPlayerIds.indexOf(fromId);
-  if (seat < 0) seat = turn;                 // no sender info (e.g. checkpoint replay) → in-order
-  if (players[seat] && players[seat].out) return false;   // folded/eliminated seat can't act
-  if (seat !== turn) turn = seat;            // snap to the real actor before applying
+
+  if (!players[seat] || players[seat].out) return false;   // unknown/folded/eliminated seat can't act
+  if (seat !== turn) return false;
+
+  let combo = null;
+  if (move.kind === "pass") {
+    if (!table) return false;                 // a lead can never pass
+  } else if (move.kind === "play") {
+    const cards = decodeMoveCards(move.cards);
+    if (!cards || !handOwnsCards(seat, cards)) return false;
+    combo = classify(cards);
+    if (!isLegalPlay(combo)) return false;
+  } else {
+    return false;
+  }
+
   roundMoveNo += 1;
   if (move.kind === "pass") doPass(seat);
-  else { const combo = classify(move.cards.map(wireCard)); if (combo) doPlay(seat, combo); }
+  else doPlay(seat, combo);
   // Record it BEFORE checkpointing — the checkpoint carries moveLog, so appending
   // after the write would persist a snapshot that is missing the very move that
   // triggered it, and a client rebuilding from it would replay one move short.
@@ -2221,15 +2357,16 @@ function applyRemoteMove(move, fromId) {
   return true;
 }
 function onNetAction(data) {
-  if (data.sequence !== undefined) lastSeq = Math.max(lastSeq, data.sequence);
+  const sequence = Number(data.sequence);
+  if (Number.isFinite(sequence)) lastSeq = Math.max(lastSeq, sequence);
   // Clear our "sending…" state the moment we SEE our own action echoed — BEFORE
   // the dedup return. If a resync already applied this seq, the echo is a dup and
   // we'd skip out below; without clearing here first, pendingAction sticks true
   // forever and we can never move again ("Sending…" with the Play button dead).
   if (data.player_id === myId) pendingAction = false;
-  if (data.sequence !== undefined) {
-    if (alreadyApplied(data.sequence)) { renderControls(); return; }
-    appliedSequences.add(data.sequence);
+  if (Number.isFinite(sequence)) {
+    if (alreadyApplied(sequence)) { renderControls(); return; }
+    appliedSequences.add(sequence);
   }
   const d = data.action_data || {};
   if (data.action_type === "deal") onDeal(d, data.player_id);
@@ -2251,8 +2388,9 @@ function onNetRealtime(data) {
         LOSE_OPTIONS.indexOf(Number(d.loseAt)) >= 0) loseAt = Number(d.loseAt);
     if (gameStarted) { refreshNames(); render(); } else renderLobby();
   } else if (data.action_type === "state_push") {
-    // The host pushed authoritative state to us (we just rejoined). Apply it —
-    // this is the reliable recovery path when our own sync round-trip is dead.
+    // Only the elected current authority may push a recovery snapshot. Without
+    // this check any peer can roll the table back with a forged/stale state.
+    if (data.player_id !== proxyAuthorityId(-1)) return;
     applyStateSnapshot(d);
   } else if (data.action_type === "reaction") {
     // Cosmetic quick-chat: pop the sender's bubble over their seat.
@@ -2265,62 +2403,33 @@ function onNetRealtime(data) {
 // Catch-up replay (from requestSync). Each "deal" resets state, so replaying
 // the whole log from sequence 0 deterministically rebuilds the current round.
 function onNetSync(data) {
-  const syncTop = data.sequence !== undefined ? data.sequence : 0;
-  // Already current? Don't rebuild. The resync watchdog fires requestSync a few
-  // times and several replies can land after we've already caught up — each
-  // re-applies the checkpoint (re-deal + replay), which wipes the live UI mid-
-  // hand (your card selection, "your turn" state). If the server has nothing
-  // past what we've applied, treat it as a no-op.
-  if (syncTop <= lastSeq) return;
-  if (data.sequence !== undefined) lastSeq = Math.max(lastSeq, data.sequence);
-  const actions = data.actions || [];
-
-  // Checkpoint path: once the host has setState()'d, the SDK compacts the log —
-  // sync carries game_state + only the tail of actions (the original "deal" is
-  // gone). Rebuild from the checkpoint, then replay anything newer than it.
-  // Apply newer/equal checkpoints even mid-hand: reconnect sync may compact the
-  // stored log into game_state + tail actions, and stale local state must be rebuilt.
+  const actions = Array.isArray(data.actions) ? data.actions : [];
   const checkpoint = data.game_state;
   const hasCheckpoint = !!(checkpoint && checkpoint.seed !== undefined);
-  if (hasCheckpoint && (!dealActive || snapshotIsNewer(checkpoint)) && applyCheckpoint(checkpoint)) {
-    // The checkpoint already includes every action up to checkpoint.seq. The
-    // server's get_game_actions(last_sequence) is INCLUSIVE, so the tail re-sends
-    // the checkpoint's own last move(s) — applying those again double-pushes the
-    // play onto the trick (duplicate cards on the table). Skip anything the
-    // checkpoint already baked in.
-    replayingSync = true;
-    try {
-      actions.forEach(a => {
-        if (a.sequence !== undefined) {
-          if (alreadyApplied(a.sequence)) return;   // in the checkpoint, or already applied
-          appliedSequences.add(a.sequence);
-        }
-        const d = a.action_data || {};
-        if (a.action_type === "deal") {
-          if (d.seed !== curSeed) onDeal(d, a.player_id);   // a round newer than the checkpoint
-        } else if (a.action_type === "move") {
-          applyRemoteMove(d, a.player_id);   // SDK sends tail actions after game_state
-        }
-      });
-    } finally {
-      replayingSync = false;
-    }
-    return;
-  }
-  // No usable checkpoint: replay the action log. When the server HAS a checkpoint
-  // but we declined it (we're already at or past it), `actions` is only the tail,
-  // not the log from zero — so replay strictly what's provably new. alreadyApplied
-  // covers both cases; a full log from 0 still rebuilds a fresh client correctly.
+  const shouldApplyCheckpoint = hasCheckpoint && (!gameStarted || snapshotIsNewer(checkpoint));
+  const hasUnappliedActions = actions.some(a => a.sequence === undefined || !alreadyApplied(a.sequence));
+
+  // A join acknowledgement reports the server's top sequence before this client
+  // has applied it. Therefore data.sequence/lastSeq equality cannot prove that the
+  // checkpoint tail is already local; inspect the actual checkpoint and actions.
+  if (!shouldApplyCheckpoint && !hasUnappliedActions) return;
+  if (shouldApplyCheckpoint) applyCheckpoint(checkpoint);
+
   replayingSync = true;
   try {
     actions.forEach(a => {
-      if (a.sequence !== undefined) {
-        if (alreadyApplied(a.sequence)) return;
-        appliedSequences.add(a.sequence);
+      const sequence = Number(a.sequence);
+      if (Number.isFinite(sequence)) {
+        if (alreadyApplied(sequence)) return;
+        appliedSequences.add(sequence);
       }
       const d = a.action_data || {};
       if (a.action_type === "deal") onDeal(d, a.player_id);
       else if (a.action_type === "move") applyRemoteMove(d, a.player_id);
+      // Advance only after this action has actually been considered locally.
+      // Invalid game actions are still consumed server sequences and are safely
+      // ignored by applyRemoteMove's deterministic validation.
+      if (Number.isFinite(sequence)) lastSeq = Math.max(lastSeq, sequence);
     });
   } finally {
     replayingSync = false;
@@ -2332,16 +2441,21 @@ function onDeal(d, fromId) {
   // sendMove() both bail while it's set, so a latch stuck by a dropped deal echo
   // locked us out of playing for the whole round AND blocked the next deal.
   if (fromId != null && fromId === myId) pendingAction = false;
+  if (!d || typeof d !== "object" || !validSeatOrder(d.order)) return false;
+  // A deal is legal only between rounds. This also collapses two authorities that
+  // raced before seeing each other's echo: the first stored deal wins and the
+  // second cannot redeal everybody in the middle of the fresh hand.
+  if (dealActive) return false;
+  if (!replayingSync) {
+    const expected = gameStarted ? proxyAuthorityId(-1) : roomPlayerIds[0];
+    if (fromId == null || fromId !== expected || (!gameStarted && d.order[0] !== expected)) return false;
+  }
   // Not seated in this match (e.g. wasn't ready when the host started) → stay in
   // the room instead of crashing on a -1 seat.
-  if (!gameStarted && Array.isArray(d.order) && d.order.indexOf(myId) < 0) {
-    onlineOverlay.classList.add("show");
-    const s = document.getElementById("onlineStatus");
-    if (s) s.textContent = t("startedWithoutYou");
-    return;
-  }
+  if (!gameStarted && Array.isArray(d.order) && d.order.indexOf(myId) < 0) { showNotSeated(); return; }
   applyNames(d.names);                 // adopt host-supplied names before seating
-  if (!gameStarted) startOnlineGame({ order: d.order });
+  if (!gameStarted && !startOnlineGame({ order: d.order })) return;
+  if (gameStarted && !sameSeatOrder(d.order, roomPlayerIds)) return;
   else refreshNames();                 // later rounds: update any "Player N" already shown
   // Rematch: the host's reset deal zeroes the whole match before dealing, so
   // every client restarts on the same baseline (replay-safe: a reset deal in
@@ -2366,6 +2480,7 @@ function onDeal(d, fromId) {
   // Whoever DEALT snapshots the fresh round — not "the host", since any client can
   // now deal when the higher-ranked ones are asleep.
   if (!replayingSync && fromId != null && fromId === myId) writeCheckpoint();
+  return true;
 }
 function refreshNames() {
   roomPlayerIds.forEach((id, i) => { if (players[i] && playerMeta[id] && playerMeta[id].name) players[i].name = playerMeta[id].name; });
