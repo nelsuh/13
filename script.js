@@ -1796,6 +1796,25 @@ const LOSE_OPTIONS = [15, 20, 30];
 // number of seats this online match has, from the authorized roster (2–4)
 function targetSeats() { return Math.max(2, Math.min(4, roomPlayerIds.length || 2)); }
 
+function joinedPlayerId(data) {
+  if (data && data.player_id != null) return data.player_id;
+  if (data && data.player && data.player.id != null) return data.player.id;
+  return null;
+}
+
+function reconcilePresence(ids, confirmedId) {
+  if (Array.isArray(ids)) {
+    presentIds.clear();
+    ids.forEach(id => {
+      // player_ids is the room roster and may still contain another player whose
+      // custom leave grace is running. Only the player named by THIS join event is
+      // confirmed back; keep every other pending leaver absent.
+      if (!pendingLeaves.has(id) || id === confirmedId) presentIds.add(id);
+    });
+  }
+  if (confirmedId != null) presentIds.add(confirmedId);
+}
+
 function onJoined(data) {
   // Seats are locked to the roster the match was DEALT with (only the ready
   // players get seated), so once the game is running the server roster — which
@@ -1805,8 +1824,7 @@ function onJoined(data) {
   // The join acknowledgement is the authoritative CURRENT room membership.
   // Replace (rather than append to) presence so a leave missed while this client
   // was offline cannot keep a departed authority alive locally.
-  presentIds.clear();
-  (data.player_ids || []).forEach(id => presentIds.add(id));
+  reconcilePresence(data.player_ids || [], myId);
   connectedCount = Number(data.connected_count || 0);
   // data.sequence is the SERVER'S high-water mark, not proof that this client has
   // applied those actions. lastSeq advances only while processing onAction/onSync.
@@ -1821,26 +1839,21 @@ function onJoined(data) {
   maybeStart();
 }
 function onPlayerJoined(data) {
+  const joinedId = joinedPlayerId(data);
   if (!gameStarted) {   // seats are frozen once dealt — see onJoined
     if (data.player_ids) roomPlayerIds = data.player_ids;
-    else if (data.player && data.player.id && !roomPlayerIds.includes(data.player.id)) roomPlayerIds.push(data.player.id);
+    else if (joinedId != null && !roomPlayerIds.includes(joinedId)) roomPlayerIds.push(joinedId);
   }
-  if (data.player_ids) {
-    presentIds.clear();
-    data.player_ids.forEach(id => presentIds.add(id));
-  } else if (data.player && data.player.id) {
-    presentIds.add(data.player.id);
-  }
+  reconcilePresence(data.player_ids, joinedId);
   if (typeof data.connected_count === "number") connectedCount = data.connected_count;
   else if (data.player && data.player.is_connected) connectedCount = Math.min(roomPlayerIds.length, connectedCount + 1);
   isHost = roomPlayerIds[0] === myId;
-  // Cancel only the returning player's pending fold. Other simultaneous leaves
-  // keep their own grace windows.
-  if (pendingLeaves.size) {
-    presentIds.forEach(id => {
-      if (pendingLeaves.has(id)) clearForfeitGrace(id);
-    });
-    render();
+  // Cancel only the ID explicitly named by this join event. `player_ids` is a
+  // roster, not evidence that every listed player just reconnected.
+  if (joinedId != null && pendingLeaves.has(joinedId)) {
+    clearForfeitGrace(joinedId);
+    if (pendingLeaves.size) renderForfeitGrace();
+    else render();
   }
   sendPlayerInfo(); updateOnlineStatus(); maybeStart();
   // Someone (re)joined — push them the current state so they catch up even if
