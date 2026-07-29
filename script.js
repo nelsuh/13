@@ -1240,6 +1240,14 @@ let curSeed = 0;
 let moveLog = [];
 let checkpointVersion = 0;
 let replayingSync = false;
+// Replaying moves out of a CHECKPOINT, which is different from replaying the raw
+// action log. Checkpoint moves were already validated by the client that wrote
+// them and carry no sender id, so they are trusted. Raw log actions are not:
+// anyone can write to the log, and the log keeps what the live table rejected.
+// Skipping the sender checks for both (they used to share `replayingSync`) meant
+// a forged fold or cover the whole table refused was still applied by whoever
+// resynced next — the same live-vs-replay split that froze the deal path.
+let replayTrusted = false;
 let appliedSequences = new Set();
 // High-water mark: every action at or below this sequence is already baked into
 // our state (it came in via a checkpoint, whose individual sequences we can't
@@ -1535,8 +1543,18 @@ function applyCheckpoint(state) {
     lastSeq = Math.max(lastSeq, cpSeq);   // else a later requestSync(lastSeq) re-sends what we just applied
   }
   replayingSync = true;
+  replayTrusted = true;
   (state.moves || []).forEach(mv => applyRemoteMove(mv));
+  replayTrusted = false;
   replayingSync = false;
+  // We just rebuilt the whole round from authoritative state, so nothing can
+  // still be legitimately awaiting its echo. Checkpoint moves carry no sender id,
+  // so the usual "my own move came back" release in applyRemoteMove cannot fire
+  // for them — without this, a move recovered THROUGH a checkpoint would leave us
+  // latched on "Sending…" forever. Re-sending after a false clear is harmless:
+  // roundMoveNo has moved on, so the duplicate is dropped on `ti`.
+  pendingAction = false;
+  renderControls();
   return true;
 }
 // Have we already applied this action sequence? Either explicitly, or implicitly
@@ -1546,6 +1564,17 @@ function alreadyApplied(seq) {
   const n = Number(seq);
   if (!Number.isFinite(n)) return false;
   return n <= appliedBaseSeq || appliedSequences.has(n);
+}
+// Where a catch-up has to resume from: the highest point with NO holes below it.
+// `lastSeq` is not that — it advances the moment an action is SEEN, even one we
+// could not apply. A client that missed actions 8-19 and then received 20 has
+// lastSeq 20, so requestSync(lastSeq) asks for "everything after 20" and the gap
+// is gone for good. Walking the applied set instead asks from 7, where our state
+// actually ends.
+function syncResumePoint() {
+  let n = appliedBaseSeq;
+  while (appliedSequences.has(n + 1)) n++;
+  return n;
 }
 
 // Legacy hint: some hosts pass a "play with bots"/solo ref or path. Kept only as
@@ -1693,6 +1722,47 @@ if (typeof document !== "undefined" && document.addEventListener) {
     if (gap > 3000 && online && gameStarted) {
       beginResync("gap=" + Math.round(gap / 1000) + "s");
     }
+  }, 1000);
+})();
+
+// ── Catch-up of last resort ──────────────────────────────────────────────
+// Every OTHER resync trigger we have is an event: visibilitychange, the freeze
+// watchdog above, or onReconnect. So a message lost while the socket stays up
+// and the app stays in the foreground has no recovery path at all — and for our
+// own action's echo that is permanent: pendingAction never clears, Play and Pass
+// stay dead for the rest of the round, and hostDeal()/sendMove() both bail while
+// it is set. These two nets close that hole without adding steady traffic:
+// nothing here fires in a healthy game.
+const CATCH_UP_DEBOUNCE_MS = 5000;
+const PENDING_STUCK_MS = 6000;
+const IDLE_SYNC_MS = 20000;
+let lastCatchUpAt = 0;
+let pendingSince = 0;
+let lastNetAt = 0;      // when anything last arrived on a state-bearing channel
+function requestCatchUp() {
+  if (!online || !gameStarted || netPaused) return;
+  const now = Date.now();
+  if (now - lastCatchUpAt < CATCH_UP_DEBOUNCE_MS) return;   // never storm the server
+  lastCatchUpAt = now;
+  try { if (window.Usion && Usion.game && Usion.game.requestSync) Usion.game.requestSync(syncResumePoint()); } catch (_) {}
+}
+(function netWatchdog() {
+  setInterval(function () {
+    // netPaused already freezes everything and the reconnect path resyncs for us.
+    if (!online || !gameStarted || netPaused) { pendingSince = 0; return; }
+    const now = Date.now();
+    // 1. our own action's echo never came back
+    if (!pendingAction) pendingSince = 0;
+    else if (!pendingSince) pendingSince = now;
+    else if (now - pendingSince >= PENDING_STUCK_MS) { pendingSince = now; requestCatchUp(); }
+    // 2. nothing at all is arriving. If the round is live and we are waiting on
+    // SOMEBODY ELSE, silence past a turn's worth of thinking means we may simply
+    // have stopped hearing the table — a client that misses every message has
+    // nothing to reject and so no other way to notice. An up-to-date client just
+    // gets an empty tail back, so this costs one small request per idle window.
+    if (!dealActive || turn === mySeat) { lastNetAt = now; return; }
+    if (!lastNetAt) { lastNetAt = now; return; }
+    if (now - lastNetAt >= IDLE_SYNC_MS) { lastNetAt = now; requestCatchUp(); }
   }, 1000);
 })();
 
@@ -2306,10 +2376,12 @@ function applyRemoteMove(move, fromId) {
     const leaveSeat = Number(move.seat);
     if (!Number.isInteger(leaveSeat) || leaveSeat < 0 || leaveSeat >= numPlayers ||
         !players[leaveSeat] || players[leaveSeat].out) return false;
-    if (!replayingSync) {
+    if (!replayTrusted) {
       const targetId = roomPlayerIds[leaveSeat];
       // A connected player cannot be folded, and only the elected authority may
-      // durably settle a departed seat.
+      // durably settle a departed seat. Enforced when replaying the raw action
+      // log too, so a forged fold sitting in the log cannot eliminate a player on
+      // whoever resyncs next.
       if (presentIds.has(targetId) || fromId !== proxyAuthorityId(leaveSeat)) return false;
     }
     const endMatch = activeSeats().filter(s => s !== leaveSeat).length <= 1;
@@ -2331,7 +2403,7 @@ function applyRemoteMove(move, fromId) {
   let seat = Number.isInteger(claimed) && claimed >= 0 && claimed < numPlayers ? claimed : -1;
   if (seat < 0) seat = senderSeat >= 0 ? senderSeat : turn;
 
-  if (!replayingSync) {
+  if (!replayTrusted) {
     if (senderSeat < 0) return false;
     if (move.auto === true) {
       if (seat === senderSeat || fromId !== proxyAuthorityId(seat)) return false;
@@ -2344,6 +2416,32 @@ function applyRemoteMove(move, fromId) {
 
   if (!players[seat] || players[seat].out) return false;   // unknown/folded/eliminated seat can't act
   if (seat !== turn) return false;
+
+  // A cover is a FORCED move, never a free one. Every client can derive it from
+  // state alone (same deal seed → same hands), so it must be exactly what the
+  // engine would have played for that seat: a pass when following, the engine's
+  // own minimal lead when leading. Without this an `auto` move was just a normal
+  // move wearing somebody else's seat, and the sender got to choose which cards
+  // came out of the victim's hand.
+  //
+  // Checked HERE, outside the !replayingSync block, on purpose: the sender-side
+  // checks above cannot run during replay (presence is not reconstructable), so
+  // a forged cover that every live client rejected was still applied by anyone
+  // who later resynced — a split table. This rule reads only replayable state,
+  // so live and replay always reach the same verdict. `fromId` is absent for
+  // moves replayed out of a checkpoint, so only validate the sender when we have
+  // one.
+  if (move.auto === true) {
+    if (fromId != null && (roomPlayerIds.indexOf(fromId) < 0 || fromId === roomPlayerIds[seat])) return false;
+    if (table) {
+      if (move.kind !== "pass") return false;
+    } else {
+      const forced = botLead(hands[seat], firstPlay);
+      const want = forced ? forced.cards.map(cardWire).sort((a, b) => a - b).join(",") : "";
+      const got = Array.isArray(move.cards) ? move.cards.map(Number).sort((a, b) => a - b).join(",") : "";
+      if (move.kind !== "play" || !want || want !== got) return false;
+    }
+  }
 
   let combo = null;
   if (move.kind === "pass") {
@@ -2371,22 +2469,31 @@ function applyRemoteMove(move, fromId) {
 }
 function onNetAction(data) {
   const sequence = Number(data.sequence);
+  lastNetAt = Date.now();       // the table is still audible — see netWatchdog
   if (Number.isFinite(sequence)) lastSeq = Math.max(lastSeq, sequence);
   // Clear our "sending…" state the moment we SEE our own action echoed — BEFORE
   // the dedup return. If a resync already applied this seq, the echo is a dup and
   // we'd skip out below; without clearing here first, pendingAction sticks true
   // forever and we can never move again ("Sending…" with the Play button dead).
   if (data.player_id === myId) pendingAction = false;
-  if (Number.isFinite(sequence)) {
-    if (alreadyApplied(sequence)) { renderControls(); return; }
-    appliedSequences.add(sequence);
-  }
+  if (Number.isFinite(sequence) && alreadyApplied(sequence)) { renderControls(); return; }
   const d = data.action_data || {};
-  if (data.action_type === "deal") onDeal(d, data.player_id);
+  let applied = true;
+  if (data.action_type === "deal") applied = onDeal(d, data.player_id) === true;
   // applyRemoteMove owns moveLog: it appends ONLY moves it actually applied, so a
   // move's index always equals its `ti` and checkpoint replay is bit-identical to
   // the live round.
-  else if (data.action_type === "move") applyRemoteMove(d, data.player_id);
+  else if (data.action_type === "move") applied = applyRemoteMove(d, data.player_id) === true;
+  // Record ONLY what actually landed. Marking a rejected action as applied
+  // punches a permanent hole in the record: syncResumePoint() would step over it
+  // and a later replay would skip the very action we still need.
+  if (Number.isFinite(sequence) && applied) appliedSequences.add(sequence);
+  // An action we could not apply usually means WE are the stale one — we missed
+  // the move it builds on, so it lands out of turn / on the wrong `ti`. (The
+  // benign causes — a losing deal race, a duplicate proxy cover, a forgery — are
+  // rare, and requestCatchUp is debounced and idempotent.) This is the only thing
+  // that notices a foreground client drifting behind on a healthy socket.
+  if (!applied) requestCatchUp();
 }
 function onNetRealtime(data) {
   if (data.player_id === myId) return;
@@ -2416,10 +2523,17 @@ function onNetRealtime(data) {
 // Catch-up replay (from requestSync). Each "deal" resets state, so replaying
 // the whole log from sequence 0 deterministically rebuilds the current round.
 function onNetSync(data) {
+  lastNetAt = Date.now();
   const actions = Array.isArray(data.actions) ? data.actions : [];
   const checkpoint = data.game_state;
   const hasCheckpoint = !!(checkpoint && checkpoint.seed !== undefined);
-  const shouldApplyCheckpoint = hasCheckpoint && (!gameStarted || snapshotIsNewer(checkpoint));
+  // A checkpoint is also worth taking when it holds more UNBROKEN history than we
+  // do, even if we have seen higher sequence numbers we could not use — that is
+  // precisely the client with a hole in the middle, which no action tail can heal
+  // once the log has been compacted past the gap.
+  const cpSeq = Number(checkpoint && checkpoint.seq);
+  const shouldApplyCheckpoint = hasCheckpoint &&
+    (!gameStarted || snapshotIsNewer(checkpoint) || (Number.isFinite(cpSeq) && cpSeq > syncResumePoint()));
   const hasUnappliedActions = actions.some(a => a.sequence === undefined || !alreadyApplied(a.sequence));
 
   // A join acknowledgement reports the server's top sequence before this client
@@ -2432,17 +2546,19 @@ function onNetSync(data) {
   try {
     actions.forEach(a => {
       const sequence = Number(a.sequence);
-      if (Number.isFinite(sequence)) {
-        if (alreadyApplied(sequence)) return;
-        appliedSequences.add(sequence);
-      }
+      if (Number.isFinite(sequence) && alreadyApplied(sequence)) return;
       const d = a.action_data || {};
-      if (a.action_type === "deal") onDeal(d, a.player_id);
-      else if (a.action_type === "move") applyRemoteMove(d, a.player_id);
-      // Advance only after this action has actually been considered locally.
-      // Invalid game actions are still consumed server sequences and are safely
-      // ignored by applyRemoteMove's deterministic validation.
-      if (Number.isFinite(sequence)) lastSeq = Math.max(lastSeq, sequence);
+      let ok = true;
+      if (a.action_type === "deal") ok = onDeal(d, a.player_id) === true;
+      else if (a.action_type === "move") ok = applyRemoteMove(d, a.player_id) === true;
+      // Advance only after this action has actually been considered locally, and
+      // remember it as applied only if it really was — see onNetAction. Invalid
+      // game actions still consume a server sequence and are safely ignored by
+      // applyRemoteMove's deterministic validation.
+      if (Number.isFinite(sequence)) {
+        if (ok) appliedSequences.add(sequence);
+        lastSeq = Math.max(lastSeq, sequence);
+      }
     });
   } finally {
     replayingSync = false;
@@ -2459,9 +2575,27 @@ function onDeal(d, fromId) {
   // raced before seeing each other's echo: the first stored deal wins and the
   // second cannot redeal everybody in the middle of the fresh hand.
   if (dealActive) return false;
-  if (!replayingSync) {
-    const expected = gameStarted ? proxyAuthorityId(-1) : roomPlayerIds[0];
-    if (fromId == null || fromId !== expected || (!gameStarted && d.order[0] !== expected)) return false;
+  if (gameStarted) {
+    // ANY SEATED PLAYER may deal the next round — that is exactly the staggered
+    // election scheduleNextDeal() runs, so the acceptance here has to match it.
+    // This used to demand proxyAuthorityId(-1) (the lowest seat still in
+    // presentIds), which froze the whole table whenever that player's phone was
+    // asleep: a locked phone never leaves presentIds, so every fallback deal was
+    // rejected and no round was ever dealt. Worse, the rejected deals stayed in
+    // the stored log and replay skipped this check, so the sleeper later woke
+    // into a round of its own while everybody else was still on the old results
+    // screen — a split table that never recovered.
+    //
+    // Deliberately NOT gated on presentIds or on replayingSync: seat order is
+    // frozen for the match, so every client and every replay reaches the same
+    // verdict, and a stored deal can never be applied by some clients and
+    // dropped by others. Receiving the action is itself proof the sender is in
+    // the room, and `if (dealActive) return false` above still collapses a deal
+    // race to the first stored deal.
+    if (fromId == null || !Array.isArray(roomPlayerIds) || roomPlayerIds.indexOf(fromId) < 0) return false;
+  } else if (!replayingSync) {
+    const expected = roomPlayerIds[0];   // pre-game the host owns the opening deal
+    if (fromId == null || fromId !== expected || d.order[0] !== expected) return false;
   }
   // Not seated in this match (e.g. wasn't ready when the host started) → stay in
   // the room instead of crashing on a -1 seat.

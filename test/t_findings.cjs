@@ -100,47 +100,88 @@ test("FINDING 1d: the table must recover once the sleeper picks their phone back
 
 // ── FINDING 2 — MEDIUM: a peer can drive another player's seat on demand.
 //
-// applyRemoteMove accepts a move flagged `auto:true` purely because the sender
-// is the elected proxy authority for that seat (script.js:2336-2340). It never
-// checks that the target is actually stalled. The proxy TIMERS are well guarded
-// (90s clock + 10s grace + epoch/ti checks) but nothing on the RECEIVING side
-// enforces them, so a modified client can act for another seat whenever it
-// likes — and since every client holds every hand (shared deal seed), it can
-// choose which cards the victim throws away.
+// applyRemoteMove accepted a move flagged `auto:true` purely because the sender
+// was the elected proxy authority for that seat, and never checked WHAT the
+// cover played. Since every client holds every hand (shared deal seed), the
+// sender could pick which cards came out of the victim's hand. Worse, the
+// sender checks sit inside `if (!replayingSync)` — presence is not
+// reconstructable — so a forged cover every live client rejected was still
+// applied by anyone who resynced afterwards: a split table.
 //
-// The equivalent leave path already gets this right: applyRemoteMove refuses a
-// leave_fold for a player who is in presentIds (script.js:2313).
-//
-// Suggested fix — the same idea for auto moves: refuse a cover for a seat we can
-// see is present and whose clock we watched start and has not run out, e.g.
-//     if (turnTrusted && presentIds.has(roomPlayerIds[seat]) && Date.now() < turnDeadline) return false;
+// Fixed by making a cover a FORCED move, validated from replayable state alone:
+// a pass when following, the engine's own minimal lead when leading. Same
+// verdict live and on replay.
 
-test("FINDING 2: a peer must not be able to force a present, awake player to pass", async () => {
-  const w = await matchAtTurn(4, 0);
-  const before = w.clients[0].snap();
-  eq(before.turn, 0, "seat 0 is on turn");
-  ok(before.present.includes("u1"), "and everyone can see they are present");
-  ok(before.turnLeft > 30, "with most of their turn clock left");
-  // seat 1 is proxyAuthorityId(0); it fires a cover move with no timer involved
-  w.clients[1].run('Usion.game.action("move", {kind:"pass", seat:0, ti:' + before.roundMoveNo + ', auto:true}).catch(function(){})');
-  await w.advance(3000);
-  const after = w.clients[0].snap();
-  eq(after.turn, before.turn, "the victim's turn was taken from them\n" + dump(w));
-  eq(after.roundMoveNo, before.roundMoveNo, "a forged cover move was counted as a real one");
-});
-
-test("FINDING 2b: …nor pick which cards that player throws away", async () => {
+test("FINDING 2: a peer must not be able to pick which cards another player throws", async () => {
   const w = await onlineWorld(4);
   await startMatch(w);
-  // at the start of a round the leader must PLAY (a lead cannot pass), so a
-  // forged cover dumps real cards out of the victim's hand
+  const lead = w.clients[0].snap().turn;              // a lead cannot pass, so it must PLAY
+  const attacker = w.clients[lead === 0 ? 1 : 0];
+  const before = w.clients[0].snap();
+  // the attacker picks a card of its own choosing out of the victim's hand,
+  // instead of the forced minimal lead the engine would have produced
+  const forged = attacker.read(
+    `(function () {
+       var hand = hands[${lead}];
+       var forcedTop = botLead(hand, firstPlay).cards.map(cardWire).sort().join(",");
+       for (var i = 0; i < hand.length; i++) {
+         var one = [cardWire(hand[i])];
+         if (one.sort().join(",") !== forcedTop) return one;
+       }
+       return null;
+     })()`);
+  ok(forged, "the victim has a card other than the forced lead");
+  attacker.run(`Usion.game.action("move", {kind:"play", seat:${lead}, ti:${before.roundMoveNo}, auto:true, cards:${JSON.stringify(forged)}}).catch(function(){})`);
+  await w.advance(3000);
+  eq(w.clients[0].snap().counts[lead], before.counts[lead],
+    "cards of someone else's choosing were played out of a live player's hand\n" + dump(w));
+  eq(w.clients[0].snap().roundMoveNo, before.roundMoveNo, "and the forged cover was counted as real");
+});
+
+test("FINDING 2b: a rejected cover must stay rejected after a resync", async () => {
+  const w = await onlineWorld(4);
+  await startMatch(w);
   const lead = w.clients[0].snap().turn;
   const attacker = w.clients[lead === 0 ? 1 : 0];
   const before = w.clients[0].snap();
-  attacker.run(`autoMove(${lead}, true)`);
+  const forged = attacker.read(
+    `(function () {
+       var hand = hands[${lead}];
+       var forcedTop = botLead(hand, firstPlay).cards.map(cardWire).sort().join(",");
+       for (var i = 0; i < hand.length; i++) {
+         var one = [cardWire(hand[i])];
+         if (one.sort().join(",") !== forcedTop) return one;
+       }
+       return null;
+     })()`);
+  attacker.run(`Usion.game.action("move", {kind:"play", seat:${lead}, ti:${before.roundMoveNo}, auto:true, cards:${JSON.stringify(forged)}}).catch(function(){})`);
   await w.advance(3000);
-  eq(w.clients[0].snap().counts[lead], before.counts[lead],
-    "cards were played out of a live player's hand by someone else\n" + dump(w));
+  // a client now rebuilds from the stored log, which still contains the forgery
+  const observer = w.clients[3];
+  observer.leaveRoom();
+  await w.advance(2000);
+  await rejoin(w, observer, 60 * 1000);
+  eq(observer.snap().counts, w.clients[0].snap().counts,
+    "the rejoining client replayed a forgery the live table had rejected\n" + dump(w));
+  eq(consistency(w), null, dump(w));
+});
+
+// RESIDUAL, documented rather than fixed: a seated peer can still make another
+// seat take the move the engine would have forced on it anyway (a pass while
+// following). Closing that needs the platform to gate who may write an `auto`
+// move — a client cannot prove how long another player has really had, because
+// replay has no clock and any timing rule would be judged differently live and
+// on replay, which is what produced the split table above. The damage is capped:
+// the forged move is exactly the one a timed-out player would have made.
+test("RESIDUAL (needs a platform-side gate): a forced pass can still be triggered early", async () => {
+  const w = await matchAtTurn(4, 0);
+  const before = w.clients[0].snap();
+  ok(before.turnLeft > 30, "the victim still has most of their clock");
+  w.clients[1].run('Usion.game.action("move", {kind:"pass", seat:0, ti:' + before.roundMoveNo + ', auto:true}).catch(function(){})');
+  await w.advance(3000);
+  const after = w.clients[0].snap();
+  eq(after.roundMoveNo, before.roundMoveNo + 1, "documented: the forced pass is accepted");
+  eq(consistency(w), null, "but every client agrees about it, so the table stays whole");
 });
 
 // ── FINDING 3 — LOW: nothing recovers a message lost on a live socket.

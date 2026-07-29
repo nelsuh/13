@@ -88,7 +88,7 @@ class SDK {
     this.handlers = {};
     this.initCb = null;
     this.left = false;
-    this.calls = { reportResult: [], leaderboard: [], notify: [], rematch: 0, setState: 0, setStateStale: 0 };
+    this.calls = { reportResult: [], leaderboard: [], notify: [], rematch: 0, setState: 0, setStateStale: 0, requestSync: 0, action: 0 };
   }
   fire(type, payload) {
     const h = this.handlers[type];
@@ -165,6 +165,7 @@ class SDK {
         leave: () => { self.leaveRoom(); return Promise.resolve({ success: true }); },
         isMultiplayer: () => self.launch.mode === "multiplayer",
         action: (type, data) => later(() => {
+          self.calls.action++;
           if (!self.connected || !self.room) throw new Error("offline");
           const room = self.room;
           const entry = {
@@ -195,6 +196,7 @@ class SDK {
           return { success: true };
         }),
         requestSync: (lastSeq) => {
+          self.calls.requestSync++;
           if (!self.connected || !self.room) return Promise.resolve({ success: false });
           const room = self.room;
           const from = Number(lastSeq) || 0;

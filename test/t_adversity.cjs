@@ -418,9 +418,96 @@ test("a stale checkpoint cannot roll a live round backwards", async () => {
   eq(consistency(w), null);
 });
 
+// ── live and replay must reach the same verdict ───────────────────────────
+// The sender checks cannot run when moves come out of a checkpoint (those carry
+// no sender id), but they MUST run when replaying the raw action log — the log
+// keeps what the live table rejected. These guard both directions.
+
+test("a real proxy cover survives a full rejoin", async () => {
+  const w = await matchAtTurn(4, 2);
+  const victim = w.clients[2];
+  victim.freeze();                                    // the seat genuinely stalls
+  await w.advance(140 * 1000);                        // 90s clock + 10s grace
+  const covered = w.clients[0].snap();
+  ok(covered.roundMoveNo > 0, "a cover move landed");
+  const observer = w.clients[3];
+  observer.leaveRoom();
+  await w.advance(2000);
+  await rejoin(w, observer, 60 * 1000);
+  eq(observer.snap().counts, w.clients[0].snap().counts,
+    "a rejoining client must keep the cover, not drop it as unverifiable\n" + dump(w));
+  eq(observer.snap().turn, w.clients[0].snap().turn);
+  victim.thaw();
+  await w.advance(90 * 1000);
+  await mustFinish(w, "cover + rejoin", { consistency: false });
+});
+
+test("a real fold survives a full rejoin", async () => {
+  const w = await onlineWorld(4);
+  await startMatch(w);
+  await driveUntil(w, () => w.clients[0].snap().roundMoveNo >= 2);
+  w.clients[3].leaveRoom();
+  await w.advance(30 * 1000);
+  eq(w.clients[0].snap().outs[3], true, "seat 3 folded");
+  const observer = w.clients[2];
+  observer.leaveRoom();
+  await w.advance(2000);
+  await rejoin(w, observer, 60 * 1000);
+  eq(observer.snap().outs, w.clients[0].snap().outs,
+    "a rejoining client must keep a legitimate fold\n" + dump(w));
+  await mustFinish(w, "fold + rejoin");
+});
+
+test("a forged fold cannot eliminate anyone, live or on replay", async () => {
+  const w = await onlineWorld(4);
+  await startMatch(w);
+  await driveUntil(w, () => w.clients[0].snap().roundMoveNo >= 2);
+  w.clients[1].run('Usion.game.action("move", {kind:"leave_fold", seat:0}).catch(function(){})');
+  w.clients[1].run('Usion.game.action("move", {kind:"forfeit_win", seat:2}).catch(function(){})');
+  await w.advance(5000);
+  eq(w.clients[0].snap().outs, [false, false, false, false], "nobody is folded live\n" + dump(w));
+  const observer = w.clients[3];
+  observer.leaveRoom();
+  await w.advance(2000);
+  await rejoin(w, observer, 60 * 1000);
+  eq(observer.snap().outs, [false, false, false, false],
+    "and the forgery must not take effect on a client that replays the log\n" + dump(w));
+  eq(consistency(w), null, dump(w));
+  await mustFinish(w, "forged fold + rejoin");
+});
+
+test("the catch-up nets stay quiet in a healthy match", async () => {
+  const w = await onlineWorld(4);
+  await startMatch(w);
+  const base = w.clients.map(c => c.sdk.calls.requestSync);
+  await mustFinish(w, "healthy match");
+  const minutes = Math.max(1, (w.clock.now - 0) / 60000);
+  w.clients.forEach((c, i) => {
+    const extra = c.sdk.calls.requestSync - base[i];
+    const moves = w.room.log.length;
+    ok(extra <= moves,
+      `${c.id} asked for ${extra} syncs over ${moves} logged actions — the watchdog is firing in a healthy game`);
+  });
+});
+
 // ── the server's sync model should not matter ─────────────────────────────
 
 for (const syncModel of ["full", "tail", "cpTailInclusive"]) {
+  test(`sync model '${syncModel}': a sleeping authority never holds up the next round`, async () => {
+    const w = await onlineWorld(3, { syncModel });
+    await startMatch(w);
+    const r = await driveUntil(w, () => w.clients[1].snap().overlays.hand, { budget: 20 * 60 * 1000 });
+    ok(r.ok, r.reason);
+    const epoch = w.clients[1].snap().dealEpoch;
+    w.clients[0].freeze();
+    await w.advance(60 * 1000);
+    ok(w.clients[1].snap().dealEpoch > epoch, syncModel + ": the fallback deal must land\n" + dump(w));
+    w.clients[0].thaw();
+    await w.advance(120 * 1000);
+    eq(consistency(w), null, syncModel + ": the sleeper must rejoin the same round\n" + dump(w));
+    await mustFinish(w, syncModel + " fallback deal");
+  });
+
   test(`sync model '${syncModel}': freeze + drop + rejoin all still converge`, async () => {
     const w = await onlineWorld(3, { syncModel });
     await startMatch(w);
