@@ -247,5 +247,27 @@ test("the chat button is hidden on the overlays and shown at the table", async (
   eq(w.clients[0].el("chatToggle").classList.contains("show-btn"), true, "shown once the match is on screen");
 });
 
+test("profile pictures render in the lobby and at every table seat", async () => {
+  const avatars = ["https://cdn.example/alice.jpg", "https://cdn.example/bob.jpg"];
+  const w = await onlineWorld(2, { avatars });
+  for (const c of w.clients) {
+    const lobbyImages = c.el("lobbyList").querySelectorAll("img");
+    eq(lobbyImages.length, 2, c.id + " should see both lobby profile pictures");
+    eq(lobbyImages[0].getAttribute("src"), avatars[0]);
+    eq(lobbyImages[1].getAttribute("src"), avatars[1]);
+  }
+
+  await startMatch(w);
+  for (let i = 0; i < w.clients.length; i++) {
+    const c = w.clients[i];
+    eq(JSON.stringify(c.snap().avatars), JSON.stringify(avatars), c.id + " should keep every seated avatar");
+    eq(c.el("meAvatar").querySelectorAll("img").length, 1, c.id + " should see their own profile picture");
+    eq(c.el("meAvatar").querySelector("img").getAttribute("src"), avatars[i]);
+    eq(c.el("opponents").querySelectorAll(".opp-avatar img").length, 1, c.id + " should see the opponent profile picture");
+  }
+  eq(JSON.stringify(w.room.state.avatars), JSON.stringify({ u1: avatars[0], u2: avatars[1] }),
+     "the reconnect checkpoint should preserve profile pictures");
+});
+
 if (require.main === module) run("ONLINE").then(r => process.exit(r.fails.length ? 1 : 0));
 module.exports = { run: () => run("ONLINE") };

@@ -445,6 +445,7 @@ const oppEl = document.getElementById("opponents");
 const turnLine = document.getElementById("turnLine");
 const tableComboEl = document.getElementById("tableCombo");
 const tableLabelEl = document.getElementById("tableLabel");
+const meAvatarEl = document.getElementById("meAvatar");
 const meNameEl = document.getElementById("meName");
 const meScoreEl = document.getElementById("meScore");
 const meStatusEl = document.getElementById("meStatus");
@@ -506,7 +507,43 @@ function makeCardEl(c) {
 }
 
 // ── Rendering ────────────────────────────────────────────
-function render() { renderOpponents(); renderTable(); renderHand(); renderControls(); updateTimers(); renderMyScore(); updateChatButton(); }
+function normalizeAvatar(value) {
+  if (typeof value !== "string") return null;
+  const src = value.trim();
+  return src && src.length <= 2048 ? src : null;
+}
+function avatarInitial(name, isBot) {
+  if (isBot) return "♣";
+  const chars = Array.from(String(name || "").trim());
+  return chars.length ? chars[0].toUpperCase() : "?";
+}
+function paintAvatar(el, name, avatar, isBot) {
+  if (!el) return;
+  const src = normalizeAvatar(avatar);
+  el.textContent = avatarInitial(name, isBot);
+  el.classList.toggle("bot-avatar", !!isBot);
+  el.setAttribute("aria-label", String(name || t("you")));
+  if (!src) return;
+  const img = document.createElement("img");
+  img.setAttribute("src", src);
+  img.setAttribute("alt", "");
+  img.setAttribute("draggable", "false");
+  img.addEventListener("error", () => img.remove());
+  el.appendChild(img);
+}
+function makeAvatarEl(name, avatar, className, isBot) {
+  const el = document.createElement("span");
+  el.className = "player-avatar" + (className ? " " + className : "");
+  paintAvatar(el, name, avatar, isBot);
+  return el;
+}
+function renderMyPlayer() {
+  const p = players[mySeat];
+  if (!p) return;
+  meNameEl.textContent = p.name;
+  paintAvatar(meAvatarEl, p.name, p.avatar, p.isBot);
+}
+function render() { renderMyPlayer(); renderOpponents(); renderTable(); renderHand(); renderControls(); updateTimers(); renderMyScore(); updateChatButton(); }
 function renderMyScore() { if (meScoreEl && players[mySeat]) meScoreEl.textContent = players[mySeat].total; }
 
 // ── Turn clock (per-player 2:00; auto-pass / auto-lead on expiry) ─────────
@@ -642,13 +679,18 @@ function renderOpponents() {
     const div = document.createElement("div");
     div.className = "opp opp--" + pos + (live ? " turn" : "") + (cnt === 0 ? " done" : "");
     div.dataset.seat = seat;
-    div.innerHTML =
-      '<div class="opp-name">' +
+    div.appendChild(makeAvatarEl(p.name, p.avatar, "opp-avatar", p.isBot));
+    const nameRow = document.createElement("div");
+    nameRow.className = "opp-name";
+    nameRow.innerHTML =
         '<span class="opp-timer seat-timer' + (live ? " live" : "") + '">' + ringSVG() + "</span>" +
         '<span class="opp-pname">' + escapeHtml(p.name) + "</span>" +
-        '<span class="opp-score">' + p.total + "</span>" +
-      "</div>" +
-      '<div class="opp-fan">' + '<div class="mini-back"></div>'.repeat(cnt) + "</div>";
+        '<span class="opp-score">' + p.total + "</span>";
+    div.appendChild(nameRow);
+    const fan = document.createElement("div");
+    fan.className = "opp-fan";
+    fan.innerHTML = '<div class="mini-back"></div>'.repeat(cnt);
+    div.appendChild(fan);
     oppEl.appendChild(div);
   }
 }
@@ -1218,7 +1260,8 @@ document.getElementById("startBtn").addEventListener("click", () => {
   const myName = (document.getElementById("nameInput").value || t("you")).slice(0, 10);
   players = [];
   for (let i = 0; i < numPlayers; i++) {
-    players.push({ name: i === 0 ? myName : t("botNames")[i], color: PLAYER_COLORS[i], isBot: i !== 0, total: 0, out: false });
+    players.push({ name: i === 0 ? myName : t("botNames")[i], avatar: i === 0 ? myAvatar : null,
+                   color: PLAYER_COLORS[i], isBot: i !== 0, total: 0, out: false });
   }
   online = false;
   mySeat = 0;
@@ -1437,6 +1480,7 @@ function currentCheckpoint() {
     firstDeal: roundFirstDeal, lastWinner: roundLastWinner,
     loseAt: loseAt,          // host's elimination threshold, so reconnects/late joiners match
     names: nameMap(),
+    avatars: avatarMap(),
     // Freshness is the SERVER's action sequence, never a wall clock: `version`
     // used to be Date.now(), which is compared ACROSS DEVICES — a few seconds of
     // clock skew (routine on phones) made a stale snapshot look newer than a live
@@ -1515,7 +1559,8 @@ function applyCheckpoint(state) {
   // A live match has frozen seating. A checkpoint may restore that match, but it
   // must never be able to replace its roster (including via a forged state_push).
   if (gameStarted && !sameSeatOrder(state.order, roomPlayerIds)) return false;
-  applyNames(state.names);                              // host-supplied names before seating
+  applyNames(state.names);                              // host-supplied identities before seating
+  applyAvatars(state.avatars);
   if (!gameStarted && !startOnlineGame({ order: state.order })) return false;
   roomPlayerIds = state.order.slice();
   numPlayers = roomPlayerIds.length;
@@ -1615,7 +1660,7 @@ if (window.Usion && Usion.init) {
       applyLang(detectLang());   // the platform's language setting is known now
       myId = config.userId;
       if (config.userName) myName = config.userName;
-      if (config.userAvatar) myAvatar = config.userAvatar;
+      if (config.userAvatar) myAvatar = normalizeAvatar(config.userAvatar);
       if (config.playerIds) roomPlayerIds = config.playerIds.slice();   // platform-provided roster (playerIds[0] = host)
       playerMeta[myId] = { name: myName || t("you"), avatar: myAvatar };
       presentIds.add(myId);
@@ -2115,14 +2160,27 @@ function renderLobby() {
   if (spinner) spinner.style.display = ids.length ? "none" : "block";
   list.innerHTML = "";
   ids.forEach((id, i) => {
-    const nm = (playerMeta[id] && playerMeta[id].name) || (id === myId ? (myName || t("you")) : t("playerN", i + 1));
+    const meta = playerMeta[id] || {};
+    const nm = meta.name || (id === myId ? (myName || t("you")) : t("playerN", i + 1));
+    const avatar = meta.avatar || (id === myId ? myAvatar : null);
     const ready = !!lobbyReady[id];
     const row = document.createElement("div");
     row.className = "lobby-row" + (id === myId ? " me" : "");
-    row.innerHTML =
-      '<span class="lobby-seat">' + (i + 1) + "</span>" +
-      '<span class="lobby-name">' + escapeHtml(nm) + (id === hostId ? ' <span class="lobby-tag">' + t("hostTag") + "</span>" : "") + "</span>" +
-      '<span class="lobby-badge ' + (ready ? "ready" : "wait") + '">' + (ready ? t("ready") : t("notReady")) + "</span>";
+    row.appendChild(makeAvatarEl(nm, avatar, "lobby-avatar", false));
+    const nameEl = document.createElement("span");
+    nameEl.className = "lobby-name";
+    nameEl.textContent = nm;
+    if (id === hostId) {
+      const tag = document.createElement("span");
+      tag.className = "lobby-tag";
+      tag.textContent = " " + t("hostTag");
+      nameEl.appendChild(tag);
+    }
+    row.appendChild(nameEl);
+    const badge = document.createElement("span");
+    badge.className = "lobby-badge " + (ready ? "ready" : "wait");
+    badge.textContent = ready ? t("ready") : t("notReady");
+    row.appendChild(badge);
     list.appendChild(row);
   });
   const present = ids.length;
@@ -2190,7 +2248,8 @@ function startBotsGame() {
   loseAt = 20;                          // GameTok: 4-player road to 20 points
   players = [];
   for (let i = 0; i < numPlayers; i++) {
-    players.push({ name: i === 0 ? nm : t("botNames")[i], color: PLAYER_COLORS[i], isBot: i !== 0, total: 0, out: false });
+    players.push({ name: i === 0 ? nm : t("botNames")[i], avatar: i === 0 ? myAvatar : null,
+                   color: PLAYER_COLORS[i], isBot: i !== 0, total: 0, out: false });
   }
   mySeat = 0;
   firstDeal = true; lastWinner = -1;
@@ -2246,6 +2305,7 @@ function startOnlineGame(data) {
   firstDeal = true; lastWinner = -1;
   players = roomPlayerIds.map((id, i) => ({
     name: (playerMeta[id] && playerMeta[id].name) || (id === myId ? (myName || t("you")) : t("playerN", i + 1)),
+    avatar: (playerMeta[id] && playerMeta[id].avatar) || (id === myId ? myAvatar : null),
     color: PLAYER_COLORS[i], isBot: false, total: 0, out: false
   }));
   meNameEl.textContent = players[mySeat].name;
@@ -2273,9 +2333,24 @@ function nameMap() {
   roomPlayerIds.forEach(id => { const nm = playerMeta[id] && playerMeta[id].name; if (nm) m[id] = nm; });
   return m;
 }
+function avatarMap() {
+  const m = {};
+  roomPlayerIds.forEach(id => {
+    const avatar = normalizeAvatar(playerMeta[id] && playerMeta[id].avatar);
+    if (avatar) m[id] = avatar;
+  });
+  return m;
+}
 function applyNames(map) {
   if (!map) return;
   for (const id in map) playerMeta[id] = Object.assign(playerMeta[id] || {}, { name: map[id] });
+}
+function applyAvatars(map) {
+  if (!map) return;
+  for (const id in map) {
+    const avatar = normalizeAvatar(map[id]);
+    if (avatar) playerMeta[id] = Object.assign(playerMeta[id] || {}, { avatar: avatar });
+  }
 }
 // Deal a round. Callers decide WHO may call it: the lobby start is host-only
 // (hostStartGame), later rounds go through scheduleNextDeal's staggered rank.
@@ -2287,7 +2362,7 @@ function hostDeal(reset) {
   // this, a client with stale firstDeal/lastWinner computes a different starter.
   // reset:true = a REMATCH deal — every client zeroes its match state (totals,
   // eliminations) in onDeal before dealing, so the whole table restarts as one.
-  const d = { seed: curSeed, order: roomPlayerIds, names: nameMap(),
+  const d = { seed: curSeed, order: roomPlayerIds, names: nameMap(), avatars: avatarMap(),
               firstDeal: reset ? true : firstDeal, lastWinner: reset ? -1 : lastWinner,
               loseAt: loseAt };   // host owns the elimination threshold → every client adopts it
   if (reset) d.reset = true;
@@ -2499,7 +2574,11 @@ function onNetRealtime(data) {
   if (data.player_id === myId) return;
   const d = data.action_data || {};
   if (data.action_type === "player_info") {
-    playerMeta[data.player_id] = { name: d.name, avatar: d.avatar };
+    const previous = playerMeta[data.player_id] || {};
+    playerMeta[data.player_id] = {
+      name: (typeof d.name === "string" && d.name) ? d.name : previous.name,
+      avatar: normalizeAvatar(d.avatar)
+    };
     presentIds.add(data.player_id);
     if (typeof d.ready === "boolean") lobbyReady[data.player_id] = d.ready;
     // Adopt the match length only from the host, and only from the offered set —
@@ -2600,7 +2679,8 @@ function onDeal(d, fromId) {
   // Not seated in this match (e.g. wasn't ready when the host started) → stay in
   // the room instead of crashing on a -1 seat.
   if (!gameStarted && Array.isArray(d.order) && d.order.indexOf(myId) < 0) { showNotSeated(); return; }
-  applyNames(d.names);                 // adopt host-supplied names before seating
+  applyNames(d.names);                 // adopt host-supplied identities before seating
+  applyAvatars(d.avatars);
   if (!gameStarted && !startOnlineGame({ order: d.order })) return;
   if (gameStarted && !sameSeatOrder(d.order, roomPlayerIds)) return;
   else refreshNames();                 // later rounds: update any "Player N" already shown
@@ -2630,6 +2710,10 @@ function onDeal(d, fromId) {
   return true;
 }
 function refreshNames() {
-  roomPlayerIds.forEach((id, i) => { if (players[i] && playerMeta[id] && playerMeta[id].name) players[i].name = playerMeta[id].name; });
-  if (players[mySeat]) meNameEl.textContent = players[mySeat].name;
+  roomPlayerIds.forEach((id, i) => {
+    if (!players[i] || !playerMeta[id]) return;
+    if (playerMeta[id].name) players[i].name = playerMeta[id].name;
+    players[i].avatar = normalizeAvatar(playerMeta[id].avatar);
+  });
+  renderMyPlayer();
 }

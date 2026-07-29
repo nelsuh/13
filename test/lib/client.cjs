@@ -62,6 +62,7 @@ function __snapshot() {
     totals: (players || []).map(function (p) { return p.total; }),
     outs: (players || []).map(function (p) { return !!p.out; }),
     names: (players || []).map(function (p) { return p.name; }),
+    avatars: (players || []).map(function (p) { return p.avatar || null; }),
     order: (roomPlayerIds || []).slice(),
     present: Array.from(presentIds),
     moveLogLen: moveLog.length,

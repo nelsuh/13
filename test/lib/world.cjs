@@ -43,7 +43,8 @@ async function onlineWorld(n, opts = {}) {
   for (let i = 0; i < n; i++) {
     const id = "u" + (i + 1);
     const c = w.add(id, NAMES[i], { mode: "multiplayer", roomId: w.roomId });
-    c.start({ userId: id, userName: NAMES[i], roomId: w.roomId, playerIds: [] });
+    c.start({ userId: id, userName: NAMES[i], userAvatar: opts.avatars && opts.avatars[i],
+              roomId: w.roomId, playerIds: [] });
     await w.advance(50);       // stagger joins so the roster order is deterministic
   }
   await w.advance(600);
