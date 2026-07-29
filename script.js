@@ -93,14 +93,6 @@ const STR = {
     moveFail: "Нүүдэл илгээж чадсангүй",
     leaveFail: "Гаралтын төлөв илгээж чадсангүй",
     leftGrace: s => "Тоглогч гарлаа — дахин нэгдэхийг хүлээж байна… (" + s + "с)",
-    nWonTitle: "Та хожлоо! 🎉",
-    nWonBody: "Та Монгол Покерын тоглолтод хожлоо",
-    nLostTitle: "Тоглолт дууслаа",
-    nLostBody: "Таны Монгол Покерын тоглолт дууслаа",
-    nTurnTitle: "Таны ээлж",
-    nTurnBody: "Монгол Покерт таны явах ээлж",
-    nLeftTitle: "Өрсөлдөгч гарлаа",
-    nLeftBody: "Таны Монгол Покерын тоглолтоос тоглогч гарлаа",
     rematchWait: "Хост дахин тоглолт эхлүүлэхийг хүлээж байна…",
     rematchWants: n => n + " дахин тоглохыг хүсэж байна",
     title: "МОНГОЛ ПОКЕР",
@@ -175,14 +167,6 @@ const STR = {
     moveFail: "Couldn't send the move",
     leaveFail: "Couldn't send the leave outcome",
     leftGrace: s => "A player left — waiting for them to rejoin… (" + s + "s)",
-    nWonTitle: "You won! 🎉",
-    nWonBody: "You won your Mongol Poker match",
-    nLostTitle: "Match over",
-    nLostBody: "Your Mongol Poker match has ended",
-    nTurnTitle: "Your turn",
-    nTurnBody: "It's your move in Mongol Poker",
-    nLeftTitle: "Opponent left",
-    nLeftBody: "A player left your Mongol Poker match",
     rematchWait: "Waiting for the host to start a rematch…",
     rematchWants: n => n + " wants a rematch",
     title: "MONGOL POKER",
@@ -870,7 +854,6 @@ function startDeal(seed) {
 
 function beginTurn() {
   render();
-  maybeNotifyTurn();
   turnTrusted = !replayingSync;   // replay → we're reconstructing, not observing
   startTurnTimer();
   if (!dealActive || online) return;
@@ -1305,12 +1288,11 @@ const presentIds = new Set();   // player ids currently in the room (connected)
 let lobbyReady = {};            // id → bool ready flag
 let myReady = false;            // my own ready toggle
 
-// ── Usion capabilities: cloud stats · leaderboard · notify · checkpoint ──
+// ── Usion capabilities: cloud stats · leaderboard · checkpoint ──
 // All wrappers are defensive: missing modules / standalone preview must never
 // throw (a thrown error in init blanks the game). They no-op gracefully.
 let myStats = { wins: 0, losses: 0, games: 0 };
 let statsRecordedThisGame = false;
-let lastTurnNotified = false;
 const STATS_KEY = "mp13:stats";
 
 function isHostPlayer() {
@@ -1349,32 +1331,6 @@ function submitLeaderboard() {
   } catch (_) {}
 }
 
-// Notifications are permission-gated (SDK ≥ 2.17): without a grant,
-// Usion.notify.send() returns delivered:'blocked'. We ask ONCE when an online
-// match starts, remember the answer, and only send while the app is hidden
-// (foreground play doesn't need a banner about itself). The host prefixes the
-// app's name as the notification title, so `title` here is the actual message.
-let notifyAsked = false;
-let notifyGranted = false;
-async function ensureNotifyPermission() {
-  if (notifyAsked) return;
-  notifyAsked = true;
-  try {
-    if (window.Usion && Usion.permissions && Usion.permissions.request) {
-      const res = await Usion.permissions.request(["notifications"]);
-      notifyGranted = !!(res && (res.granted === true || (res.permissions && res.permissions.notifications)));
-    }
-  } catch (_) {}
-}
-function notifySelf(title, body) {
-  try {
-    if (notifyGranted && window.Usion && Usion.notify && document.hidden) {
-      const p = Usion.notify.send({ title, body });
-      if (p && p.catch) p.catch(() => {});
-    }
-  } catch (_) {}
-}
-
 // Record MY outcome exactly once per multiplayer match (idempotent across paths).
 function recordOutcome(iWon) {
   if (statsRecordedThisGame || !online) return;
@@ -1382,10 +1338,8 @@ function recordOutcome(iWon) {
   myStats.games += 1;
   if (iWon) {
     myStats.wins += 1;
-    notifySelf(t("nWonTitle"), t("nWonBody"));
   } else {
     myStats.losses += 1;
-    notifySelf(t("nLostTitle"), t("nLostBody"));
   }
   persistStats();
   submitLeaderboard();
@@ -1447,16 +1401,6 @@ function reportMatchResult(champSeat, rankedSeats) {
   try {
     Usion.game.reportResult(payload).catch(function () {});
   } catch (_) { /* result delivery must never block the winner screen */ }
-}
-
-function maybeNotifyTurn() {
-  if (!online || !dealActive) { lastTurnNotified = false; return; }
-  const myTurn = turn === mySeat;
-  if (myTurn && document.hidden && !lastTurnNotified) {
-    lastTurnNotified = true;
-    notifySelf(t("nTurnTitle"), t("nTurnBody"));
-  }
-  if (!myTurn) lastTurnNotified = false;
 }
 
 // Persist the authoritative round state so a reconnecting/returning client
@@ -2120,7 +2064,6 @@ function onPlayerLeft(data) {
   //   activeAfter ≤ 1 → match-ending forfeit;  else → plain fold, play continues.
   // EVERY client runs the countdown (it's also the on-screen "left — 20s" line);
   // exactly one elected live client writes each expired outcome.
-  notifySelf(t("nLeftTitle"), t("nLeftBody"));
   startForfeitGrace(seat, data.player_id);
 }
 function updateOnlineStatus() {
@@ -2296,8 +2239,6 @@ function startOnlineGame(data) {
   gameStarted = true; online = true;
   statsRecordedThisGame = false;   // new match → allow recording its outcome once
   resultReportedThisGame = false;
-  lastTurnNotified = false;
-  ensureNotifyPermission();        // one-time host prompt; fire-and-forget
   roomPlayerIds = data.order;
   numPlayers = roomPlayerIds.length;
   mySeat = roomPlayerIds.indexOf(myId);
@@ -2691,7 +2632,6 @@ function onDeal(d, fromId) {
     players.forEach(p => { p.total = 0; p.out = false; });
     statsRecordedThisGame = false;
     resultReportedThisGame = false;
-    lastTurnNotified = false;
   }
   document.getElementById("winnerOverlay").classList.remove("show");
   const rs = document.getElementById("rematchStatus");

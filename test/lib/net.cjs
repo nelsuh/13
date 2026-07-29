@@ -88,7 +88,7 @@ class SDK {
     this.handlers = {};
     this.initCb = null;
     this.left = false;
-    this.calls = { reportResult: [], leaderboard: [], notify: [], rematch: 0, setState: 0, setStateStale: 0, requestSync: 0, action: 0 };
+    this.calls = { reportResult: [], leaderboard: [], rematch: 0, setState: 0, setStateStale: 0, requestSync: 0, action: 0 };
   }
   fire(type, payload) {
     const h = this.handlers[type];
@@ -138,8 +138,6 @@ class SDK {
       init(cb) { self.initCb = cb; },
       getLanguage: () => "mn",
       getLaunchParams: () => Object.assign({}, self.launch),
-      permissions: { request: () => Promise.resolve({ granted: false }) },
-      notify: { send: (m) => { self.calls.notify.push(m); return Promise.resolve({ delivered: "blocked" }); } },
       cloud: { get: () => Promise.resolve(null), set: () => Promise.resolve({}), shared: { incr: () => Promise.resolve({}) } },
       leaderboard: { submit: (v) => { self.calls.leaderboard.push(v); return Promise.resolve({ success: true }); } },
       game: {
