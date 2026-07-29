@@ -110,6 +110,23 @@ body {
 }
 .player-avatar.bot-avatar { background: linear-gradient(145deg, #725d25, #2d260f); }
 
+/* The countdown is the avatar border: a full yellow ring at rest which drains
+   clockwise during that player's turn. */
+.profile-timer {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.profile-timer > .seat-timer {
+  position: absolute;
+  inset: -3px;
+  z-index: 2;
+  width: calc(100% + 6px);
+  height: calc(100% + 6px);
+  pointer-events: none;
+}
+
 /* ── Opponents (seated around the table, shown as fanned card backs) ── */
 .opponents { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
 .opp {
@@ -124,25 +141,22 @@ body {
   display: flex; align-items: center; gap: 5px;
   max-width: 100%; font-size: 11px; font-weight: 700; letter-spacing: .2px;
 }
-.opp-avatar { width: 38px; height: 38px; }
-.opp--top .opp-avatar { width: 42px; height: 42px; }
-/* per-seat turn clock — solid pie countdown: a filled wedge that depletes as
-   the turn elapses (a thick stroke on a small-radius circle paints a full disc;
-   pathLength=100 drives the wedge with a 0–100 dashoffset). */
+.opp-profile-timer { width: 38px; height: 38px; }
+.opp--top .opp-profile-timer { width: 42px; height: 42px; }
+.opp-avatar { width: 100%; height: 100%; }
+/* Per-seat countdown ring. pathLength=100 drives the arc with a 0–100 offset. */
 .seat-timer { position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .seat-timer svg { display: block; width: 100%; height: 100%; transform: rotate(-90deg); filter: drop-shadow(0 1px 2px rgba(0,0,0,.45)); }
-.seat-timer .ring-bg { fill: rgba(0,0,0,.42); stroke: rgba(255,255,255,.22); stroke-width: 1; }
+.seat-timer .ring-bg { fill: none; stroke: rgba(0,0,0,.5); stroke-width: 3; }
 .seat-timer .ring-fg {
-  fill: none; stroke: rgba(247,242,228,.32); stroke-width: 15.5;
+  fill: none; stroke: var(--gold); stroke-width: 3; stroke-linecap: round;
   stroke-dasharray: 100; stroke-dashoffset: 0;
-  transition: stroke-dashoffset 1s linear, stroke .3s;
+  transition: stroke-dashoffset 1s linear;
 }
 .seat-timer.live .ring-fg { stroke: var(--gold); }
 .seat-timer.warn { animation: pulseTime 1s ease-in-out infinite; }
-.seat-timer.warn .ring-fg { stroke: var(--suit-red); }
 @keyframes pulseTime { 50% { opacity: .62; } }
 
-.opp-timer { width: 18px; height: 18px; }
 .opp-pname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .opp-score { margin-left: 2px; font-family: "Noto Serif", serif; font-weight: 800; color: var(--gold-hi); }
 .opp-fan {
@@ -250,13 +264,13 @@ body {
 /* ── My hand (fanned) ── */
 .me-area { margin-top: 8px; }
 .me-bar { display: flex; align-items: center; gap: 8px; padding: 0 6px 6px; }
-.me-avatar { width: 36px; height: 36px; font-size: 14px; }
+.me-profile-timer { width: 36px; height: 36px; }
+.me-avatar { width: 100%; height: 100%; font-size: 14px; }
 .me-name { font-family: "Noto Serif", serif; font-size: 14px; font-weight: 800; color: var(--gold-hi); }
 .me-score { font-family: "Noto Serif", serif; font-size: 14px; font-weight: 800; color: var(--gold-hi); }
-.me-status { font-size: 11px; font-weight: 600; color: var(--text-dim); text-align: right; }
+.me-status { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--text-dim); text-align: right; }
 .me-status.good { color: var(--good); }
 .me-status.bad { color: var(--danger); }
-.me-timer { width: 24px; height: 24px; margin-left: auto; }
 
 .hand { display: flex; justify-content: center; align-items: flex-end; height: 122px; padding: 40px 6px 0; }
 .hand .card {

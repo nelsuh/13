@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600;700;800&family=Noto+Sans:wght@400;500;600;700;800&family=Noto+Serif:wght@700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=40">
+<link rel="stylesheet" href="style.css?v=41">
 </head>
 
 <body>
@@ -28,16 +28,18 @@
   <!-- My seat -->
   <div class="me-area">
     <div class="me-bar">
-      <span class="player-avatar me-avatar" id="meAvatar" aria-label="Та">Т</span>
+      <span class="profile-timer me-profile-timer">
+        <span class="player-avatar me-avatar" id="meAvatar" aria-label="Та">Т</span>
+        <span class="me-timer seat-timer" id="meTimer">
+          <svg viewBox="0 0 36 36">
+            <circle class="ring-bg" cx="18" cy="18" r="15.5"></circle>
+            <circle class="ring-fg" cx="18" cy="18" r="15.5" pathLength="100"></circle>
+          </svg>
+        </span>
+      </span>
       <span class="me-name" id="meName">Та</span>
       <span class="me-score" id="meScore">0</span>
       <span class="me-status" id="meStatus"></span>
-      <span class="me-timer seat-timer" id="meTimer">
-        <svg viewBox="0 0 36 36">
-          <circle class="ring-bg" cx="18" cy="18" r="15.5"></circle>
-          <circle class="ring-fg" cx="18" cy="18" r="7.75" pathLength="100"></circle>
-        </svg>
-      </span>
     </div>
     <div class="hand" id="hand"></div>
     <div class="controls">
@@ -144,7 +146,7 @@
 <button id="skinToggle" class="skin-toggle" aria-label="Ширээний өнгө солих"></button>
 
 <script src="https://usions.com/usion-sdk.js"></script>
-<script src="script.js?v=54"></script>
+<script src="script.js?v=55"></script>
 
 </body>
 </html>

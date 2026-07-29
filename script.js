@@ -532,13 +532,12 @@ function renderMyScore() { if (meScoreEl && players[mySeat]) meScoreEl.textConte
 
 // ── Turn clock (per-player 2:00; auto-pass / auto-lead on expiry) ─────────
 function fmtTime(s) { s = Math.max(0, s | 0); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
-// A circular countdown ring: the foreground arc depletes as the turn elapses,
-// with the remaining time shown in the centre. pathLength=100 lets us drive the
-// arc with a 0–100 dashoffset regardless of the circle's radius.
+// A circular countdown ring around the profile photo. pathLength=100 lets us
+// drive the arc with a 0–100 dashoffset regardless of its rendered size.
 function ringSVG() {
   return '<svg viewBox="0 0 36 36">' +
     '<circle class="ring-bg" cx="18" cy="18" r="15.5"></circle>' +
-    '<circle class="ring-fg" cx="18" cy="18" r="7.75" pathLength="100"></circle>' +
+    '<circle class="ring-fg" cx="18" cy="18" r="15.5" pathLength="100"></circle>' +
     '</svg>';
 }
 function setTimerEl(el, live, secs) {
@@ -663,11 +662,17 @@ function renderOpponents() {
     const div = document.createElement("div");
     div.className = "opp opp--" + pos + (live ? " turn" : "") + (cnt === 0 ? " done" : "");
     div.dataset.seat = seat;
-    div.appendChild(makeAvatarEl(p.name, p.avatar, "opp-avatar", p.isBot));
+    const profileTimer = document.createElement("span");
+    profileTimer.className = "profile-timer opp-profile-timer";
+    profileTimer.appendChild(makeAvatarEl(p.name, p.avatar, "opp-avatar", p.isBot));
+    const timer = document.createElement("span");
+    timer.className = "opp-timer seat-timer" + (live ? " live" : "");
+    timer.innerHTML = ringSVG();
+    profileTimer.appendChild(timer);
+    div.appendChild(profileTimer);
     const nameRow = document.createElement("div");
     nameRow.className = "opp-name";
     nameRow.innerHTML =
-        '<span class="opp-timer seat-timer' + (live ? " live" : "") + '">' + ringSVG() + "</span>" +
         '<span class="opp-pname">' + escapeHtml(p.name) + "</span>" +
         '<span class="opp-score">' + p.total + "</span>";
     div.appendChild(nameRow);

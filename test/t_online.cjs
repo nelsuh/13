@@ -264,6 +264,11 @@ test("profile pictures render in the lobby and at every table seat", async () =>
     eq(c.el("meAvatar").querySelectorAll("img").length, 1, c.id + " should see their own profile picture");
     eq(c.el("meAvatar").querySelector("img").getAttribute("src"), avatars[i]);
     eq(c.el("opponents").querySelectorAll(".opp-avatar img").length, 1, c.id + " should see the opponent profile picture");
+    ok(c.el("meTimer").parentNode.classList.contains("me-profile-timer"), c.id + " should have the timer around their avatar");
+    eq(c.el("opponents").querySelectorAll(".opp-profile-timer .opp-timer").length, 1,
+       c.id + " should have the timer around the opponent avatar");
+    eq(c.el("opponents").querySelectorAll(".opp-name .opp-timer").length, 0,
+       c.id + " should not show a separate timer beside the opponent name");
   }
   eq(JSON.stringify(w.room.state.avatars), JSON.stringify({ u1: avatars[0], u2: avatars[1] }),
      "the reconnect checkpoint should preserve profile pictures");
