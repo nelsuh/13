@@ -283,68 +283,161 @@ function allCombos(hand) {
   hand.forEach(c => out.push(classify([c])));
   ranks.forEach(r => {
     const g = m[r];
-    if (g.length >= 2) out.push(classify(g.slice(-2)));
-    if (g.length >= 3) out.push(classify(g.slice(-3)));
+    chooseCards(g, 2, cards => out.push(classify(cards)));
+    chooseCards(g, 3, cards => out.push(classify(cards)));
     if (g.length >= 4) out.push(classify(g.slice(0, 4)));
   });
-  push5(out, hand, m, ranks);
+  pushAll5(out, hand, m, ranks);
   return out.filter(Boolean);
 }
-function push5(out, hand, m, ranks) {
-  const bySuit = { 0: [], 1: [], 2: [], 3: [] };
-  hand.forEach(c => bySuit[c.s].push(c));
-  for (const s in bySuit) bySuit[s].sort((a, b) => cardStrength(a) - cardStrength(b));
-  // straights & straight flushes (windows of 5 consecutive straight positions)
+
+// Generate every legal five-card subset by category instead of classifying all
+// 1,287 possible subsets. This remains complete while keeping bot turns quick.
+function pushAll5(out, hand, m, ranks) {
+  const seen = new Set();
+  function add(cards) {
+    const key = cards.map(cardWire).sort((a, b) => a - b).join(",");
+    if (seen.has(key)) return;
+    seen.add(key);
+    const combo = classify(cards);
+    if (combo) out.push(combo);
+  }
+
+  // Every suit choice for every straight window (including straight flushes).
   for (let p = 0; p <= 8; p++) {
     const wr = [p, p + 1, p + 2, p + 3, p + 4].map(posToRank);
     if (!wr.every(r => m[r])) continue;
-    const pick = wr.map((r, i) => i === 4 ? m[r][m[r].length - 1] : m[r][0]);  // top suit on high end
-    out.push(classify(pick));
-    for (const s of [0, 1, 2, 3]) {
-      if (wr.every(r => m[r].some(c => c.s === s))) out.push(classify(wr.map(r => m[r].find(c => c.s === s))));
-    }
+    chooseAcross(wr.map(r => m[r]), 0, [], add);
   }
-  // flushes (5 of a suit → highest 5)
-  for (const s of [0, 1, 2, 3]) if (bySuit[s].length >= 5) out.push(classify(bySuit[s].slice(-5)));
-  // full houses (triple + pair)
+
+  // Every five-card flush, not merely the highest five.
+  const bySuit = { 0: [], 1: [], 2: [], 3: [] };
+  hand.forEach(c => bySuit[c.s].push(c));
+  for (const s of [0, 1, 2, 3]) chooseCards(bySuit[s], 5, add);
+
+  // Every triple/pair allocation for a full house.
   ranks.forEach(tr => {
     if (m[tr].length < 3) return;
-    ranks.forEach(pr => { if (pr !== tr && m[pr].length >= 2) out.push(classify(m[tr].slice(-3).concat(m[pr].slice(-2)))); });
+    ranks.forEach(pr => {
+      if (pr === tr || m[pr].length < 2) return;
+      chooseCards(m[tr], 3, triple => {
+        chooseCards(m[pr], 2, pair => add(triple.concat(pair)));
+      });
+    });
   });
-  // four + 1
+
+  // Every kicker for four-of-a-kind plus one.
   ranks.forEach(qr => {
     if (m[qr].length !== 4) return;
-    const others = hand.filter(c => c.r !== qr).sort((a, b) => cardStrength(a) - cardStrength(b));
-    if (others.length) out.push(classify(m[qr].concat(others[0])));
+    hand.forEach(card => { if (card.r !== qr) add(m[qr].concat(card)); });
   });
+}
+
+function chooseAcross(groups, index, picked, visit) {
+  if (index === groups.length) { visit(picked.slice()); return; }
+  groups[index].forEach(card => {
+    picked.push(card);
+    chooseAcross(groups, index + 1, picked, visit);
+    picked.pop();
+  });
+}
+
+function chooseCards(cards, count, visit, start, picked) {
+  start = start || 0;
+  picked = picked || [];
+  if (picked.length === count) { visit(picked.slice()); return; }
+  for (let i = start; i <= cards.length - (count - picked.length); i++) {
+    picked.push(cards[i]);
+    chooseCards(cards, count, visit, i + 1, picked);
+    picked.pop();
+  }
 }
 
 function isPrecious(c) {
   return (c.len === 1 && c.cards[0].r === 15) || c.type === "four" || c.type === "fourplus" || c.type === "sflush";
 }
-function botLead(hand, mustIncludeLow) {
-  let pool = allCombos(hand);
-  if (mustIncludeLow) {
-    const lc = lowestCard(hand);
-    pool = pool.filter(c => c.cards.some(x => sameCard(x, lc)));
-    if (!pool.length) return classify([lowestCard(hand)]);
+
+// Build a tiny exact-cover planner for this hand. `turns(mask)` is the fewest
+// legal plays needed to shed the cards in mask, ignoring what opponents may put
+// on the table. There are at most 2^13 states, and forcing every partition to
+// cover its first remaining card avoids exploring the same plays in every order.
+function buildHandPlanner(hand) {
+  const combos = allCombos(hand).map(combo => {
+    let mask = 0;
+    combo.cards.forEach(card => {
+      const i = hand.findIndex(c => sameCard(c, card));
+      if (i >= 0) mask |= (1 << i);
+    });
+    return { combo, mask };
+  });
+  const byBit = hand.map(() => []);
+  combos.forEach(entry => {
+    for (let i = 0; i < hand.length; i++) if (entry.mask & (1 << i)) byBit[i].push(entry);
+  });
+  const memo = new Map([[0, 0]]);
+  function turns(mask) {
+    if (memo.has(mask)) return memo.get(mask);
+    let bit = 0;
+    while (!(mask & (1 << bit))) bit++;
+    let best = hand.length;
+    byBit[bit].forEach(entry => {
+      if ((entry.mask & mask) !== entry.mask) return;
+      best = Math.min(best, 1 + turns(mask ^ entry.mask));
+    });
+    memo.set(mask, best);
+    return best;
   }
-  const cost = c => {
-    const topR = Math.max(...c.cards.map(x => x.r));
-    return (topR === 15 ? 40 : topR) + (isPrecious(c) ? 120 : 0);
-  };
-  pool.sort((a, b) => (b.len * 10 - cost(b)) - (a.len * 10 - cost(a)));
-  return pool[0];
+  return { combos, turns, fullMask: (1 << hand.length) - 1 };
 }
-function botFollow(hand, tableCombo) {
-  const beats = allCombos(hand).filter(c => canBeat(c, tableCombo)).sort((a, b) => cmpArr(a.cmp, b.cmp));
-  if (!beats.length) return null;
-  const minimal = beats[0];
-  if (isPrecious(minimal) && hand.length - minimal.len > 3) {
-    const alt = beats.find(c => !isPrecious(c));
-    return alt || null;
+
+function comparePlannedMoves(a, b, context) {
+  if (a.futureTurns !== b.futureTurns) return a.futureTurns - b.futureTurns;
+  const threat = context && context.opponentMin <= 2;
+  if (threat) {
+    const aBlocks = a.combo.len > context.opponentMin;
+    const bBlocks = b.combo.len > context.opponentMin;
+    if (aBlocks !== bBlocks) return aBlocks ? -1 : 1;
   }
-  return minimal;
+  const ap = isPrecious(a.combo), bp = isPrecious(b.combo);
+  if (ap !== bp) return ap ? 1 : -1;
+  if (a.combo.len !== b.combo.len) return b.combo.len - a.combo.len;
+  return cmpArr(a.combo.cmp, b.combo.cmp);
+}
+
+function plannedMoves(hand, predicate, context) {
+  const planner = buildHandPlanner(hand);
+  const moves = planner.combos.filter(entry => !predicate || predicate(entry.combo)).map(entry => ({
+    combo: entry.combo,
+    mask: entry.mask,
+    futureTurns: planner.turns(planner.fullMask ^ entry.mask),
+  }));
+  moves.sort((a, b) => comparePlannedMoves(a, b, context));
+  return { planner, moves };
+}
+
+function botLead(hand, mustIncludeLow, context) {
+  let required = null;
+  if (mustIncludeLow) {
+    required = lowestCard(hand);
+  }
+  const result = plannedMoves(hand, c => !required || c.cards.some(x => sameCard(x, required)), context);
+  return result.moves.length ? result.moves[0].combo : classify([required || lowestCard(hand)]);
+}
+function botFollow(hand, tableCombo, context) {
+  context = context || {};
+  const result = plannedMoves(hand, c => canBeat(c, tableCombo), context);
+  if (!result.moves.length) return null;
+  const best = result.moves[0];
+  if (best.futureTurns === 0) return best.combo;
+
+  // Passing can be stronger than smashing a carefully planned pair/straight
+  // merely to win one weak trick. Play freely when the beat belongs to an
+  // optimal hand partition; otherwise preserve the hand unless somebody is
+  // close enough to going out that they must be stopped.
+  const currentTurns = result.planner.turns(result.planner.fullMask);
+  const urgent = context.urgent === true || Number(context.opponentMin) <= 1;
+  if (!urgent && best.futureTurns >= currentTurns) return null;
+  return best.combo;
 }
 
 // ── Deck / dealing ───────────────────────────────────────
@@ -868,8 +961,13 @@ function botAct() {
   botTimer = null;
   if (!dealActive || online) return;
   const hand = hands[turn];
-  if (!table) doPlay(turn, botLead(hand, firstPlay));
-  else { const m = botFollow(hand, table.combo); if (m) doPlay(turn, m); else doPass(turn); }
+  const opponentMin = Math.min(...activeSeats().filter(s => s !== turn).map(s => hands[s].length));
+  const context = {
+    opponentMin,
+    urgent: !!table && table.seat !== turn && hands[table.seat].length <= 2,
+  };
+  if (!table) doPlay(turn, botLead(hand, firstPlay, context));
+  else { const m = botFollow(hand, table.combo, context); if (m) doPlay(turn, m); else doPass(turn); }
 }
 
 function doPlay(seat, combo) {

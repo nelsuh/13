@@ -136,6 +136,48 @@ test("fuzz: every generated combo is legal and made only of held cards", () => {
   }
 });
 
+test("move generation keeps every strategically distinct pair, triple, straight, and flush", () => {
+  const four = [[7, 0], [7, 1], [7, 2], [7, 3]];
+  eq(ev(`allCombos(${cards(four)}).filter(c => c.type === "pair").length`), 6, "four suits contain six distinct pairs");
+  eq(ev(`allCombos(${cards(four)}).filter(c => c.type === "triple").length`), 4, "four suits contain four distinct triples");
+
+  const sixSpades = [[3, 0], [5, 0], [7, 0], [9, 0], [11, 0], [13, 0]];
+  eq(ev(`allCombos(${cards(sixSpades)}).filter(c => c.type === "flush").length`), 6, "six suited cards contain all six five-card flushes");
+
+  const twoSuitRun = [[3, 0], [3, 1], [4, 0], [4, 1], [5, 0], [5, 1], [6, 0], [6, 1], [7, 0], [7, 1]];
+  eq(ev(`allCombos(${cards(twoSuitRun)}).filter(c => c.type === "straight" || c.type === "sflush").length`), 32,
+    "two suit choices at each rank produce all 2^5 straights");
+});
+
+test("bot lead uses the move that leaves the shortest legal hand plan", () => {
+  for (let seed = 1; seed <= 100; seed++) {
+    const hand = ev(`dealHands(${seed}, 4)[${seed % 4}]`);
+    const result = ev(`(function () {
+      var hand = ${JSON.stringify(hand)};
+      var planner = buildHandPlanner(hand);
+      var lead = botLead(hand, false);
+      var chosen = planner.combos.find(function (entry) {
+        return entry.combo.cards.map(cardWire).sort().join(",") === lead.cards.map(cardWire).sort().join(",");
+      });
+      var best = Math.min.apply(null, planner.combos.map(function (entry) {
+        return planner.turns(planner.fullMask ^ entry.mask);
+      }));
+      return { chosen: planner.turns(planner.fullMask ^ chosen.mask), best: best };
+    })()`);
+    eq(result.chosen, result.best, "seed " + seed + ": lead should preserve an optimal partition");
+  }
+});
+
+test("bot preserves a planned pair, but breaks it to stop an endgame threat", () => {
+  const hand = [[7, 0], [7, 3], [8, 1], [8, 2]];
+  const table = [[6, 0]];
+  eq(ev(`botFollow(${cards(hand)}, classify(${cards(table)}))`), null,
+    "a routine follow should not split a pair and leave the same number of future plays");
+  const urgent = ev(`botFollow(${cards(hand)}, classify(${cards(table)}), { urgent: true, opponentMin: 1 })`);
+  ok(urgent && ev(`canBeat(classify(${JSON.stringify(urgent.cards)}), classify(${cards(table)}))`),
+    "the bot must make that beat when an opponent is about to go out");
+});
+
 test("fuzz: a forced lead always contains the mandatory lowest card", () => {
   for (let seed = 1; seed <= 200; seed++) {
     const hand = ev(`dealHands(${seed}, 4)`)[0];

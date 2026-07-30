@@ -41,7 +41,7 @@ through the UI, and computes a signature of what every client believes
 
 | suite | tests | covers |
 |---|---|---|
-| `t_rules.cjs` | 13 | combination classification, straight/flush/full-house/four+1/straight-flush ordering, 2-low↔A-high straights with no wrap, suit order ♠>♥>♣>♦, wire encoding, the penalty ladder, seeded dealing, and fuzz over 300 deals proving every generated combo is legal and only uses held cards |
+| `t_rules.cjs` | 16 | combination classification and ordering, complete alternate-combo generation, 2-low↔A-high straights with no wrap, suit order ♠>♥>♣>♦, wire encoding, the penalty ladder, seeded dealing, bot hand-planning/endgame choices, and fuzz proving every generated move is legal and held |
 | `t_offline.cjs` | 11 | the GameTok zero-tap launch, the setup screen at 2/3/4 players × lose-at 20/30/40, 30 back-to-back solo matches, both hand-over buttons, rematch, the turn clock (auto-pass, and forced play when leading), the 5-card selection cap |
 | `t_online.cjs` | 15 | waiting room and ready gating, seat locking, 2/3/4-player matches end to end, the host's lose-at pick, late joiners, spectator injection, rematch (host and guest), result-card payloads, round transitions, quick chat |
 | `t_adversity.cjs` | 37 | locked phones (guest, host, rolling, whole-round), socket drops and reconnects, permanent walkouts at 2p/3p/4p, double walkouts, rejoin inside the grace window, full exit + rejoin, lost echoes, deal races, proxy races, forged actions, forged and stale checkpoints, live-vs-replay agreement, catch-up traffic cost, three server sync models, solo→room promotion, 500 ms latency |
