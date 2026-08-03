@@ -482,6 +482,7 @@ body {
 .chat-toggle:active { transform: scale(.94); }
 
 .chat-picker {
+  --chat-keyboard-inset: 0px;
   position: fixed; top: 48px; right: 8px; z-index: 71;
   width: min(320px, calc(100vw - 16px));
   background: var(--panel-2);
@@ -513,11 +514,43 @@ body {
 }
 .chat-phrase:hover { background: rgba(212,175,55,.16); border-color: var(--gold-deep); }
 .chat-phrase:active { transform: scale(.95); }
+.chat-custom-toggle { flex-basis: 100%; }
+.custom-chat-form { display: flex; gap: 7px; margin-top: 10px; }
+.custom-chat-form[hidden] { display: none; }
+.custom-chat-back, .custom-chat-send {
+  min-height: 42px; border-radius: 11px; cursor: pointer; font-weight: 800;
+}
+.custom-chat-back {
+  flex: 0 0 42px; border: 1px solid var(--line); background: rgba(255,255,255,.06);
+  color: var(--text); font-size: 22px;
+}
+.custom-chat-input {
+  min-width: 0; flex: 1; min-height: 42px; padding: 8px 11px;
+  border: 1px solid var(--line); border-radius: 11px; outline: none;
+  background: rgba(0,0,0,.22); color: var(--text); font: 600 16px/1.25 "Noto Sans", sans-serif;
+}
+.custom-chat-input::placeholder { color: var(--text-dim); }
+.custom-chat-input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(212,175,55,.13); }
+.custom-chat-send {
+  padding: 8px 13px; border: 0; background: linear-gradient(180deg, var(--gold-hi), var(--gold));
+  color: #2a210a; font-size: 11px;
+}
+@media (max-width: 760px), (pointer: coarse) {
+  .chat-toggle.custom-mode { visibility: hidden; pointer-events: none; }
+  .chat-picker.custom-mode {
+    top: auto; right: max(8px, env(safe-area-inset-right));
+    bottom: calc(max(8px, env(safe-area-inset-bottom)) + var(--chat-keyboard-inset));
+    width: min(440px, calc(100vw - 16px)); padding: 8px; transform-origin: bottom center;
+  }
+  .chat-picker.custom-mode .chat-emojis,
+  .chat-picker.custom-mode .chat-phrases { display: none; }
+  .chat-picker.custom-mode .custom-chat-form { margin: 0; }
+}
 
 /* Floating reaction bubbles over seats */
 .reaction-layer { position: fixed; inset: 0; z-index: 62; pointer-events: none; }
 .reaction-bubble {
-  position: fixed; max-width: 60vw; white-space: nowrap;
+  position: fixed; max-width: 60vw; white-space: normal; overflow-wrap: anywhere;
   opacity: 0; transform: translateY(6px) scale(.6);
   transition: opacity .18s ease, transform .22s cubic-bezier(.2,1.4,.5,1);
   will-change: transform, opacity;

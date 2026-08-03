@@ -240,6 +240,26 @@ test("quick chat pops on the sender's seat and reaches the peers", async () => {
   eq(consistency(w), null);
 });
 
+test("custom quick chat synchronizes typed text without changing the round", async () => {
+  const w = await onlineWorld(3);
+  await startMatch(w);
+  const sender = w.clients[1];
+  const before = sender.snap();
+  sender.click("chatToggle");
+  sender.doc.querySelectorAll(".chat-custom-toggle")[0].dispatch("click");
+  eq(sender.el("customChatForm").hidden, false, "the custom composer opens");
+  sender.el("customChatInput").value = "  Сайн   тоглолт!  ";
+  sender.el("customChatForm").dispatch("submit");
+  await w.advance(300);
+
+  eq(sender.doc.querySelectorAll(".reaction-bubble")[0].textContent, "Сайн тоглолт!", "the sender sees normalized text");
+  for (const peer of [w.clients[0], w.clients[2]]) {
+    eq(peer.doc.querySelectorAll(".reaction-bubble")[0].textContent, "Сайн тоглолт!", peer.id + " should receive custom text");
+  }
+  eq(sender.snap().turn, before.turn, "custom chat does not touch the turn");
+  eq(sender.snap().counts, before.counts, "custom chat does not touch the hands");
+});
+
 test("the chat button is hidden on the overlays and shown at the table", async () => {
   const w = await onlineWorld(2);
   eq(w.clients[0].el("chatToggle").classList.contains("show-btn"), false, "hidden in the lobby");

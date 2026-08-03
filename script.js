@@ -104,6 +104,10 @@ const STR = {
     setupFoot: "Офлайн та ботуудтай. Онлайн бол ширээний бүх тоглогч тоглоно.",
     skinToggle: "Ширээний өнгө солих",
     chatAria: "Түргэн харилцах",
+    customChat: "Өөрийн мессеж",
+    customChatPlaceholder: "Мессеж бичих…",
+    backToQuickChat: "Түргэн чат руу буцах",
+    send: "Илгээх",
     qcHurry: "Хурдлаач",
     qcBad: "Муу юм бэ",
     qcGotit: "Чи болчихжээ",
@@ -178,6 +182,10 @@ const STR = {
     setupFoot: "Offline you play bots. Online everyone at the table plays.",
     skinToggle: "Change table colour",
     chatAria: "Quick chat",
+    customChat: "Custom message",
+    customChatPlaceholder: "Type a message…",
+    backToQuickChat: "Back to quick chat",
+    send: "Send",
     qcHurry: "Hurry up!",
     qcBad: "So bad!",
     qcGotit: "You got it!",
@@ -564,12 +572,20 @@ function applyLang(lang) {
   if (skinBtn) skinBtn.setAttribute("aria-label", t("skinToggle"));
   const chatBtn = document.getElementById("chatToggle");
   if (chatBtn) chatBtn.setAttribute("aria-label", t("chatAria"));
+  const customInput = document.getElementById("customChatInput");
+  const customBack = document.getElementById("customChatBack");
+  const customSend = document.getElementById("customChatSend");
+  if (customInput) customInput.placeholder = t("customChatPlaceholder");
+  if (customBack) customBack.setAttribute("aria-label", t("backToQuickChat"));
+  if (customSend) customSend.textContent = t("send");
   buildChatPicker();
   // Swap the default placeholder name only if the user hasn't typed their own.
   const nameInput = document.getElementById("nameInput");
   if (nameInput && (!nameInput.value || nameInput.value === STR.mn.you || nameInput.value === STR.en.you)) nameInput.value = t("you");
   if (meNameEl && (meNameEl.textContent === STR.mn.you || meNameEl.textContent === STR.en.you)) meNameEl.textContent = t("you");
 }
+const MAX_CHAT_LENGTH = 80;
+let customChatOpen = false;
 applyLang(detectLang());
 
 function makeCardEl(c) {
@@ -832,7 +848,10 @@ function layoutHand() {
     el.style.marginLeft = ml + "px";
   });
 }
-window.addEventListener("resize", layoutHand);
+window.addEventListener("resize", () => {
+  if (customChatOpen) updateChatKeyboardInset();
+  else layoutHand();
+});
 function renderControls() {
   meStatusEl.textContent = "";
   meStatusEl.className = "me-status";
@@ -1242,6 +1261,13 @@ function buildChatPicker() {
     b.addEventListener("click", () => sendReaction("text", t(k)));
     ph.appendChild(b);
   });
+  const custom = document.createElement("button");
+  custom.type = "button";
+  custom.className = "chat-phrase chat-custom-toggle";
+  custom.textContent = t("customChat");
+  custom.setAttribute("aria-expanded", "false");
+  custom.addEventListener("click", () => setCustomChatOpen(true, true));
+  ph.appendChild(custom);
 }
 
 let chatOpen = false;
@@ -1254,27 +1280,72 @@ function openChatPicker() {
 function closeChatPicker() {
   const p = document.getElementById("chatPicker");
   if (!p) return;
+  setCustomChatOpen(false, false);
   chatOpen = false;
   p.classList.remove("show"); p.setAttribute("aria-hidden", "true");
 }
 function toggleChatPicker() { chatOpen ? closeChatPicker() : openChatPicker(); }
 
 let lastReactionAt = 0;
-function sendReaction(kind, value) {
-  closeChatPicker();
-  const now = Date.now();
-  if (now - lastReactionAt < 700) return;   // throttle spam
-  lastReactionAt = now;
-  const seat = (typeof mySeat === "number" && mySeat >= 0) ? mySeat : 0;
-  showReaction(seat, kind, value);
-  if (online && window.Usion && Usion.game && Usion.game.realtime) {
-    try { Usion.game.realtime("reaction", { kind: kind, value: value }); } catch (e) {}
+function normalizeChatMessage(value) {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, MAX_CHAT_LENGTH) : "";
+}
+function normalizeReaction(kind, value) {
+  if (kind === "emoji") return typeof value === "string" ? value.trim().slice(0, 8) : "";
+  if (kind === "text") return normalizeChatMessage(value);
+  return "";
+}
+function updateChatKeyboardInset() {
+  const picker = document.getElementById("chatPicker");
+  if (!picker || !customChatOpen) return;
+  const viewport = window.visualViewport;
+  const inset = viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
+  setChatKeyboardInset(picker, inset + "px");
+}
+function setChatKeyboardInset(picker, value) {
+  if (!picker) return;
+  if (typeof picker.style.setProperty === "function") picker.style.setProperty("--chat-keyboard-inset", value);
+  else picker.style["--chat-keyboard-inset"] = value;
+}
+function setCustomChatOpen(open, focusInput) {
+  customChatOpen = Boolean(open);
+  const picker = document.getElementById("chatPicker");
+  const toggle = document.getElementById("chatToggle");
+  const form = document.getElementById("customChatForm");
+  const input = document.getElementById("customChatInput");
+  const custom = picker && picker.querySelector(".chat-custom-toggle");
+  if (picker) picker.classList.toggle("custom-mode", customChatOpen);
+  if (toggle) toggle.classList.toggle("custom-mode", customChatOpen);
+  if (form) form.hidden = !customChatOpen;
+  if (custom) custom.setAttribute("aria-expanded", customChatOpen ? "true" : "false");
+  if (customChatOpen) {
+    updateChatKeyboardInset();
+    if (focusInput && input) requestAnimationFrame(() => input.focus());
+  } else {
+    setChatKeyboardInset(picker, "0px");
+    if (input && document.activeElement === input) input.blur();
   }
+}
+function sendReaction(kind, value) {
+  const cleanValue = normalizeReaction(kind, value);
+  if (!cleanValue) return false;
+  const now = Date.now();
+  if (now - lastReactionAt < 700) return false;   // throttle spam
+  lastReactionAt = now;
+  closeChatPicker();
+  const seat = (typeof mySeat === "number" && mySeat >= 0) ? mySeat : 0;
+  showReaction(seat, kind, cleanValue);
+  if (online && window.Usion && Usion.game && Usion.game.realtime) {
+    try { Usion.game.realtime("reaction", { kind: kind, value: cleanValue }); } catch (e) {}
+  }
+  return true;
 }
 
 // Pop a transient bubble anchored over a seat's on-screen element. Uses a
 // fixed-position layer + live bounding rects so it survives seat re-renders.
 function showReaction(seat, kind, value) {
+  value = normalizeReaction(kind, value);
+  if (!value) return;
   const layer = document.getElementById("reactionLayer");
   if (!layer) return;
   let anchor;
@@ -1315,6 +1386,16 @@ function updateChatButton() {
 }
 
 document.getElementById("chatToggle").addEventListener("click", (e) => { e.stopPropagation(); toggleChatPicker(); });
+document.getElementById("customChatBack").addEventListener("click", () => setCustomChatOpen(false, false));
+document.getElementById("customChatForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const input = document.getElementById("customChatInput");
+  if (input && sendReaction("text", input.value)) input.value = "";
+});
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", updateChatKeyboardInset);
+  window.visualViewport.addEventListener("scroll", updateChatKeyboardInset);
+}
 // Tap anywhere outside the picker closes it.
 document.addEventListener("click", (e) => {
   if (!chatOpen) return;
@@ -2638,9 +2719,8 @@ function onNetRealtime(data) {
   } else if (data.action_type === "reaction") {
     // Cosmetic quick-chat: pop the sender's bubble over their seat.
     const seat = roomPlayerIds.indexOf(data.player_id);
-    if (seat >= 0 && (d.kind === "emoji" || d.kind === "text") && typeof d.value === "string") {
-      showReaction(seat, d.kind, d.value.slice(0, 24));
-    }
+    const value = normalizeReaction(d.kind, d.value);
+    if (seat >= 0 && value) showReaction(seat, d.kind, value);
   }
 }
 // Catch-up replay (from requestSync). Each "deal" resets state, so replaying

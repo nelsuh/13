@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600;700;800&family=Noto+Sans:wght@400;500;600;700;800&family=Noto+Serif:wght@700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=42">
+<link rel="stylesheet" href="style.css?v=43">
 </head>
 
 <body>
@@ -137,6 +137,11 @@
 <div id="chatPicker" class="chat-picker" aria-hidden="true">
   <div class="chat-emojis" id="chatEmojis"></div>
   <div class="chat-phrases" id="chatPhrases"></div>
+  <form id="customChatForm" class="custom-chat-form" hidden>
+    <button id="customChatBack" class="custom-chat-back" type="button" aria-label="Түргэн чат руу буцах">‹</button>
+    <input id="customChatInput" class="custom-chat-input" type="text" maxlength="80" autocomplete="off" enterkeyhint="send" placeholder="Мессеж бичих…">
+    <button id="customChatSend" class="custom-chat-send" type="submit">Илгээх</button>
+  </form>
 </div>
 
 <!-- Floating reaction bubbles (positioned over seats) -->
@@ -146,7 +151,7 @@
 <button id="skinToggle" class="skin-toggle" aria-label="Ширээний өнгө солих"></button>
 
 <script src="https://usions.com/usion-sdk.js"></script>
-<script src="script.js?v=56"></script>
+<script src="script.js?v=57"></script>
 
 </body>
 </html>
