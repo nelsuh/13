@@ -221,9 +221,17 @@ test("dragging a hand card reorders it without changing selection", async () => 
     var cards = Array.from(handEl.children);
     beginHandDrag({ button: 0, pointerId: 9, clientX: 86, clientY: 20 }, 1, cards[1]);
     updateHandDrag({ pointerId: 9, clientX: 1000, clientY: 22, preventDefault: function () {} });
+    __dropHintShown = Array.from(handEl.children).some(function (el) {
+      return el.classList.contains("drop-before") || el.classList.contains("drop-after");
+    });
     finishHandDrag({ pointerId: 9, clientX: 1000, clientY: 22, preventDefault: function () {} });
+    __dropHintCleared = !Array.from(handEl.children).some(function (el) {
+      return el.classList.contains("drop-before") || el.classList.contains("drop-after");
+    });
   `);
   const after = c.read("(hands[mySeat] || []).map(cardKey)");
+  eq(c.read("__dropHintShown"), true, "a landing marker appears while dragging");
+  eq(c.read("__dropHintCleared"), true, "the landing marker clears after drop");
   eq(after[after.length - 1], before[1], "the dragged card lands at the requested hand position");
   eq(c.read("Array.from(selected)"), [before[1]], "the same card remains selected after reorder");
 });

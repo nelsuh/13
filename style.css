@@ -302,6 +302,24 @@ body {
   border-color: var(--gold-hi);
   box-shadow: 0 12px 26px rgba(0,0,0,.5), 0 0 0 2px rgba(245,218,113,.45);
 }
+.hand .card.drop-before,
+.hand .card.drop-after {
+  overflow: visible;
+}
+.hand .card.drop-before::before,
+.hand .card.drop-after::after {
+  content: "";
+  position: absolute;
+  top: -12px;
+  bottom: -8px;
+  width: 5px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold));
+  box-shadow: 0 0 0 2px rgba(42,33,10,.5), 0 0 16px rgba(245,218,113,.8);
+  pointer-events: none;
+}
+.hand .card.drop-before::before { left: -10px; }
+.hand .card.drop-after::after { right: -10px; }
 
 /* ── Controls ── */
 .controls { display: flex; gap: 9px; margin-top: 8px; }

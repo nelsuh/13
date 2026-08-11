@@ -817,6 +817,7 @@ function renderTable() {
   else { turnLine.textContent = t("turnOf", players[turn].name); turnLine.className = "turn-line"; }
 }
 function renderHand() {
+  clearHandDropIndicator();
   handEl.innerHTML = "";
   const mine = hands[mySeat] || [];
   const myTurn = dealActive && turn === mySeat;
@@ -923,6 +924,7 @@ function beginHandDrag(e, index, el) {
     startX: e.clientX || 0,
     startY: e.clientY || 0,
     dragging: false,
+    dropIndex: -1,
   };
   if (el.setPointerCapture && e.pointerId != null) el.setPointerCapture(e.pointerId);
 }
@@ -938,6 +940,8 @@ function updateHandDrag(e) {
     handDrag.el.classList.add("dragging");
     suppressNextCardClick();
   }
+  handDrag.dropIndex = handDropIndex(handDrag.key, x);
+  updateHandDropIndicator(handDrag.key, handDrag.dropIndex);
   const lift = handDrag.el.classList.contains("sel") ? -34 : 0;
   handDrag.el.style.transform = "translate(" + dx + "px, " + (dy + lift) + "px) scale(1.04)";
   if (e.preventDefault) e.preventDefault();
@@ -949,6 +953,7 @@ function finishHandDrag(e) {
   const wasDragging = drag.dragging;
   handDrag = null;
   handEl.classList.remove("reordering");
+  clearHandDropIndicator();
   drag.el.classList.remove("dragging");
   drag.el.style.transform = "";
   if (drag.el.releasePointerCapture && drag.pointerId != null) {
@@ -956,7 +961,7 @@ function finishHandDrag(e) {
   }
   if (!wasDragging) return;
   suppressNextCardClick();
-  reorderHandTo(drag.key, handDropIndex(drag.key, e.clientX || drag.startX));
+  reorderHandTo(drag.key, drag.dropIndex >= 0 ? drag.dropIndex : handDropIndex(drag.key, e.clientX || drag.startX));
   renderHand();
   renderControls();
   if (e.preventDefault) e.preventDefault();
@@ -967,6 +972,7 @@ function cancelHandDrag(e) {
   const drag = handDrag;
   handDrag = null;
   handEl.classList.remove("reordering");
+  clearHandDropIndicator();
   drag.el.classList.remove("dragging");
   drag.el.style.transform = "";
 }
@@ -978,6 +984,18 @@ function handDropIndex(key, clientX) {
     if (clientX < r.left + r.width / 2) return i;
   }
   return cards.length;
+}
+
+function clearHandDropIndicator() {
+  [...handEl.children].forEach(el => el.classList.remove("drop-before", "drop-after"));
+}
+
+function updateHandDropIndicator(key, targetIndex) {
+  clearHandDropIndicator();
+  const cards = [...handEl.children].filter(el => el.dataset.cardKey !== key);
+  if (!cards.length) return;
+  if (targetIndex >= cards.length) cards[cards.length - 1].classList.add("drop-after");
+  else cards[targetIndex].classList.add("drop-before");
 }
 
 function reorderHandTo(key, targetIndex) {
