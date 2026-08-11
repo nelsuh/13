@@ -809,10 +809,6 @@ function renderTable() {
       owner.className = "tp-owner";
       owner.title = p.name;
       owner.appendChild(makeAvatarEl(p.name, p.avatar, "tp-avatar", p.isBot));
-      const name = document.createElement("span");
-      name.className = "tp-name";
-      name.textContent = p.name;
-      owner.appendChild(name);
       const cards = document.createElement("div");
       cards.className = "tp-cards";
       tp.combo.cards.forEach(c => cards.appendChild(makeCardEl(c)));

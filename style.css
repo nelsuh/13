@@ -258,21 +258,16 @@ body {
 .tp-meta { font-size: 10px; font-weight: 700; color: var(--text-dim); display: flex; align-items: center; gap: 5px; }
 .tp-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(255,255,255,.4); }
 .tp-owner {
-  display: flex; align-items: center; gap: 5px;
-  max-width: clamp(72px, 20vw, 116px);
-  padding: 3px 7px 3px 3px;
+  display: flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px;
+  padding: 3px;
   border-radius: 999px;
   background: rgba(7, 25, 15, .7);
   border: 1px solid rgba(245,218,113,.22);
   box-shadow: 0 3px 10px rgba(0,0,0,.32);
+  flex: 0 0 auto;
 }
 .tp-avatar { width: 28px; height: 28px; font-size: 11px; }
-.tp-name {
-  min-width: 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 11px; font-weight: 800; color: var(--gold-hi);
-  text-shadow: 0 1px 2px rgba(0,0,0,.5);
-}
 .tp-play.latest .tp-owner {
   background: rgba(10, 36, 20, .86);
   border-color: rgba(245,218,113,.5);
