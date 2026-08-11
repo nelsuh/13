@@ -210,6 +210,7 @@ function detectLang() {
 function rankLabel(r) { return RANK_LABEL[r] || String(r); }
 function cardStrength(c) { return c.r * 4 + SUIT_RANK[c.s]; }            // 2 highest single
 function cardWire(c) { return c.r * 4 + c.s; }
+function cardKey(c) { return String(cardWire(c)); }
 function wireCard(v) { return { r: Math.floor(v / 4), s: v % 4 }; }
 function sortCards(cards) { return cards.slice().sort((a, b) => a.r - b.r || SUIT_RANK[a.s] - SUIT_RANK[b.s]); }
 function sameCard(a, b) { return a.r === b.r && a.s === b.s; }
@@ -591,6 +592,7 @@ applyLang(detectLang());
 function makeCardEl(c) {
   const el = document.createElement("div");
   el.className = "card" + (SUIT_RED[c.s] ? " red" : "");
+  el.dataset.cardKey = cardKey(c);
   const r = rankLabel(c.r), s = SUITS[c.s];
   el.innerHTML =
     '<span class="corner tl"><b>' + r + '</b><i>' + s + '</i></span>' +
@@ -820,8 +822,12 @@ function renderHand() {
   const myTurn = dealActive && turn === mySeat;
   mine.forEach((c, i) => {
     const el = makeCardEl(c);
-    if (selected.has(i)) el.classList.add("sel");
-    if (myTurn) el.addEventListener("click", () => toggleCard(i));
+    if (selected.has(cardKey(c))) el.classList.add("sel");
+    if (dealActive) el.addEventListener("pointerdown", (e) => beginHandDrag(e, i, el));
+    el.addEventListener("click", () => {
+      if (consumeSuppressedCardClick()) return;
+      if (myTurn) toggleCard(c);
+    });
     handEl.appendChild(el);
   });
   layoutHand();
@@ -875,7 +881,7 @@ function lowLabel() { return lowCard ? rankLabel(lowCard.r) + SUITS[lowCard.s] :
 
 function selectedCards() {
   const mine = hands[mySeat] || [];
-  return [...selected].map(i => mine[i]).filter(Boolean);
+  return mine.filter(c => selected.has(cardKey(c)));
 }
 function isLegalPlay(combo) {
   if (!combo) return false;
@@ -884,12 +890,108 @@ function isLegalPlay(combo) {
 }
 
 // ── Selection / human input ──────────────────────────────
-function toggleCard(i) {
-  if (selected.has(i)) selected.delete(i);
+function toggleCard(card) {
+  const key = cardKey(card);
+  if (selected.has(key)) selected.delete(key);
   else if (selected.size >= 5) { toast(t("max5")); return; }   // never select/raise more than 5
-  else selected.add(i);
+  else selected.add(key);
   renderHand(); renderControls();   // selection only — playing happens via the Play button
 }
+const HAND_DRAG_THRESHOLD = 8;
+let handDrag = null;
+let suppressCardClick = false;
+
+function consumeSuppressedCardClick() {
+  if (!suppressCardClick) return false;
+  suppressCardClick = false;
+  return true;
+}
+
+function suppressNextCardClick() {
+  suppressCardClick = true;
+  setTimeout(() => { suppressCardClick = false; }, 0);
+}
+
+function beginHandDrag(e, index, el) {
+  if (!dealActive || pendingAction) return;
+  if (e.button != null && e.button !== 0) return;
+  handDrag = {
+    pointerId: e.pointerId,
+    key: el.dataset.cardKey,
+    fromIndex: index,
+    el,
+    startX: e.clientX || 0,
+    startY: e.clientY || 0,
+    dragging: false,
+  };
+  if (el.setPointerCapture && e.pointerId != null) el.setPointerCapture(e.pointerId);
+}
+
+function updateHandDrag(e) {
+  if (!handDrag || (handDrag.pointerId != null && e.pointerId !== handDrag.pointerId)) return;
+  const x = e.clientX || 0, y = e.clientY || 0;
+  const dx = x - handDrag.startX, dy = y - handDrag.startY;
+  if (!handDrag.dragging) {
+    if (Math.hypot(dx, dy) < HAND_DRAG_THRESHOLD) return;
+    handDrag.dragging = true;
+    handEl.classList.add("reordering");
+    handDrag.el.classList.add("dragging");
+    suppressNextCardClick();
+  }
+  const lift = handDrag.el.classList.contains("sel") ? -34 : 0;
+  handDrag.el.style.transform = "translate(" + dx + "px, " + (dy + lift) + "px) scale(1.04)";
+  if (e.preventDefault) e.preventDefault();
+}
+
+function finishHandDrag(e) {
+  if (!handDrag || (handDrag.pointerId != null && e.pointerId !== handDrag.pointerId)) return;
+  const drag = handDrag;
+  const wasDragging = drag.dragging;
+  handDrag = null;
+  handEl.classList.remove("reordering");
+  drag.el.classList.remove("dragging");
+  drag.el.style.transform = "";
+  if (drag.el.releasePointerCapture && drag.pointerId != null) {
+    try { drag.el.releasePointerCapture(drag.pointerId); } catch (_) {}
+  }
+  if (!wasDragging) return;
+  suppressNextCardClick();
+  reorderHandTo(drag.key, handDropIndex(drag.key, e.clientX || drag.startX));
+  renderHand();
+  renderControls();
+  if (e.preventDefault) e.preventDefault();
+}
+
+function cancelHandDrag(e) {
+  if (!handDrag || (handDrag.pointerId != null && e.pointerId !== handDrag.pointerId)) return;
+  const drag = handDrag;
+  handDrag = null;
+  handEl.classList.remove("reordering");
+  drag.el.classList.remove("dragging");
+  drag.el.style.transform = "";
+}
+
+function handDropIndex(key, clientX) {
+  const cards = [...handEl.children].filter(el => el.dataset.cardKey !== key);
+  for (let i = 0; i < cards.length; i++) {
+    const r = cards[i].getBoundingClientRect();
+    if (clientX < r.left + r.width / 2) return i;
+  }
+  return cards.length;
+}
+
+function reorderHandTo(key, targetIndex) {
+  const mine = hands[mySeat] || [];
+  const from = mine.findIndex(c => cardKey(c) === key);
+  if (from < 0) return;
+  const card = mine.splice(from, 1)[0];
+  const to = Math.max(0, Math.min(targetIndex, mine.length));
+  mine.splice(to, 0, card);
+}
+
+window.addEventListener("pointermove", updateHandDrag, { passive: false });
+window.addEventListener("pointerup", finishHandDrag);
+window.addEventListener("pointercancel", cancelHandDrag);
 playBtn.addEventListener("click", humanPlay);
 passBtn.addEventListener("click", () => { if (!passBtn.disabled) humanPass(); });
 

@@ -202,5 +202,31 @@ test("selecting more than five cards is refused", async () => {
   eq(c.read('toastEl.textContent'), c.read('t("max5")'), "and says so");
 });
 
+test("dragging a hand card reorders it without changing selection", async () => {
+  const { w, c } = await bootSolo("drag1");
+  let guard = 0;
+  while (!c.snap().dealActive && guard++ < 20) await w.advance(250);
+  const before = c.read("(hands[mySeat] || []).map(cardKey)");
+  c.run(`
+    function fakeHandRects() {
+      Array.from(handEl.children).forEach(function (el, i) {
+        el.getBoundingClientRect = function () {
+          return { left: i * 60, right: i * 60 + 52, top: 0, bottom: 74, width: 52, height: 74 };
+        };
+      });
+    }
+    selected.add(cardKey(hands[mySeat][1]));
+    renderHand();
+    fakeHandRects();
+    var cards = Array.from(handEl.children);
+    beginHandDrag({ button: 0, pointerId: 9, clientX: 86, clientY: 20 }, 1, cards[1]);
+    updateHandDrag({ pointerId: 9, clientX: 1000, clientY: 22, preventDefault: function () {} });
+    finishHandDrag({ pointerId: 9, clientX: 1000, clientY: 22, preventDefault: function () {} });
+  `);
+  const after = c.read("(hands[mySeat] || []).map(cardKey)");
+  eq(after[after.length - 1], before[1], "the dragged card lands at the requested hand position");
+  eq(c.read("Array.from(selected)"), [before[1]], "the same card remains selected after reorder");
+});
+
 if (require.main === module) run("OFFLINE").then(r => process.exit(r.fails.length ? 1 : 0));
 module.exports = { run: () => run("OFFLINE") };

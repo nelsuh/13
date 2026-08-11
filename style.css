@@ -273,12 +273,19 @@ body {
 .me-status.good { color: var(--good); }
 .me-status.bad { color: var(--danger); }
 
-.hand { display: flex; justify-content: center; align-items: flex-end; height: 122px; padding: 40px 6px 0; }
+.hand {
+  display: flex; justify-content: center; align-items: flex-end;
+  height: 122px; padding: 40px 6px 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
 .hand .card {
   width: 52px; height: 74px; font-size: 13px;
   flex: 0 0 auto;                 /* margin-left is set per-card by layoutHand() in JS */
   position: relative; z-index: 1; /* unselected cards sit in front */
   cursor: pointer;
+  touch-action: none;
   transition: transform .14s cubic-bezier(.2,.8,.2,1), box-shadow .14s, border-color .14s;
 }
 /* chosen cards rise up from BEHIND the fan (face-up, only the top peeks out) */
@@ -287,6 +294,13 @@ body {
   z-index: 0;
   border-color: var(--gold);
   box-shadow: 0 -3px 12px rgba(212,175,55,.55);
+}
+.hand .card.dragging {
+  z-index: 30;
+  cursor: grabbing;
+  transition: none;
+  border-color: var(--gold-hi);
+  box-shadow: 0 12px 26px rgba(0,0,0,.5), 0 0 0 2px rgba(245,218,113,.45);
 }
 
 /* ── Controls ── */
