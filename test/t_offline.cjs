@@ -280,6 +280,7 @@ test("the table trick shows who played it", async () => {
   eq(c.read('tableComboEl.querySelector(".tp-play").dataset.seat'), String(c.snap().mySeat), "the trick row carries the player seat");
   ok(c.read('!!tableComboEl.querySelector(".tp-owner .tp-avatar")'), "the trick row shows the player avatar");
   eq(c.read('!!tableComboEl.querySelector(".tp-owner .tp-name")'), false, "the trick row does not show the player name");
+  eq(c.read('tableComboEl.querySelector(".tp-owner").parentNode.classList.contains("tp-cards")'), true, "the profile badge is anchored to the card stack");
 });
 
 if (require.main === module) run("OFFLINE").then(r => process.exit(r.fails.length ? 1 : 0));

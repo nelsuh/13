@@ -812,7 +812,7 @@ function renderTable() {
       const cards = document.createElement("div");
       cards.className = "tp-cards";
       tp.combo.cards.forEach(c => cards.appendChild(makeCardEl(c)));
-      row.appendChild(owner);
+      cards.appendChild(owner);
       row.appendChild(cards);   // cards only — no name, no colour
       tableComboEl.appendChild(row);
     });
