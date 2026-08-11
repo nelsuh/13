@@ -269,5 +269,18 @@ test("cards can be selected off-turn, but only played on-turn; selected cards dr
   eq(c.read("Array.from(selected)"), [before[0], before[2]], "the selected cards remain selected after group reorder");
 });
 
+test("the table trick shows who played it", async () => {
+  const { w, c } = await bootSolo("trickWho1");
+  let guard = 0;
+  while (!c.snap().dealActive && guard++ < 20) await w.advance(250);
+  c.run(`
+    trickPlays = [{ seat: mySeat, combo: classify([hands[mySeat][0]]) }];
+    renderTable();
+  `);
+  eq(c.read('tableComboEl.querySelector(".tp-play").dataset.seat'), String(c.snap().mySeat), "the trick row carries the player seat");
+  eq(c.read('tableComboEl.querySelector(".tp-owner .tp-name").textContent'), "Alice", "the trick row shows the player profile name");
+  ok(c.read('!!tableComboEl.querySelector(".tp-owner .tp-avatar")'), "the trick row shows the player avatar");
+});
+
 if (require.main === module) run("OFFLINE").then(r => process.exit(r.fails.length ? 1 : 0));
 module.exports = { run: () => run("OFFLINE") };

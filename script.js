@@ -801,11 +801,22 @@ function renderTable() {
     const shown = trickPlays.slice(-4);   // current trick's recent plays, oldest → newest
     shown.forEach((tp, idx) => {
       const latest = idx === shown.length - 1;
+      const p = players[tp.seat] || { name: "?", avatar: null, isBot: false };
       const row = document.createElement("div");
       row.className = "tp-play" + (latest ? " latest" : "");
+      row.dataset.seat = tp.seat;
+      const owner = document.createElement("div");
+      owner.className = "tp-owner";
+      owner.title = p.name;
+      owner.appendChild(makeAvatarEl(p.name, p.avatar, "tp-avatar", p.isBot));
+      const name = document.createElement("span");
+      name.className = "tp-name";
+      name.textContent = p.name;
+      owner.appendChild(name);
       const cards = document.createElement("div");
       cards.className = "tp-cards";
       tp.combo.cards.forEach(c => cards.appendChild(makeCardEl(c)));
+      row.appendChild(owner);
       row.appendChild(cards);   // cards only — no name, no colour
       tableComboEl.appendChild(row);
     });
