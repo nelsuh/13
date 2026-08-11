@@ -236,5 +236,38 @@ test("dragging a hand card reorders it without changing selection", async () => 
   eq(c.read("Array.from(selected)"), [before[1]], "the same card remains selected after reorder");
 });
 
+test("cards can be selected off-turn, but only played on-turn; selected cards drag as a group", async () => {
+  const { w, c } = await bootSolo("dragGroup1");
+  let guard = 0;
+  while (!c.snap().dealActive && guard++ < 20) await w.advance(250);
+  c.run("turn = nextActiveAfter(mySeat); render();");
+  const before = c.read("(hands[mySeat] || []).map(cardKey)");
+  c.run(`
+    function fakeHandRects2() {
+      Array.from(handEl.children).forEach(function (el, i) {
+        el.getBoundingClientRect = function () {
+          return { left: i * 60, right: i * 60 + 52, top: 0, bottom: 74, width: 52, height: 74 };
+        };
+      });
+    }
+    handEl.children[0].dispatch("click");
+    handEl.children[2].dispatch("click");
+    __playDisabledOffTurn = playBtn.disabled;
+    fakeHandRects2();
+    var cards = Array.from(handEl.children);
+    beginHandDrag({ button: 0, pointerId: 10, clientX: 26, clientY: 20 }, 0, cards[0]);
+    updateHandDrag({ pointerId: 10, clientX: 1000, clientY: 22, preventDefault: function () {} });
+    __groupDropHintShown = Array.from(handEl.children).some(function (el) {
+      return el.classList.contains("drop-before") || el.classList.contains("drop-after");
+    });
+    finishHandDrag({ pointerId: 10, clientX: 1000, clientY: 22, preventDefault: function () {} });
+  `);
+  const after = c.read("(hands[mySeat] || []).map(cardKey)");
+  eq(c.read("__playDisabledOffTurn"), true, "the Play button stays disabled while it is not your turn");
+  eq(c.read("__groupDropHintShown"), true, "a landing marker appears for a selected group drag");
+  eq(after.slice(-2), [before[0], before[2]], "dragging one selected card moves the selected group together");
+  eq(c.read("Array.from(selected)"), [before[0], before[2]], "the selected cards remain selected after group reorder");
+});
+
 if (require.main === module) run("OFFLINE").then(r => process.exit(r.fails.length ? 1 : 0));
 module.exports = { run: () => run("OFFLINE") };

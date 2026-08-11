@@ -820,14 +820,13 @@ function renderHand() {
   clearHandDropIndicator();
   handEl.innerHTML = "";
   const mine = hands[mySeat] || [];
-  const myTurn = dealActive && turn === mySeat;
   mine.forEach((c, i) => {
     const el = makeCardEl(c);
     if (selected.has(cardKey(c))) el.classList.add("sel");
     if (dealActive) el.addEventListener("pointerdown", (e) => beginHandDrag(e, i, el));
     el.addEventListener("click", () => {
       if (consumeSuppressedCardClick()) return;
-      if (myTurn) toggleCard(c);
+      if (dealActive) toggleCard(c);
     });
     handEl.appendChild(el);
   });
@@ -916,9 +915,13 @@ function suppressNextCardClick() {
 function beginHandDrag(e, index, el) {
   if (!dealActive || pendingAction) return;
   if (e.button != null && e.button !== 0) return;
+  const key = el.dataset.cardKey;
+  const mine = hands[mySeat] || [];
+  const keys = selected.has(key) ? mine.map(cardKey).filter(k => selected.has(k)) : [key];
   handDrag = {
     pointerId: e.pointerId,
-    key: el.dataset.cardKey,
+    key,
+    keys,
     fromIndex: index,
     el,
     startX: e.clientX || 0,
@@ -937,13 +940,12 @@ function updateHandDrag(e) {
     if (Math.hypot(dx, dy) < HAND_DRAG_THRESHOLD) return;
     handDrag.dragging = true;
     handEl.classList.add("reordering");
-    handDrag.el.classList.add("dragging");
+    setHandDraggingCards(handDrag.keys, true);
     suppressNextCardClick();
   }
-  handDrag.dropIndex = handDropIndex(handDrag.key, x);
-  updateHandDropIndicator(handDrag.key, handDrag.dropIndex);
-  const lift = handDrag.el.classList.contains("sel") ? -34 : 0;
-  handDrag.el.style.transform = "translate(" + dx + "px, " + (dy + lift) + "px) scale(1.04)";
+  handDrag.dropIndex = handDropIndex(handDrag.keys, x);
+  updateHandDropIndicator(handDrag.keys, handDrag.dropIndex);
+  moveHandDraggingCards(handDrag.keys, dx, dy);
   if (e.preventDefault) e.preventDefault();
 }
 
@@ -954,14 +956,13 @@ function finishHandDrag(e) {
   handDrag = null;
   handEl.classList.remove("reordering");
   clearHandDropIndicator();
-  drag.el.classList.remove("dragging");
-  drag.el.style.transform = "";
+  setHandDraggingCards(drag.keys, false);
   if (drag.el.releasePointerCapture && drag.pointerId != null) {
     try { drag.el.releasePointerCapture(drag.pointerId); } catch (_) {}
   }
   if (!wasDragging) return;
   suppressNextCardClick();
-  reorderHandTo(drag.key, drag.dropIndex >= 0 ? drag.dropIndex : handDropIndex(drag.key, e.clientX || drag.startX));
+  reorderHandTo(drag.keys, drag.dropIndex >= 0 ? drag.dropIndex : handDropIndex(drag.keys, e.clientX || drag.startX));
   renderHand();
   renderControls();
   if (e.preventDefault) e.preventDefault();
@@ -973,12 +974,12 @@ function cancelHandDrag(e) {
   handDrag = null;
   handEl.classList.remove("reordering");
   clearHandDropIndicator();
-  drag.el.classList.remove("dragging");
-  drag.el.style.transform = "";
+  setHandDraggingCards(drag.keys, false);
 }
 
-function handDropIndex(key, clientX) {
-  const cards = [...handEl.children].filter(el => el.dataset.cardKey !== key);
+function handDropIndex(keys, clientX) {
+  const moving = new Set(keys);
+  const cards = [...handEl.children].filter(el => !moving.has(el.dataset.cardKey));
   for (let i = 0; i < cards.length; i++) {
     const r = cards[i].getBoundingClientRect();
     if (clientX < r.left + r.width / 2) return i;
@@ -990,21 +991,42 @@ function clearHandDropIndicator() {
   [...handEl.children].forEach(el => el.classList.remove("drop-before", "drop-after"));
 }
 
-function updateHandDropIndicator(key, targetIndex) {
+function updateHandDropIndicator(keys, targetIndex) {
   clearHandDropIndicator();
-  const cards = [...handEl.children].filter(el => el.dataset.cardKey !== key);
+  const moving = new Set(keys);
+  const cards = [...handEl.children].filter(el => !moving.has(el.dataset.cardKey));
   if (!cards.length) return;
   if (targetIndex >= cards.length) cards[cards.length - 1].classList.add("drop-after");
   else cards[targetIndex].classList.add("drop-before");
 }
 
-function reorderHandTo(key, targetIndex) {
+function setHandDraggingCards(keys, on) {
+  const moving = new Set(keys);
+  [...handEl.children].forEach(el => {
+    if (!moving.has(el.dataset.cardKey)) return;
+    el.classList.toggle("dragging", on);
+    if (!on) el.style.transform = "";
+  });
+}
+
+function moveHandDraggingCards(keys, dx, dy) {
+  const moving = new Set(keys);
+  [...handEl.children].forEach(el => {
+    if (!moving.has(el.dataset.cardKey)) return;
+    const lift = el.classList.contains("sel") ? -34 : 0;
+    el.style.transform = "translate(" + dx + "px, " + (dy + lift) + "px) scale(1.04)";
+  });
+}
+
+function reorderHandTo(keys, targetIndex) {
   const mine = hands[mySeat] || [];
-  const from = mine.findIndex(c => cardKey(c) === key);
-  if (from < 0) return;
-  const card = mine.splice(from, 1)[0];
-  const to = Math.max(0, Math.min(targetIndex, mine.length));
-  mine.splice(to, 0, card);
+  const moving = new Set(keys);
+  const dragged = mine.filter(c => moving.has(cardKey(c)));
+  if (!dragged.length) return;
+  const rest = mine.filter(c => !moving.has(cardKey(c)));
+  const to = Math.max(0, Math.min(targetIndex, rest.length));
+  mine.length = 0;
+  rest.slice(0, to).concat(dragged, rest.slice(to)).forEach(c => mine.push(c));
 }
 
 window.addEventListener("pointermove", updateHandDrag, { passive: false });
