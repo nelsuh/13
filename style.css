@@ -259,19 +259,19 @@ body {
 .tp-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(255,255,255,.4); }
 .tp-owner {
   position: absolute;
-  left: 5px;
-  bottom: 5px;
+  left: 2px;
+  bottom: 2px;
   z-index: 12;
   display: flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px;
-  padding: 2px;
+  width: 24px; height: 24px;
+  padding: 1px;
   border-radius: 999px;
   background: rgba(7, 25, 15, .7);
   border: 1px solid rgba(245,218,113,.22);
-  box-shadow: 0 3px 10px rgba(0,0,0,.32);
+  box-shadow: 0 2px 8px rgba(0,0,0,.32);
   pointer-events: none;
 }
-.tp-avatar { width: 24px; height: 24px; font-size: 10px; }
+.tp-avatar { width: 20px; height: 20px; font-size: 9px; }
 .tp-play.latest .tp-owner {
   background: rgba(10, 36, 20, .86);
   border-color: rgba(245,218,113,.5);
