@@ -61,23 +61,31 @@ async function eventually(w, pred, ms = 60000, step = 500) {
   return !!pred();
 }
 
-/** Ready everyone up and let the host deal. Returns once the first round is live. */
+/**
+ * An open table needs no lobby and no Start press: whoever is in the room deals
+ * against bots on its own. This just waits for that first round to be live on
+ * every seated client.
+ */
 async function startMatch(w, opts = {}) {
   const seats = opts.seats || w.clients;
-  const host = seats[0];
-  for (const c of seats) { c.click("readyBtn"); await w.advance(120); }
-  if (opts.loseAt) {
-    const btn = host.doc.querySelectorAll("#lobbyLoseRow .count-btn").find(b => Number(b.getAttribute("data-lose")) === opts.loseAt);
-    if (btn) { btn.dispatch("click"); await w.advance(200); }
-  }
-  // Wait for the ready broadcasts to land before pressing Start — on a slow link
-  // the button is still disabled, and a disabled button ignores the press.
-  const armed = await eventually(w, () => host.el("startGameBtn").disabled === false, 30000, 250);
-  if (!armed) throw new Error("Start never unlocked:\n" + dump(w));
-  host.click("startGameBtn");
-  await eventually(w, () => seats.every(c => c.snap().dealActive), 30000, 250);
+  const dealt = await eventually(w, () => seats.every(c => c.snap().dealActive), 30000, 250);
+  if (!dealt) throw new Error("the open table never dealt:\n" + dump(w));
   if (w.room) w.room.started = true;
   return w;
+}
+
+/** Add a client to the running room and wait until it holds a seat. */
+async function joinTable(w, id, name, opts = {}) {
+  const c = w.add(id, name, { mode: "multiplayer", roomId: w.roomId });
+  c.start({ userId: id, userName: name, userAvatar: opts.avatar, roomId: w.roomId, playerIds: [] });
+  await eventually(w, () => c.snap().mySeat >= 0 && c.snap().gameStarted, opts.timeout || 20000, 250);
+  return c;
+}
+
+/** The seats a bot is currently holding, from one client's point of view. */
+function botSeats(c) {
+  const s = c.snap();
+  return s.order.map((id, i) => (id === null ? i : -1)).filter(i => i >= 0);
 }
 
 const STALL_MS = 6 * 60 * 1000;         // > (90s turn + 90s untrusted proxy + 10s grace)
@@ -182,4 +190,4 @@ async function driveUntil(w, pred, opts = {}) {
   return playOut(w, Object.assign({ done: pred, budget: 10 * 60 * 1000, consistency: false }, opts));
 }
 
-module.exports = { World, onlineWorld, startMatch, playOut, driveUntil, rejoin, eventually, consistency, dump, signature, NAMES, flush };
+module.exports = { World, onlineWorld, startMatch, joinTable, botSeats, playOut, driveUntil, rejoin, eventually, consistency, dump, signature, NAMES, flush };

@@ -161,19 +161,20 @@ test("tapping Play while disconnected leaves no stuck 'Sending…' latch", async
 
 // ── players walking out ───────────────────────────────────────────────────
 
-test("4p: a player leaves for good — 20s grace, then a fold, and three play on", async () => {
+test("4p: a player leaves for good — 20s grace, then a bot takes the seat", async () => {
   const w = await onlineWorld(4);
   await startMatch(w);
   await driveUntil(w, () => w.clients[0].snap().roundMoveNo >= 2);
   w.clients[3].leaveRoom();
   await w.advance(3000);
-  eq(w.clients[0].snap().outs[3], false, "no fold during the grace window");
+  eq(w.clients[0].snap().order[3], "u4", "the seat is held during the grace window");
   ok(w.clients[0].snap().turnLine.length > 0, "the table shows the waiting-for-rejoin line");
   await w.advance(25 * 1000);
-  eq(w.clients[0].snap().outs[3], true, "the departed seat folds once the window expires\n" + dump(w));
-  eq(w.clients[1].snap().outs[3], true, "and every client agrees");
+  eq(w.clients[0].snap().order[3], null, "the departed seat goes to a bot once the window expires\n" + dump(w));
+  eq(w.clients[1].snap().order[3], null, "and every client agrees");
+  eq(w.clients[0].snap().outs[3], false, "an open table never folds a seat out of the match");
   await mustFinish(w, "after one of four left");
-  eq(w.server.reports.length, 1, "still exactly one result card");
+  ok(w.server.reports.length <= 1, "at most one result card (a bot champion files none)");
 });
 
 test("a player who rejoins inside the grace window is NOT folded", async () => {
@@ -194,18 +195,18 @@ test("a player who rejoins inside the grace window is NOT folded", async () => {
   await mustFinish(w, "after a rejoin inside the grace window");
 });
 
-test("2p: the last opponent leaves — the match ends as a forfeit win, not a hang", async () => {
+test("2p: the last human opponent leaves — a bot takes over and the table plays on", async () => {
   const w = await onlineWorld(2);
   await startMatch(w);
   await driveUntil(w, () => w.clients[0].snap().roundMoveNo >= 2);
   w.clients[1].leaveRoom();
   await w.advance(30 * 1000);
   const s = w.clients[0].snap();
-  eq(s.overlays.winner, true, "the survivor gets the winner screen\n" + dump(w));
-  eq(s.dealActive, false);
-  eq(w.server.reports.length, 1, "the forfeit is reported");
-  eq(w.server.reports[0].payload.winnerId, "u1", "the survivor wins");
-  eq(w.server.reports[0].payload.scores, undefined, "a forfeit reports no misleading scoreline");
+  eq(s.order[1], null, "the empty seat went back to a bot\n" + dump(w));
+  eq(s.outs[1], false, "and stayed in the match");
+  eq(s.overlays.winner, false, "an open table does not end just because a human walked out");
+  eq(s.dealActive, true, "the round is still live");
+  await mustFinish(w, "after the only human opponent left");
 });
 
 test("4p: two players vanish inside the same grace window", async () => {
@@ -215,10 +216,11 @@ test("4p: two players vanish inside the same grace window", async () => {
   w.clients[2].leaveRoom();
   await w.advance(4000);
   w.clients[3].leaveRoom();
-  await w.advance(40 * 1000);
+  await w.advance(60 * 1000);
   const s = w.clients[0].snap();
-  eq(s.outs[2], true, "the first leaver folded\n" + dump(w));
-  eq(s.outs[3], true, "the second leaver folded too — not overwritten by the first");
+  eq(s.order[2], null, "the first leaver's seat went to a bot\n" + dump(w));
+  eq(s.order[3], null, "and so did the second's — one release did not swallow the other");
+  eq(s.outs.slice(2), [false, false], "neither seat was folded out of the match");
   eq(consistency(w), null, dump(w));
   await mustFinish(w, "after a double walkout");
 });
@@ -229,15 +231,16 @@ test("the HOST walks out mid-round and the remaining players finish the match", 
   await driveUntil(w, () => w.clients[1].snap().roundMoveNo >= 2);
   w.clients[0].leaveRoom();
   await w.advance(30 * 1000);
-  eq(w.clients[1].snap().outs[0], true, "the host's seat folds\n" + dump(w));
+  eq(w.clients[1].snap().order[0], null, "the host's seat goes to a bot\n" + dump(w));
+  eq(w.clients[1].snap().outs[0], false, "it is not folded out of the match");
   await mustFinish(w, "after the host walked out");
-  eq(w.server.reports.length, 1, "the surviving authority reports the result");
-  ok(w.server.reports[0].by !== "u1", "and it is not the player who left");
+  ok(w.server.reports.length <= 1, "at most one result card");
+  if (w.server.reports.length) ok(w.server.reports[0].by !== "u1", "and it is not the player who left");
 });
 
 test("an already-eliminated player leaving does not disturb the table", async () => {
   const w = await onlineWorld(4);
-  await startMatch(w, { loseAt: 15 });
+  await startMatch(w);
   const r = await driveUntil(w, () => w.clients[0].snap().outs.some(o => o), { budget: 30 * 60 * 1000 });
   ok(r.ok, "nobody was eliminated: " + r.reason);
   const outSeat = w.clients[0].snap().outs.findIndex(o => o);
@@ -399,8 +402,11 @@ test("a forged state_push from a non-authority is ignored", async () => {
   w.clients[2].run('Usion.game.realtime("state_push", Object.assign(currentCheckpoint(), {moves: [], seq: lastSeq + 500}))');
   await w.advance(5000);
   const after = w.clients[0].snap();
-  eq(after.counts, before.counts, "a forged rollback must be refused\n" + dump(w));
-  eq(after.roundMoveNo, before.roundMoveNo);
+  // The bots keep playing while we wait, so the table is allowed to move FORWARD —
+  // what the forgery must never do is rewind it.
+  eq(after.curSeed, before.curSeed, "a forged rollback must not re-deal the table\n" + dump(w));
+  ok(after.roundMoveNo >= before.roundMoveNo, "the move log must not rewind\n" + dump(w));
+  ok(after.counts.every((n, i) => n <= before.counts[i]), "no played card may come back into a hand");
   eq(consistency(w), null);
   await mustFinish(w, "after a forged state_push");
 });
@@ -442,20 +448,21 @@ test("a real proxy cover survives a full rejoin", async () => {
   await mustFinish(w, "cover + rejoin", { consistency: false });
 });
 
-test("a real fold survives a full rejoin", async () => {
+test("a real seat release survives a full rejoin", async () => {
   const w = await onlineWorld(4);
   await startMatch(w);
   await driveUntil(w, () => w.clients[0].snap().roundMoveNo >= 2);
   w.clients[3].leaveRoom();
   await w.advance(30 * 1000);
-  eq(w.clients[0].snap().outs[3], true, "seat 3 folded");
+  eq(w.clients[0].snap().order[3], null, "seat 3 is a bot now");
   const observer = w.clients[2];
   observer.leaveRoom();
   await w.advance(2000);
   await rejoin(w, observer, 60 * 1000);
-  eq(observer.snap().outs, w.clients[0].snap().outs,
-    "a rejoining client must keep a legitimate fold\n" + dump(w));
-  await mustFinish(w, "fold + rejoin");
+  eq(observer.snap().order, w.clients[0].snap().order,
+    "a rejoining client must rebuild the same roster\n" + dump(w));
+  eq(observer.snap().outs, w.clients[0].snap().outs, "and the same standings");
+  await mustFinish(w, "release + rejoin");
 });
 
 test("a forged fold cannot eliminate anyone, live or on replay", async () => {
@@ -528,7 +535,7 @@ for (const syncModel of ["full", "tail", "cpTailInclusive"]) {
 
 // ── misc launch paths ─────────────────────────────────────────────────────
 
-test("a solo game promoted into a room drops the bots and opens the waiting room", async () => {
+test("a solo game promoted into a room reopens as a live open table", async () => {
   const { World } = require("./lib/world.cjs");
   const w = new World();
   const host = w.add("p1", "Alice", { mode: "single", roomId: "standalone_p" });
@@ -542,19 +549,23 @@ test("a solo game promoted into a room drops the bots and opens the waiting room
   host.sdk.fire("roomAssigned", { roomId: w.roomId });
   host.run(`Usion.game.join(${JSON.stringify(w.roomId)}).catch(function () {})`);
   await w.advance(1500);
+  eq(host.snap().online, true, "we are online now");
+  // The offline bots round is torn down and re-opened as a networked open table:
+  // same three bots, but now every move is a stored action anyone can join into.
+  const opened = await eventually(w, () => host.snap().gameStarted && host.snap().dealActive, 30000, 250);
+  ok(opened, "the promoted room should open its own table\n" + dump(w));
   const s = host.snap();
-  eq(s.online, true, "we are online now");
-  eq(s.dealActive, false, "the bots round is torn down");
-  eq(s.overlays.lobby, true, "the waiting room is up");
-  // no stray bot timer may deal into the lobby
-  await w.advance(120 * 1000);
-  eq(host.snap().dealActive, false, "nothing re-deals behind the lobby");
-  // and a real guest can now join and play
+  eq(s.numPlayers, 4, "an open table is four seats wide");
+  eq(s.order, ["p1", null, null, null], "the promoted host sits alone with three bots");
+  eq(s.totals, [0, 0, 0, 0], "and the promoted table starts level");
+  eq(s.overlays.lobby, false, "no waiting room to sit in");
+  // and a real guest can now drop straight in
   const guest = w.add("p2", "Bob", { mode: "multiplayer", roomId: w.roomId });
   guest.start({ userId: "p2", userName: "Bob", roomId: w.roomId, playerIds: [] });
-  await w.advance(1500);
-  await startMatch(w);
-  eq(host.snap().numPlayers, 2, "a promoted room deals a real 2-player match");
+  const seatedGuest = await eventually(w, () => host.snap().order.indexOf("p2") >= 0, 30000, 250);
+  ok(seatedGuest, "the invited guest should take a bot seat\n" + dump(w));
+  await eventually(w, () => guest.snap().gameStarted, 20000, 250);
+  eq(guest.snap().numPlayers, 4);
   await mustFinish(w, "promoted room");
 });
 
@@ -577,6 +588,88 @@ test("no client throws anywhere in an adversarial 4-player match", async () => {
   w.clients[2].netRestore();
   await mustFinish(w, "mixed adversity");
   for (const c of w.clients) eq(c.errors.map(e => String(e && e.message || e)), [], c.id + " threw");
+});
+
+// ── open table: dropping in and out under adversity ───────────────────────
+
+test("a newcomer is still seated when the elected authority is asleep", async () => {
+  const w = await onlineWorld(2);
+  await startMatch(w);
+  await driveUntil(w, () => w.clients[0].snap().roundMoveNo >= 2);
+  // Seat 0 writes seat claims. A locked phone runs no javascript but never
+  // leaves presentIds, so without a staggered fallback it would lock the room.
+  w.clients[0].freeze();
+  await w.advance(2000);
+  const late = w.add("u3", "Chuck", { mode: "multiplayer", roomId: w.roomId });
+  late.start({ userId: "u3", userName: "Chuck", roomId: w.roomId, playerIds: [] });
+  const got = await eventually(w, () => w.clients[1].snap().order.indexOf("u3") >= 0, 60 * 1000, 250);
+  ok(got, "seat 1 must cover the claim seat 0 owes\n" + dump(w));
+  await eventually(w, () => late.snap().gameStarted, 30 * 1000, 250);
+  eq(late.snap().mySeat, w.clients[1].snap().order.indexOf("u3"), "and the newcomer agrees which seat");
+  w.clients[0].thaw();
+  await w.advance(60 * 1000);
+  eq(consistency(w), null, "the sleeper catches up to the new roster\n" + dump(w));
+  await mustFinish(w, "seated while the authority slept");
+});
+
+test("two clients claiming the same seat at once produce ONE seating", async () => {
+  const w = await onlineWorld(3);
+  await startMatch(w);
+  await driveUntil(w, () => w.clients[0].snap().roundMoveNo >= 2);
+  const bot = w.clients[0].snap().order.indexOf(null);
+  ok(bot >= 0, "there is a bot seat to claim");
+  const late = w.add("u4", "Dana", { mode: "multiplayer", roomId: w.roomId });
+  late.start({ userId: "u4", userName: "Dana", roomId: w.roomId, playerIds: [] });
+  await w.advance(300);
+  // every seated client fires the same claim in the same tick
+  for (const c of [w.clients[0], w.clients[1], w.clients[2]]) {
+    c.run(`Usion.game.action("move", {kind:"seat_take", seat:${bot}, playerId:"u4"}).catch(function(){})`);
+  }
+  await w.advance(5000);
+  const s = w.clients[0].snap();
+  eq(s.order.filter(id => id === "u4").length, 1, "Dana holds exactly one seat\n" + dump(w));
+  eq(new Set(s.order.filter(Boolean)).size, s.order.filter(Boolean).length, "no id appears twice");
+  eq(consistency(w), null, dump(w));
+  await mustFinish(w, "after a seat-claim race");
+});
+
+test("a player who joins between rounds is dealt into the very next hand", async () => {
+  const w = await onlineWorld(1);
+  await startMatch(w);
+  // stop on the results overlay, i.e. between two rounds
+  const r = await driveUntil(w, () => w.clients[0].snap().overlays.hand, { budget: 30 * 60 * 1000 });
+  ok(r.ok, "the table should reach a results screen: " + r.reason + "\n" + (r.dump || ""));
+  const late = w.add("u2", "Bob", { mode: "multiplayer", roomId: w.roomId });
+  late.start({ userId: "u2", userName: "Bob", roomId: w.roomId, playerIds: [] });
+  const got = await eventually(w, () => w.clients[0].snap().order.indexOf("u2") >= 0, 60 * 1000, 250);
+  ok(got, "a between-rounds joiner still gets a seat\n" + dump(w));
+  const seat = w.clients[0].snap().order.indexOf("u2");
+  const dealt = await eventually(w, () => late.snap().dealActive && late.snap().counts[seat] === 13, 60 * 1000, 250);
+  ok(dealt, "and is dealt a full hand in the next round\n" + dump(w));
+  eq(consistency(w), null, dump(w));
+  await mustFinish(w, "joined between rounds");
+});
+
+test("churn: players joining and leaving all match long never split the table", async () => {
+  const w = await onlineWorld(2);
+  await startMatch(w);
+  await driveUntil(w, () => w.clients[0].snap().roundMoveNo >= 2);
+  const c = w.add("u3", "Chuck", { mode: "multiplayer", roomId: w.roomId });
+  c.start({ userId: "u3", userName: "Chuck", roomId: w.roomId, playerIds: [] });
+  await eventually(w, () => c.snap().gameStarted, 40 * 1000, 250);
+  w.clients[1].leaveRoom();                       // Bob walks out while Chuck settles in
+  await w.advance(30 * 1000);
+  const d = w.add("u4", "Dana", { mode: "multiplayer", roomId: w.roomId });
+  d.start({ userId: "u4", userName: "Dana", roomId: w.roomId, playerIds: [] });
+  await eventually(w, () => d.snap().gameStarted, 40 * 1000, 250);
+  eq(consistency(w), null, "the table agrees through the churn\n" + dump(w));
+  const live = [w.clients[0], c, d];
+  const r = await playOut(w, {
+    done: () => live.every(x => x.snap().overlays.winner),
+    budget: BUDGET, skip: ["u2"],
+  });
+  ok(r.ok, "churn: " + r.reason + "\n" + (r.dump || ""));
+  for (const x of live) eq(x.errors.map(e => String(e && e.message || e)), [], x.id + " threw");
 });
 
 if (require.main === module) run("ADVERSITY").then(r => process.exit(r.fails.length ? 1 : 0));

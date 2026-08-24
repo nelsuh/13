@@ -17,10 +17,14 @@ realm on top of:
 | DOM | `lib/dom.cjs` | element tree, classes, `dataset`, selectors, events. Layout is zeroed; a **disabled button ignores clicks**, like a browser. |
 | clock | `lib/clock.cjs` | virtual time. An owner marked `frozen` keeps accruing wall-clock time but runs **no javascript** — a locked phone. |
 | relay | `lib/net.cjs` | `action` (sequenced + stored + broadcast), `realtime` (fire-and-forget), `setState` (CAS checkpoint), `requestSync` → `onSync`. Anything pushed at a frozen or disconnected client is **dropped**; recovery must come from a resync. |
-| scenarios | `lib/world.cjs` | build a table, run the lobby, drive every client's turn through the real Play/Pass buttons, and watch for stalls. |
+| scenarios | `lib/world.cjs` | build a room, wait for the open table to deal itself, drop extra players in and out, drive every client's turn through the real Play/Pass buttons, and watch for stalls. |
 
-Because the clock is virtual, a 90-second turn timeout or a 20-second forfeit
-grace costs microseconds — a full 4-player match runs in about a second.
+Because the clock is virtual, a 90-second turn timeout or a 20-second grace
+costs microseconds — a full 4-player match runs in about a second.
+
+A table always has four seats, so a world with fewer simulated clients is a real
+open table with bots in the rest: `onlineWorld(1)` is one human against three
+bots, and `botSeats(client)` reports which seats a newcomer could take.
 
 ### How a "dead end" is detected
 
@@ -42,12 +46,12 @@ through the UI, and computes a signature of what every client believes
 | suite | tests | covers |
 |---|---|---|
 | `t_rules.cjs` | 16 | combination classification and ordering, complete alternate-combo generation, 2-low↔A-high straights with no wrap, suit order ♠>♥>♣>♦, wire encoding, the penalty ladder, seeded dealing, bot hand-planning/endgame choices, and fuzz proving every generated move is legal and held |
-| `t_offline.cjs` | 11 | the GameTok zero-tap launch, the setup screen at 2/3/4 players × lose-at 20/30/40, 30 back-to-back solo matches, both hand-over buttons, rematch, the turn clock (auto-pass, and forced play when leading), the 5-card selection cap |
-| `t_online.cjs` | 15 | waiting room and ready gating, seat locking, 2/3/4-player matches end to end, the host's lose-at pick, late joiners, spectator injection, rematch (host and guest), result-card payloads, round transitions, quick chat |
-| `t_adversity.cjs` | 37 | locked phones (guest, host, rolling, whole-round), socket drops and reconnects, permanent walkouts at 2p/3p/4p, double walkouts, rejoin inside the grace window, full exit + rejoin, lost echoes, deal races, proxy races, forged actions, forged and stale checkpoints, live-vs-replay agreement, catch-up traffic cost, three server sync models, solo→room promotion, 500 ms latency |
-| `t_findings.cjs` | 9 | regression tests for the three bugs this harness found, plus one documented residual |
+| `t_offline.cjs` | 14 | the GameTok zero-tap launch, the setup screen at 2/3/4 players × lose-at 20/30/40, 30 back-to-back solo matches, both hand-over buttons, rematch, the turn clock (auto-pass, and forced play when leading), the 5-card selection cap, hand drag-reorder |
+| `t_online.cjs` | 24 | the **open table** — dealing against bots with no lobby, bots actually playing online, a joiner taking over the lowest-scoring bot with its score and cards, B→C→D filling the table mid-round, a fifth arrival queuing for a seat, a walkout handing seat + score back to a bot, a freed seat going to whoever was waiting, forged seat claims, forged bot moves, 1–4 humans end to end, the fixed match target, rematch and self-restart, result-card payloads, round transitions, quick chat, avatars |
+| `t_adversity.cjs` | 41 | locked phones (guest, host, rolling, whole-round), socket drops and reconnects, permanent walkouts at 2p/3p/4p, double walkouts, rejoin inside the grace window, full exit + rejoin, lost echoes, deal races, proxy races, seat-claim races, seating while the elected authority sleeps, joining between rounds, join/leave churn through a whole match, forged actions, forged and stale checkpoints, live-vs-replay agreement, catch-up traffic cost, three server sync models, solo→room promotion, 500 ms latency |
+| `t_findings.cjs` | 10 | regression tests for the four bugs this harness found, plus one documented residual |
 
-## The bugs this found (all fixed, `script.js?v=52`)
+## The bugs this found (all fixed, `script.js?v=64`)
 
 `t_findings.cjs` keeps a reproduction for each, so a regression turns it red
 again. The reproductions and the reasoning live in the comment blocks there.
@@ -82,6 +86,20 @@ again. The reproductions and the reasoning live in the comment blocks there.
    applied actions are recorded as applied, and a 1 s watchdog asks for a
    catch-up when the latch sticks or nothing arrives at all. Cost measured at
    ~0 extra requests in a healthy match.
+4. **HIGH — an open table split in two when a released player came back.**
+   A player whose socket dies long enough loses their seat to a bot. They never
+   apply that release themselves — `applySeatMove` refuses to evict the seat you
+   are sitting in, precisely so a stray action cannot throw out a player who is
+   right there. So on the way back they still believed they held seat N while the
+   room had given it away. Every bot move the room made for seat N was one they
+   rejected (`players[seat].isBot` false in their copy), and every checkpoint that
+   would have corrected them was one they skipped, because its roster did not name
+   them: a client playing a private continuation of a round nobody else was in,
+   with no path back.
+   *Fixed:* a snapshot that is genuinely **ahead** of everything we have applied
+   and does not seat us is the room telling us the seat is gone —
+   `becomeUnseated()` drops to the waiting state and `reconcileOpenSeats` deals us
+   back in, usually within a second.
 
 Found while fixing the above: forged `leave_fold` / `forfeit_win` actions were
 rejected live but applied by anyone replaying the raw action log. Checkpoint
@@ -96,3 +114,10 @@ forced on it anyway — a pass while following. Closing it needs the platform to
 gate who may write an `auto` move: a client cannot prove how long another player
 has really had, and any timing rule would be judged differently live and on
 replay, which is exactly what produced the split table in finding 1.
+
+The same shape applies to `bot` moves on an open table: any seated client may
+relay a bot seat's turn early. It can only ever be the move `botDecision(seat)`
+would have produced anyway — every client recomputes it and rejects anything else
+— so the cost is timing, not control. Gating it on presence instead was tried and
+rejected for the reason above: presence cannot be reconstructed on replay, so a
+presence rule splits the table exactly the way finding 1 did.

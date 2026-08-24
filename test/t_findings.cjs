@@ -221,5 +221,52 @@ test("FINDING 3b: a foreground client that missed actions must self-heal", async
     "a foreground client that missed a dozen actions never resyncs\n" + dump(w));
 });
 
+// ── FINDING 4 — HIGH: an open table split in two when a released player came
+// back. Found while building the open table itself.
+//
+// A player whose socket dies for long enough loses their seat to a bot (that is
+// the whole point of an open table: the room must not stall on someone who is
+// gone). They do NOT apply that release themselves — applySeatMove refuses to
+// release the seat you are sitting in, precisely so a stray action cannot evict a
+// present player. So on the way back they still believe they hold seat N while
+// the room has given it to a bot.
+//
+// Every bot move the room then makes for seat N is one they reject
+// (`players[seat].isBot` is false in their copy), and every checkpoint that would
+// have corrected them is one they skip, because the roster in it does not name
+// them. The result is a client sitting in a private continuation of a round
+// nobody else is playing — a split table that never heals, which is exactly the
+// failure mode this harness exists to catch.
+//
+// Fixed: a snapshot that is genuinely AHEAD of everything we have applied and
+// does not seat us is the room telling us our seat is gone. becomeUnseated()
+// drops back to the waiting state, and the table's own reconcileOpenSeats deals
+// us in again — usually within a second, on whichever bot seat is now weakest.
+
+test("FINDING 4: a player released while offline must rejoin the room's round, not their own", async () => {
+  const w = await onlineWorld(3);
+  await startMatch(w);
+  await driveUntil(w, () => w.clients[0].snap().roundMoveNo >= 3);
+  const victim = w.clients[2];
+  victim.netDrop();
+  // Stay away well past the 20 s forfeit grace, so the seat is genuinely released.
+  await driveUntil(w, () => w.clients[0].snap().order[2] === null, { budget: 10 * 60 * 1000 });
+  eq(w.clients[0].snap().order[2], null, "the table gave the seat to a bot\n" + dump(w));
+  victim.netRestore();
+  // Converging takes two steps: the room deals us back in (a seat_take action),
+  // and then our copy of the round catches up. Wait for both.
+  ok(await eventually(w, () => {
+    const v = victim.snap(), h = w.clients[0].snap();
+    return v.gameStarted && v.mySeat >= 0 && consistency(w) === null &&
+           JSON.stringify(v.order) === JSON.stringify(h.order);
+  }, 180 * 1000), "the returning player must converge on the room's round\n" + dump(w));
+  const s = victim.snap();
+  const host = w.clients[0].snap();
+  eq(s.curSeed, host.curSeed, "same round as everyone else");
+  eq(s.order, host.order, "same roster");
+  eq(s.counts, host.counts, "same board");
+  ok(s.mySeat >= 0 && s.order[s.mySeat] === victim.id, "and a seat of their own again\n" + dump(w));
+});
+
 if (require.main === module) run("FINDINGS").then(r => process.exit(r.fails.length ? 1 : 0));
 module.exports = { run: () => run("FINDINGS") };

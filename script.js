@@ -31,6 +31,22 @@ const PLAYER_COLORS = ["#2ed573", "#ff4757", "#1e90ff", "#ffa502"];
 const HAND_OVER_SECONDS = 5;
 const TURN_SECONDS = 90;   // each player gets 2:00 to act; on expiry they auto-pass (auto-lead if leading)
 
+// ── Open table ───────────────────────────────────────────
+// An online room is an OPEN SERVER: it always seats 4, humans first and bots
+// filling whatever is left, and it never waits in a lobby. The first player in
+// deals immediately against 3 bots; everyone who arrives afterwards drops
+// straight into the round by taking over a bot seat — inheriting that seat's
+// accumulated penalty points. A player who leaves hands their seat (and score)
+// back to a bot, so the table stays full and the room keeps running.
+const OPEN_SEATS = 4;           // an open table is always 4 seats wide
+const OPEN_START_MS = 600;      // let presence settle before the first deal
+const BOT_MOVE_MS = 900;        // how long an online bot "thinks" before its move goes out
+const OPEN_RESTART_MS = 8000;   // the champion screen auto-restarts an open table
+const OPEN_LOSE_AT = 20;        // open tables run the 4-player road to 20 points
+const SEAT_RETRY_MS = 3000;     // don't re-send a seat claim faster than this
+const SEAT_STAGGER_MS = 2500;   // per authority rank, so a sleeping seat 0 can't lock newcomers out
+const OPEN_REVIVE_MS = 20000;   // a room that owes us a seat and has gone silent is dead — reopen it
+
 // ── i18n ─────────────────────────────────────────────────
 // Mongolian is the default; every other host language falls back to English.
 // The language comes from the platform (Usion.getLanguage(), i.e. the user's
@@ -69,22 +85,19 @@ const STR = {
     survived: "үлдсэн",
     lostTag: "хожигдсон",
     playAgain: "ДАХИН ТОГЛОХ",
-    lobbyTitle: "Хүлээх танхим",
+    lobbyTitle: "Нээлттэй ширээ",
     connecting: "Холбогдож байна…",
-    waitingPlayers: (a, b) => "Тоглогчдыг хүлээж байна… (" + a + "/" + b + ")",
-    readyStarting: n => n + " тоглогч бэлэн — эхэлж байна…",
-    waitingJoin: "Тоглогчид нэгдэхийг хүлээж байна…",
-    readyCount: (a, b) => a + "/" + b + " бэлэн",
-    ready: "БЭЛЭН",
-    readyOn: "✓ БЭЛЭН",
-    notReady: "БЭЛЭН БИШ",
     hostTag: "ХОСТ",
-    hintHostGo: "Бүгд бэлэн — Эхлүүлэх дар!",
-    hintHostWait: "Бүх тоглогч бэлэн болмогц Эхлүүлэх нээгдэнэ.",
-    hintWaitHost: "Хост эхлүүлэхийг хүлээж байна…",
-    hintPressReady: "Бэлэн болсон бол БЭЛЭН гэж дар.",
     playerN: i => "Тоглогч " + i,
-    startedWithoutYou: "Хост таныг оруулалгүй эхлүүллээ.",
+    openBotNames: ["Бот Бат", "Бот Болд", "Бот Сүх", "Бот Дорж"],
+    openWaitSeat: "Суудал чөлөөлөгдөхийг хүлээж байна…",
+    openJoining: "Ширээнд орж байна…",
+    openTableTag: "НЭЭЛТТЭЙ ШИРЭЭ",
+    openStatus: "Нээлттэй ширээ — хэн ч дундаас нь нэгдэж болно",
+    openJoined: n => n + " ширээнд оролоо",
+    openLeftBot: n => n + " гарлаа — бот суудлыг нь авлаа",
+    openRestarting: "Шинэ ширээ бэлдэж байна…",
+    botTag: "БОТ",
     dealing: "Хөзөр тарааж байна…",
     startGame: "ТОГЛООМ ЭХЛҮҮЛЭХ",
     playBots: "БОТТОЙ ТОГЛОХ",
@@ -101,7 +114,7 @@ const STR = {
     playersLabel: "ТОГЛОГЧ",
     loseLabel: "ХОЖИГДОХ ОНОО",
     nameLabel: "ТАНЫ НЭР",
-    setupFoot: "Офлайн та ботуудтай. Онлайн бол ширээний бүх тоглогч тоглоно.",
+    setupFoot: "Офлайн та ботуудтай. Онлайн бол нээлттэй ширээ — хүн ирэхэд ботын суудлыг авна.",
     skinToggle: "Ширээний өнгө солих",
     chatAria: "Түргэн харилцах",
     customChat: "Өөрийн мессеж",
@@ -147,22 +160,19 @@ const STR = {
     survived: "survived",
     lostTag: "eliminated",
     playAgain: "PLAY AGAIN",
-    lobbyTitle: "Waiting room",
+    lobbyTitle: "Open table",
     connecting: "Connecting…",
-    waitingPlayers: (a, b) => "Waiting for players… (" + a + "/" + b + ")",
-    readyStarting: n => n + " players ready — starting…",
-    waitingJoin: "Waiting for players to join…",
-    readyCount: (a, b) => a + "/" + b + " ready",
-    ready: "READY",
-    readyOn: "✓ READY",
-    notReady: "NOT READY",
     hostTag: "HOST",
-    hintHostGo: "Everyone is ready — press Start!",
-    hintHostWait: "Start unlocks once every player is ready.",
-    hintWaitHost: "Waiting for the host to start…",
-    hintPressReady: "Press READY when you're set.",
     playerN: i => "Player " + i,
-    startedWithoutYou: "The host started without you.",
+    openBotNames: ["Bot Bat", "Bot Bold", "Bot Sukh", "Bot Dorj"],
+    openWaitSeat: "Waiting for a seat to open…",
+    openJoining: "Taking a seat…",
+    openTableTag: "OPEN TABLE",
+    openStatus: "Open table — anyone can drop in",
+    openJoined: n => n + " joined the table",
+    openLeftBot: n => n + " left — a bot took the seat",
+    openRestarting: "Starting a fresh table…",
+    botTag: "BOT",
     dealing: "Dealing…",
     startGame: "START GAME",
     playBots: "PLAY VS BOTS",
@@ -179,7 +189,7 @@ const STR = {
     playersLabel: "PLAYERS",
     loseLabel: "LOSE AT",
     nameLabel: "YOUR NAME",
-    setupFoot: "Offline you play bots. Online everyone at the table plays.",
+    setupFoot: "Offline you play bots. Online it is an open table — arrivals take over a bot's seat.",
     skinToggle: "Change table colour",
     chatAria: "Quick chat",
     customChat: "Custom message",
@@ -638,7 +648,12 @@ function renderMyPlayer() {
   meNameEl.textContent = p.name;
   paintAvatar(meAvatarEl, p.name, p.avatar, p.isBot);
 }
-function render() { renderMyPlayer(); renderOpponents(); renderTable(); renderHand(); renderControls(); updateTimers(); renderMyScore(); updateChatButton(); }
+function render() {
+  // Unseated (waiting for a seat at a full open table): there is no hand, no
+  // opponents and no seat of our own to draw — only the chat button's state.
+  if (mySeat < 0 || !players[mySeat]) { updateChatButton(); return; }
+  renderMyPlayer(); renderOpponents(); renderTable(); renderHand(); renderControls(); updateTimers(); renderMyScore(); updateChatButton();
+}
 function renderMyScore() { if (meScoreEl && players[mySeat]) meScoreEl.textContent = players[mySeat].total; }
 
 // ── Turn clock (per-player 2:00; auto-pass / auto-lead on expiry) ─────────
@@ -712,6 +727,7 @@ function onTurnTimeout() {
     return;
   }
   if (turn === mySeat) { autoMove(mySeat); return; }
+  if (players[turn] && players[turn].isBot) { scheduleBotMove(turn); return; }   // a bot never times out
   scheduleProxyMove(turn);
 }
 // Fallback rank among the clients that could cover `seat` (everyone seated and
@@ -1073,6 +1089,7 @@ function startDeal(seed) {
   if (dealTimer) { clearTimeout(dealTimer); dealTimer = null; }
   if (handCdInterval) { clearInterval(handCdInterval); handCdInterval = null; }
   if (handCdTimeout) { clearTimeout(handCdTimeout); handCdTimeout = null; }
+  if (openRestartTimer) { clearTimeout(openRestartTimer); openRestartTimer = null; }
   dealEpoch += 1;
   awaitingDeal = false;
   roundMoveNo = 0;
@@ -1122,20 +1139,80 @@ function beginTurn() {
   render();
   turnTrusted = !replayingSync;   // replay → we're reconstructing, not observing
   startTurnTimer();
-  if (!dealActive || online) return;
-  if (players[turn].isBot) botTimer = setTimeout(botAct, 750 + Math.floor(Math.random() * 500));
+  if (!dealActive) return;
+  if (!online) {
+    if (players[turn].isBot) botTimer = setTimeout(botAct, 750 + Math.floor(Math.random() * 500));
+    return;
+  }
+  // Open table: a bot seat is played by the engine, broadcast as a normal stored
+  // move by exactly one elected client. Never during a replay — we're
+  // reconstructing history there, not producing it.
+  if (!replayingSync && players[turn] && players[turn].isBot) scheduleBotMove(turn);
 }
 function botAct() {
   botTimer = null;
   if (!dealActive || online) return;
-  const hand = hands[turn];
-  const opponentMin = Math.min(...activeSeats().filter(s => s !== turn).map(s => hands[s].length));
+  const d = botDecision(turn);
+  if (!d) return;
+  if (d.kind === "pass") doPass(turn);
+  else doPlay(turn, d.combo);
+}
+
+// ── Bot seats, online ────────────────────────────────────
+// The engine's choice for `seat`, derived ONLY from replayable state (the seat's
+// hand, the table, firstPlay). Every client computes the same answer, which is
+// what makes a broadcast bot move verifiable: the sender does not get to pick
+// the cards, the engine does — the same rule that guards a proxy cover.
+function botDecision(seat) {
+  const hand = hands[seat] || [];
+  if (!hand.length) return null;
+  const others = activeSeats().filter(s => s !== seat);
+  const opponentMin = others.length ? Math.min(...others.map(s => (hands[s] || []).length)) : 13;
   const context = {
     opponentMin,
-    urgent: !!table && table.seat !== turn && hands[table.seat].length <= 2,
+    urgent: !!table && table.seat !== seat && (hands[table.seat] || []).length <= 2,
   };
-  if (!table) doPlay(turn, botLead(hand, firstPlay, context));
-  else { const m = botFollow(hand, table.combo, context); if (m) doPlay(turn, m); else doPass(turn); }
+  if (!table) {
+    const combo = botLead(hand, firstPlay, context);
+    return combo ? { kind: "play", combo } : null;
+  }
+  const m = botFollow(hand, table.combo, context);
+  return m ? { kind: "play", combo: m } : { kind: "pass" };
+}
+// One deterministic writer per bot seat: the lowest-seated human still in the
+// room. Bot seats hold `null` in roomPlayerIds and are never in presentIds, so
+// they can never elect themselves.
+function botAuthorityId(seat) { return proxyAuthorityId(seat); }
+function scheduleBotMove(seat) {
+  if (botTimer) { clearTimeout(botTimer); botTimer = null; }
+  if (!online || !dealActive || netPaused) return;
+  if (!players[seat] || !players[seat].isBot || players[seat].out) return;
+  if (turn !== seat) return;
+  if (botAuthorityId(seat) !== myId) return;              // not our bot to play
+  const epoch = dealEpoch, moveNo = roundMoveNo;
+  botTimer = setTimeout(function () {
+    botTimer = null;
+    if (!online || !dealActive || netPaused) return;
+    if (epoch !== dealEpoch || moveNo !== roundMoveNo || turn !== seat) return;
+    if (!players[seat] || !players[seat].isBot || players[seat].out) return;
+    if (botAuthorityId(seat) !== myId) return;
+    // Our own move is still awaiting its echo — sendMove would drop this on the
+    // floor, so come back once the latch clears rather than stalling the seat.
+    if (pendingAction) { scheduleBotMove(seat); return; }
+    const d = botDecision(seat);
+    if (!d) return;
+    const mv = d.kind === "pass" ? { kind: "pass" } : { kind: "play", cards: d.combo.cards.map(cardWire) };
+    mv.bot = true;
+    sendMove(mv, seat, true);
+  }, BOT_MOVE_MS);
+}
+// Nudge a bot seat that is on turn but has nobody driving it — after a replay,
+// after a seat change, or after the elected authority disappeared. Idempotent.
+function kickBotTurn() {
+  if (!online || !dealActive || replayingSync) return;
+  if (!players[turn] || !players[turn].isBot) return;
+  if (botTimer) return;
+  scheduleBotMove(turn);
 }
 
 function doPlay(seat, combo) {
@@ -1355,6 +1432,25 @@ function showGameOver() {
     sb.appendChild(row);
   });
   document.getElementById("winnerOverlay").classList.add("show");
+  scheduleOpenRestart();
+}
+// An open table does not really end: the champion screen sits for a few seconds
+// and then the elected client deals a fresh match, so whoever is in the room
+// (plus bots for the empty seats) simply keeps playing. PLAY AGAIN still works —
+// it just brings the restart forward.
+let openRestartTimer = null;
+function scheduleOpenRestart() {
+  if (openRestartTimer) { clearTimeout(openRestartTimer); openRestartTimer = null; }
+  if (!online) return;
+  const rank = authorityRank();
+  if (rank < 0) return;
+  const rs = document.getElementById("rematchStatus");
+  if (rs) rs.textContent = t("openRestarting");
+  openRestartTimer = setTimeout(function () {
+    openRestartTimer = null;
+    if (!online || dealActive) return;
+    hostDeal(true);   // reset deal → every client zeroes the match and deals as one
+  }, OPEN_RESTART_MS + rank * DEAL_STAGGER_MS);
 }
 // Play again. Offline: reset locally. Online: platform mode has no server-side
 // restart event — the HOST restarts by broadcasting a normal stored `deal`
@@ -1618,8 +1714,7 @@ let pendingAction = false;
 const playerMeta = {};
 // ── Lobby (waiting room): who's connected + their ready state, pre-game ──
 const presentIds = new Set();   // player ids currently in the room (connected)
-let lobbyReady = {};            // id → bool ready flag
-let myReady = false;            // my own ready toggle
+// (An open table has no READY gate: nobody waits, so nothing tracks readiness.)
 
 // ── Usion capabilities: cloud stats · leaderboard · checkpoint ──
 // All wrappers are defensive: missing modules / standalone preview must never
@@ -1692,6 +1787,9 @@ function reportMatchResult(champSeat, rankedSeats) {
   if (!Array.isArray(roomPlayerIds) || roomPlayerIds.length < 2 || roomPlayerIds.length > 4) return;
   const champ = Number(champSeat);
   if (!Number.isInteger(champ) || champ < 0 || champ >= roomPlayerIds.length) return;
+  // A bot can win an open table. There is no platform identity to hand the result
+  // card to, so simply don't file one — the winner screen still shows the bot.
+  if (roomPlayerIds[champ] == null) return;
   if (!window.Usion || !Usion.game || typeof Usion.game.reportResult !== "function") return;
 
   // Champion first, then the final lower-penalty ranking. This keeps a forfeit
@@ -1712,7 +1810,9 @@ function reportMatchResult(champSeat, rankedSeats) {
   for (const seat of forfeitedSeats) if (!orderedSeats.includes(seat)) orderedSeats.push(seat);
 
   const payload = { winnerId: roomPlayerIds[champ] };
-  if (roomPlayerIds.length > 2) payload.standings = orderedSeats.map((seat) => roomPlayerIds[seat]);
+  // Standings and scores name PLAYERS, so bot seats drop out of both.
+  const humanStandings = orderedSeats.map(seat => roomPlayerIds[seat]).filter(id => id != null);
+  if (humanStandings.length > 2) payload.standings = humanStandings;
 
   // Normal elimination: penalty totals are meaningful (lower is better).
   // Forfeit/fold: omit them because they did not determine the placement.
@@ -1720,6 +1820,7 @@ function reportMatchResult(champSeat, rankedSeats) {
   if (!hasForfeit) {
     const scores = {};
     for (let seat = 0; seat < roomPlayerIds.length; seat++) {
+      if (roomPlayerIds[seat] == null) continue;
       if (players[seat] && Number.isFinite(Number(players[seat].total))) {
         scores[roomPlayerIds[seat]] = Number(players[seat].total);
       }
@@ -1810,20 +1911,55 @@ function applyStateSnapshot(state) {
   if (!gameStarted || snapshotIsNewer(state)) applyCheckpoint(state);
 }
 
+// An open table's seat order carries `null` for every seat a bot is holding, so
+// only the human ids have to be unique — and at least one of them must exist.
 function validSeatOrder(order) {
-  return Array.isArray(order) && order.length >= 2 && order.length <= 4 &&
-    new Set(order).size === order.length;
+  if (!Array.isArray(order) || order.length < 2 || order.length > 4) return false;
+  const ids = order.filter(id => id != null);
+  if (!ids.length) return false;
+  return new Set(ids).size === ids.length;
 }
 
 function sameSeatOrder(a, b) {
   return Array.isArray(a) && Array.isArray(b) && a.length === b.length &&
     a.every((id, i) => id === b[i]);
 }
+// An open table's roster legitimately changes mid-match (bot ↔ human, and a
+// player who was released while away comes back to a DIFFERENT seat), so a
+// recovery snapshot can no longer be required to match ours seat for seat — that
+// rule locked a returning player out of the round for good. What still bounds a
+// forged roster is unchanged: a peer's state_push is only read when it comes from
+// the elected authority (onNetRealtime), and any snapshot must be strictly newer
+// than what we have already applied (snapshotIsNewer).
+function seatOrderCompatible(next) {
+  return validSeatOrder(next) && Array.isArray(roomPlayerIds) &&
+    (!roomPlayerIds.length || next.length === roomPlayerIds.length);
+}
 
+// The room's authoritative state no longer seats us: we were away long enough for
+// the table to release our seat back to a bot, and it may already belong to
+// somebody else. Clinging to it is what splits a table in two — every move the
+// room makes for that seat is one we reject, forever. So drop back to the waiting
+// state and let the table's own reconcileOpenSeats deal us in again.
+function becomeUnseated() {
+  stopLocalRound();
+  gameStarted = false;
+  dealActive = false;
+  players = []; hands = []; moveLog = [];
+  table = null; trickPlays = []; lastAction = {};
+  handOverlay.classList.remove("show");
+  document.getElementById("winnerOverlay").classList.remove("show");
+  showNotSeated();
+  startSeatPoll();
+  render();
+}
+// Every seat is taken by a human right now. Not an error on an open table — sit
+// tight and the next seat that frees up is ours (startSeatPoll keeps asking).
 function showNotSeated() {
+  if (!gameStarted) mySeat = -1;   // we hold no seat — renderers must not draw one
   onlineOverlay.classList.add("show");
   const status = document.getElementById("onlineStatus");
-  if (status) status.textContent = t("startedWithoutYou");
+  if (status) status.textContent = t("openWaitSeat");
 }
 
 // Rebuild the current round from a host checkpoint (received as game_state on a
@@ -1832,10 +1968,23 @@ function showNotSeated() {
 // if a valid checkpoint was applied.
 function applyCheckpoint(state) {
   if (!state || typeof state !== "object" || state.seed === undefined || !validSeatOrder(state.order)) return false;
-  if (state.order.indexOf(myId) < 0) { showNotSeated(); return false; }
+  if (state.order.indexOf(myId) < 0) {
+    // Not in this snapshot's roster. Before the match that just means the table
+    // is full and we are queuing for a seat.
+    if (!gameStarted) { showNotSeated(); return false; }
+    // Mid-match it means one of two very different things. A snapshot that is
+    // BEHIND us simply predates our (re)seating — acting on it would throw away a
+    // seat we do hold. A snapshot that is genuinely AHEAD of everything we have
+    // applied is the room telling us our seat is gone, and arguing with it strands
+    // us in a private copy of the round.
+    const cpSeq = Number(state.seq);
+    const ahead = Number.isFinite(cpSeq) ? cpSeq > syncResumePoint() : snapshotIsNewer(state);
+    if (ahead) becomeUnseated();
+    return false;
+  }
   // A live match has frozen seating. A checkpoint may restore that match, but it
   // must never be able to replace its roster (including via a forged state_push).
-  if (gameStarted && !sameSeatOrder(state.order, roomPlayerIds)) return false;
+  if (gameStarted && !seatOrderCompatible(state.order)) return false;
   applyNames(state.names);                              // host-supplied identities before seating
   applyAvatars(state.avatars);
   if (!gameStarted && !startOnlineGame({ order: state.order })) return false;
@@ -1877,6 +2026,7 @@ function applyCheckpoint(state) {
   // roundMoveNo has moved on, so the duplicate is dropped on `ti`.
   pendingAction = false;
   renderControls();
+  kickBotTurn();   // we may have rebuilt straight into a bot's turn
   return true;
 }
 // Have we already applied this action sequence? Either explicitly, or implicitly
@@ -2082,6 +2232,11 @@ function requestCatchUp() {
     // have stopped hearing the table — a client that misses every message has
     // nothing to reject and so no other way to notice. An up-to-date client just
     // gets an empty tail back, so this costs one small request per idle window.
+    // 3. open table upkeep: seat anyone waiting, and make sure a bot seat that is
+    // on turn actually has somebody driving it (the elected client may have
+    // changed since the turn began).
+    reconcileOpenSeats();
+    kickBotTurn();
     if (!dealActive || turn === mySeat) { lastNetAt = now; return; }
     if (!lastNetAt) { lastNetAt = now; return; }
     if (now - lastNetAt >= IDLE_SYNC_MS) { lastNetAt = now; requestCatchUp(); }
@@ -2148,8 +2303,11 @@ async function setupMultiplayer(roomId) {
 function onRoomPromoted() {
   if (online) return;   // already in a room — nothing to flip
   stopLocalRound();
+  // The room we are being promoted INTO is brand new, so nothing we may have
+  // learned about a previous room should stop us opening a table in it.
+  sawRoomCheckpoint = false; lastRoomActivityAt = 0;
   online = true; gameStarted = false; dealActive = false;
-  myReady = false; lobbyReady = {}; presentIds.clear(); presentIds.add(myId);
+  presentIds.clear(); presentIds.add(myId);
   players = []; hands = [];
   setupOverlay.classList.remove("show");
   handOverlay.classList.remove("show");
@@ -2177,7 +2335,7 @@ function stopLocalRound() {
 // fires on join, on every (re)join of a peer, and on each ready toggle, so the
 // match length reaches late arrivals without a channel of its own.
 function sendPlayerInfo() {
-  const info = { name: myName || t("you"), avatar: myAvatar || null, ready: myReady };
+  const info = { name: myName || t("you"), avatar: myAvatar || null };
   if (isHostPlayer()) info.loseAt = loseAt;
   Usion.game.realtime("player_info", info);
 }
@@ -2185,9 +2343,6 @@ function sendPlayerInfo() {
 // so this list only has to agree with itself — older clients still adopt
 // whatever the host deals.
 const LOSE_OPTIONS = [15, 20, 30];
-// number of seats this online match has, from the authorized roster (2–4)
-function targetSeats() { return Math.max(2, Math.min(4, roomPlayerIds.length || 2)); }
-
 function joinedPlayerId(data) {
   if (data && data.player_id != null) return data.player_id;
   if (data && data.player && data.player.id != null) return data.player.id;
@@ -2226,9 +2381,11 @@ function onJoined(data) {
   // live round straight away so a rejoin resumes instead of stalling on
   // "Dealing…". Guarded by !dealActive (don't disturb an in-progress round);
   // applying it marks the game started so maybeStart won't re-deal.
+  if (data.game_state && data.game_state.seed !== undefined) noteRoomActivity();
   if (!dealActive && data.game_state && data.game_state.seed !== undefined) applyCheckpoint(data.game_state);
   Usion.game.requestSync(0);   // SDK replays the stored deal + moves via onSync
   maybeStart();
+  reconcileOpenSeats();
 }
 function onPlayerJoined(data) {
   const joinedId = joinedPlayerId(data);
@@ -2248,6 +2405,9 @@ function onPlayerJoined(data) {
     else render();
   }
   sendPlayerInfo(); updateOnlineStatus(); maybeStart();
+  // Open table: the newcomer drops straight into the round by taking over the
+  // lowest-scoring bot seat (and its points). One elected client writes it.
+  reconcileOpenSeats();
   // Someone (re)joined — push them the current state so they catch up even if
   // their own sync is failing. Slight delay so they've finished rejoining the
   // room (and registered their realtime handlers) before the broadcast lands.
@@ -2308,24 +2468,10 @@ function applyLeaveOutcome(seat, endMatch) {
   }
 }
 
-// Record the fold/forfeit durably. Exactly one deterministic authority (the
-// lowest live seat) may write it.
-function sendHostLeaveOutcome(seat, endMatch) {
-  if (seat < 0) return;
-  const rank = authorityRank();
-  // Only the elected lowest present seat may write a fold. Accepting staggered
-  // writes from every peer makes `auto:true`/leave outcomes forgeable.
-  if (rank !== 0) return;
-  const write = () => {
-    if (players[seat] && players[seat].out) return;   // already folded — someone beat us to it
-    Usion.game.action("move", { kind: endMatch ? "forfeit_win" : "leave_fold", seat })
-      .catch(() => {
-        toast(t("leaveFail"));
-        Usion.game.requestSync(lastSeq);
-      });
-  };
-  write();
-}
+// NB: nothing writes leave_fold / forfeit_win any more — an open table releases a
+// departed seat back to a bot (sendSeatRelease) instead of folding it out of the
+// match. applyRemoteMove still ACCEPTS both, so a log written by an older client
+// still replays, and the checks there still reject a forged one.
 
 function startForfeitGrace(seat, playerId) {
   if (seat < 0 || playerId == null) return;
@@ -2349,10 +2495,11 @@ function startForfeitGrace(seat, playerId) {
       }
     });
 
+    // Open table: a seat whose player really is gone goes back to a bot (keeping
+    // its score) instead of folding out of the match, so the room keeps running.
     expired.forEach(([id, seat]) => {
       pendingLeaves.delete(id);
-      const endMatch = activeSeats().filter(s => s !== seat).length <= 1;
-      sendHostLeaveOutcome(seat, endMatch);
+      sendSeatRelease(seat);
     });
 
     if (!pendingLeaves.size) {
@@ -2368,7 +2515,7 @@ function onPlayerLeft(data) {
   connectedCount = Math.max(0, connectedCount - 1);
   if (!gameStarted) {
     if (data && data.player_ids) roomPlayerIds = data.player_ids;   // roster only changes pre-game; seats are fixed once started
-    if (data && data.player_id != null) { presentIds.delete(data.player_id); delete lobbyReady[data.player_id]; }
+    if (data && data.player_id != null) presentIds.delete(data.player_id);
     isHost = roomPlayerIds[0] === myId;
     renderLobby();
     return;
@@ -2401,23 +2548,73 @@ function onPlayerLeft(data) {
 }
 function updateOnlineStatus() {
   const s = document.getElementById("onlineStatus");
-  if (!s) return;
-  const n = targetSeats();
-  s.textContent = connectedCount < n
-    ? t("waitingPlayers", Math.min(connectedCount, n), n)
-    : t("readyStarting", n);
+  if (!s || gameStarted || dealActive) return;
+  s.textContent = t("openStatus");
 }
-// Players gather in a waiting room, each toggles READY, and the host starts the
-// match once everyone present is ready (2–4 seats). The host's "deal" action
-// carries the final seat order, so every client begins with the same players.
+// Is somebody's table already running in this room? A late arrival must NOT deal
+// a rival match over the top of one — it waits to be seated instead. Stored
+// actions and checkpoints are the evidence: a genuinely fresh room has neither.
+let sawRoomCheckpoint = false;
+let lastRoomActivityAt = 0;
+function noteRoomActivity() { sawRoomCheckpoint = true; lastRoomActivityAt = Date.now(); }
+function roomAlreadyRunning() { return lastSeq > 0 || sawRoomCheckpoint; }
+
+// No waiting room: an open table deals as soon as someone is in it, against bots
+// for every empty seat. Everyone who arrives later is seated mid-match by
+// reconcileOpenSeats() instead of gathering here.
+let openStartTimer = null;
+let seatPollTimer = null;
 function maybeStart() {
-  if (gameStarted || dealActive) return;
+  if (gameStarted || dealActive) { stopSeatPoll(); return; }
+  if (online) loseAt = OPEN_LOSE_AT;   // open tables run one fixed road-to-20 match
   enterLobby();
+  if (!online) return;
+  scheduleOpenStart();
+  startSeatPoll();
 }
+// Open the table. Seat 0 stays the platform host, but if the host never deals
+// (asleep, or gone before the first hand) the next present client covers,
+// staggered by rank — the same election that keeps later rounds moving.
+function scheduleOpenStart() {
+  if (openStartTimer || !online) return;
+  const seats = roomPlayerIds.filter(id => id != null && presentIds.has(id));
+  const rank = seats.indexOf(myId);
+  if (rank < 0) return;
+  openStartTimer = setTimeout(function () {
+    openStartTimer = null;
+    if (!online || gameStarted || dealActive) return;
+    // A table is already live here and simply has no seat for us yet — wait for
+    // reconcileOpenSeats to hand us one rather than dealing a second, rival
+    // match into the same room. Only a room that has ALSO gone completely quiet
+    // counts as dead and worth reopening.
+    if (roomAlreadyRunning() && Date.now() - lastRoomActivityAt < OPEN_REVIVE_MS) {
+      scheduleOpenStart();
+      return;
+    }
+    const order = buildOpenOrder();
+    if (order.indexOf(myId) < 0) return;      // four other humans got here first
+    roomPlayerIds = order;
+    numPlayers = OPEN_SEATS;
+    isHost = roomPlayerIds[0] === myId;
+    loseAt = OPEN_LOSE_AT;
+    firstDeal = true; lastWinner = -1;
+    hostDeal();
+  }, OPEN_START_MS + rank * DEAL_STAGGER_MS);
+}
+// A client with no seat yet (it joined a table whose four seats are all human,
+// or its seat claim hasn't landed) keeps asking for state until a checkpoint
+// arrives with it seated.
+function startSeatPoll() {
+  if (seatPollTimer || !online) return;
+  seatPollTimer = setInterval(function () {
+    if (!online || gameStarted) { stopSeatPoll(); return; }
+    try { if (window.Usion && Usion.game && Usion.game.requestSync) Usion.game.requestSync(0); } catch (_) {}
+  }, 1500);
+}
+function stopSeatPoll() { if (seatPollTimer) { clearInterval(seatPollTimer); seatPollTimer = null; } }
 function enterLobby() {
   if (gameStarted || dealActive) return;
   presentIds.add(myId);
-  lobbyReady[myId] = myReady;
   onlineOverlay.classList.add("show");
   renderLobby();
 }
@@ -2433,13 +2630,12 @@ function renderLobby() {
   const ids = lobbyOrder();
   const hostId = roomPlayerIds[0];
   const spinner = document.getElementById("lobbySpinner");
-  if (spinner) spinner.style.display = ids.length ? "none" : "block";
+  if (spinner) spinner.style.display = "block";   // an open table is always about to deal
   list.innerHTML = "";
   ids.forEach((id, i) => {
     const meta = playerMeta[id] || {};
     const nm = meta.name || (id === myId ? (myName || t("you")) : t("playerN", i + 1));
     const avatar = meta.avatar || (id === myId ? myAvatar : null);
-    const ready = !!lobbyReady[id];
     const row = document.createElement("div");
     row.className = "lobby-row" + (id === myId ? " me" : "");
     row.appendChild(makeAvatarEl(nm, avatar, "lobby-avatar", false));
@@ -2453,35 +2649,18 @@ function renderLobby() {
       nameEl.appendChild(tag);
     }
     row.appendChild(nameEl);
-    const badge = document.createElement("span");
-    badge.className = "lobby-badge " + (ready ? "ready" : "wait");
-    badge.textContent = ready ? t("ready") : t("notReady");
-    row.appendChild(badge);
     list.appendChild(row);
   });
-  const present = ids.length;
-  const readyCount = ids.filter(id => lobbyReady[id]).length;
-  const allReady = present >= 2 && readyCount === present;
   const statusEl = document.getElementById("onlineStatus");
-  if (statusEl) statusEl.textContent = present < 2 ? t("waitingJoin") : t("readyCount", readyCount, present);
+  if (statusEl) statusEl.textContent = t("openStatus");
+  // An open table never gates on READY and never needs a Start press.
   const readyBtn = document.getElementById("readyBtn");
-  if (readyBtn) {
-    readyBtn.style.display = "block";
-    readyBtn.textContent = myReady ? t("readyOn") : t("ready");
-    readyBtn.classList.toggle("btn-ready-on", myReady);
-  }
+  if (readyBtn) readyBtn.style.display = "none";
   const startBtn = document.getElementById("startGameBtn");
-  if (startBtn) {
-    startBtn.style.display = isHost ? "block" : "none";
-    startBtn.disabled = !allReady || pendingAction;
-  }
+  if (startBtn) { startBtn.style.display = "none"; startBtn.disabled = true; }
   renderLobbyLimit();
   const hint = document.getElementById("lobbyHint");
-  if (hint) {
-    hint.textContent = isHost
-      ? (allReady ? t("hintHostGo") : t("hintHostWait"))
-      : (myReady ? t("hintWaitHost") : t("hintPressReady"));
-  }
+  if (hint) hint.textContent = t("openTableTag");
 }
 // Show the match length to everyone; only the host can change it. Hidden until
 // we're actually in a room (the overlay also covers the "connecting…" state).
@@ -2491,30 +2670,20 @@ function renderLobbyLimit() {
   // isHostPlayer() reads the roster directly — the `isHost` flag is only assigned
   // once onJoined lands, which would render the host's own picker read-only for
   // the first moment of the lobby.
-  const amHost = isHostPlayer();
+  // Open tables run one fixed target (OPEN_LOSE_AT), so this is a read-only
+  // reminder of the match length rather than a picker.
   wrap.style.display = (online && roomPlayerIds.length > 0) ? "block" : "none";
-  wrap.classList.toggle("readonly", !amHost);
+  wrap.classList.add("readonly");
   document.querySelectorAll("#lobbyLoseRow .count-btn").forEach(btn => {
     btn.classList.toggle("selected", Number(btn.dataset.lose) === loseAt);
-    btn.disabled = !amHost;
+    btn.disabled = true;
   });
 }
 // Host only: lock the seats to the present + ready players and deal.
-function hostStartGame() {
-  if (gameStarted || !isHost) return;
-  const order = lobbyOrder().filter(id => lobbyReady[id]);
-  if (order.length < 2) return;
-  roomPlayerIds = order;
-  numPlayers = order.length;
-  isHost = roomPlayerIds[0] === myId;
-  if (!isHost) return;
-  firstDeal = true; lastWinner = -1;   // fresh match → lowest-card holder leads
-  hostDeal();   // broadcasts the deal (with this order) → every client begins
-}
 // Start a solo offline game vs 3 bots (you + Bot Anh/Bat/Cag = 4 seats).
 function startBotsGame() {
   online = false; gameStarted = false; dealActive = false;
-  myReady = false; presentIds.clear(); lobbyReady = {};
+  presentIds.clear();
   onlineOverlay.classList.remove("show");
   handOverlay.classList.remove("show");
   setupOverlay.classList.remove("show");
@@ -2541,26 +2710,12 @@ function leaveForBots() {
   const readyBtn = document.getElementById("readyBtn");
   const startBtn = document.getElementById("startGameBtn");
   const botsBtn = document.getElementById("lobbyBotsBtn");
-  if (readyBtn) readyBtn.addEventListener("click", () => {
-    myReady = !myReady;
-    lobbyReady[myId] = myReady;
-    if (online && window.Usion && Usion.game) sendPlayerInfo();
-    renderLobby();
-  });
-  if (startBtn) startBtn.addEventListener("click", hostStartGame);
+  // READY and START are gone with the waiting room — an open table deals on its
+  // own and seats arrivals mid-match. The elements stay in the markup so the
+  // overlay keeps its layout while we are still connecting.
+  if (readyBtn) readyBtn.style.display = "none";
+  if (startBtn) { startBtn.style.display = "none"; startBtn.disabled = true; }
   if (botsBtn) botsBtn.addEventListener("click", leaveForBots);
-  // Host picks how many penalty points knock a player out. Broadcast immediately
-  // so everyone in the room sees the target before they ready up.
-  document.querySelectorAll("#lobbyLoseRow .count-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      if (!isHostPlayer() || gameStarted) return;
-      const v = Number(btn.dataset.lose);
-      if (LOSE_OPTIONS.indexOf(v) < 0 || v === loseAt) return;
-      loseAt = v;
-      if (online && window.Usion && Usion.game) sendPlayerInfo();
-      renderLobby();
-    });
-  });
 })();
 function startOnlineGame(data) {
   if (gameStarted) return true;
@@ -2569,6 +2724,8 @@ function startOnlineGame(data) {
     return false;
   }
   clearForfeitGrace();
+  stopSeatPoll();
+  if (openStartTimer) { clearTimeout(openStartTimer); openStartTimer = null; }
   gameStarted = true; online = true;
   statsRecordedThisGame = false;   // new match → allow recording its outcome once
   resultReportedThisGame = false;
@@ -2577,7 +2734,10 @@ function startOnlineGame(data) {
   mySeat = roomPlayerIds.indexOf(myId);
   isHost = roomPlayerIds[0] === myId;
   firstDeal = true; lastWinner = -1;
-  players = roomPlayerIds.map((id, i) => ({
+  // A `null` seat in the order is a bot the open table filled in. Bots are real
+  // seats: they hold cards, take penalties, and can be eliminated — they are just
+  // played by the engine instead of by a person.
+  players = roomPlayerIds.map((id, i) => id == null ? makeBotSeat(i) : ({
     name: (playerMeta[id] && playerMeta[id].name) || (id === myId ? (myName || t("you")) : t("playerN", i + 1)),
     avatar: (playerMeta[id] && playerMeta[id].avatar) || (id === myId ? myAvatar : null),
     color: PLAYER_COLORS[i], isBot: false, total: 0, out: false
@@ -2604,12 +2764,17 @@ function startOnlineGame(data) {
 // missed the ephemeral player_info broadcast.
 function nameMap() {
   const m = {};
-  roomPlayerIds.forEach(id => { const nm = playerMeta[id] && playerMeta[id].name; if (nm) m[id] = nm; });
+  roomPlayerIds.forEach(id => {
+    if (id == null) return;                       // bot seat — no identity to carry
+    const nm = playerMeta[id] && playerMeta[id].name;
+    if (nm) m[id] = nm;
+  });
   return m;
 }
 function avatarMap() {
   const m = {};
   roomPlayerIds.forEach(id => {
+    if (id == null) return;
     const avatar = normalizeAvatar(playerMeta[id] && playerMeta[id].avatar);
     if (avatar) m[id] = avatar;
   });
@@ -2626,8 +2791,177 @@ function applyAvatars(map) {
     if (avatar) playerMeta[id] = Object.assign(playerMeta[id] || {}, { avatar: avatar });
   }
 }
-// Deal a round. Callers decide WHO may call it: the lobby start is host-only
-// (hostStartGame), later rounds go through scheduleNextDeal's staggered rank.
+// ── Open-table seating ───────────────────────────────────
+// The room is a persistent 4-seat table. Bots hold every seat no human is in;
+// a human who arrives takes over a bot seat WITH ITS SCORE, and a human who
+// leaves hands their seat (and score) back to a bot. Seat changes travel as
+// stored `move` actions so they sit in the same sequenced, replayable log as
+// every play — a reconnecting client rebuilds the roster exactly as it evolved.
+function botSeatName(seat) {
+  const pool = t("openBotNames") || [];
+  return pool[seat % pool.length] || ("Bot " + (seat + 1));
+}
+function makeBotSeat(i) {
+  return { name: botSeatName(i), avatar: null, color: PLAYER_COLORS[i], isBot: true, total: 0, out: false };
+}
+// Seats a newcomer could drop into: still in the match, still held by a bot.
+function openBotSeats() {
+  return players.map((p, s) => s).filter(s => players[s] && players[s].isBot && !players[s].out);
+}
+// WHICH bot a joining human replaces: the one carrying the FEWEST penalty points
+// (the best-placed bot), lowest seat index breaking a tie. Computed from
+// replayable state alone, so every client — live or replaying — picks the same
+// seat and the log stays deterministic.
+function takeoverSeat() {
+  const seats = openBotSeats();
+  if (!seats.length) return -1;
+  let best = seats[0];
+  seats.forEach(s => { if (players[s].total < players[best].total) best = s; });
+  return best;
+}
+// Humans in the room with no seat yet, in a stable order.
+function unseatedPresent() {
+  const out = [];
+  presentIds.forEach(id => { if (id != null && roomPlayerIds.indexOf(id) < 0) out.push(id); });
+  return out.sort();
+}
+// Hand seat `seat` to a human. The seat's total/out/hand are untouched — that is
+// the whole point: the newcomer inherits the bot's standing and its cards.
+function seatHuman(seat, id) {
+  if (!players[seat]) return;
+  const meta = playerMeta[id] || {};
+  roomPlayerIds[seat] = id;
+  players[seat].isBot = false;
+  players[seat].name = meta.name || (id === myId ? (myName || t("you")) : t("playerN", seat + 1));
+  players[seat].avatar = normalizeAvatar(meta.avatar) || (id === myId ? myAvatar : null);
+  presentIds.add(id);
+  clearForfeitGrace(id);
+  if (botTimer && turn === seat) { clearTimeout(botTimer); botTimer = null; }
+  if (id === myId) {
+    mySeat = seat;
+    meNameEl.textContent = players[seat].name;
+    onlineOverlay.classList.remove("show");
+  }
+  // The new owner gets a full clock rather than whatever the bot had left.
+  if (dealActive && turn === seat) startTurnTimer();
+  render();
+}
+// Hand a seat back to a bot, score and cards intact, so the table stays full.
+function seatBot(seat) {
+  if (!players[seat]) return;
+  const id = roomPlayerIds[seat];
+  roomPlayerIds[seat] = null;
+  players[seat].isBot = true;
+  players[seat].name = botSeatName(seat);
+  players[seat].avatar = null;
+  if (id != null) { presentIds.delete(id); clearForfeitGrace(id); }
+  render();
+  if (dealActive && turn === seat) scheduleBotMove(seat);
+}
+// Apply a seat change out of the action log. Every rule here reads replayable
+// state (who holds the seat, the seats' totals), so a live client and a client
+// replaying the same log reach the same verdict — the property that keeps the
+// table from splitting in two.
+function applySeatMove(move, fromId) {
+  if (!gameStarted || !Array.isArray(players) || !players.length) return false;
+  const seat = Number(move.seat);
+  if (!Number.isInteger(seat) || seat < 0 || seat >= numPlayers || !players[seat]) return false;
+  if (move.kind === "seat_take") {
+    const id = move.playerId;
+    if (id == null || roomPlayerIds.indexOf(id) >= 0) return false;   // nobody sits twice
+    // On a checkpoint replay the roster is already the post-change one, so the
+    // "is this a bot seat" test would fail on a change we have in fact applied.
+    if (!replayTrusted) {
+      if (!players[seat].isBot || players[seat].out) return false;
+      if (seat !== takeoverSeat()) return false;                       // must be THE lowest-scoring bot
+      if (fromId != null && roomPlayerIds.indexOf(fromId) < 0 && fromId !== id) return false;
+    } else if (!players[seat].isBot) return false;
+    if (move.name) playerMeta[id] = Object.assign(playerMeta[id] || {}, { name: String(move.name).slice(0, 10) });
+    if (move.avatar) {
+      const av = normalizeAvatar(move.avatar);
+      if (av) playerMeta[id] = Object.assign(playerMeta[id] || {}, { avatar: av });
+    }
+    seatHuman(seat, id);   // total / out / cards stay exactly as the bot left them
+    // Our claim landed, so the rate limit has done its job — clear it and let the
+    // next person in the queue be seated on the following tick instead of after
+    // another full SEAT_RETRY_MS.
+    if (fromId === myId) lastSeatClaimAt = 0;
+    if (!replayingSync && id !== myId) toast(t("openJoined", players[seat].name));
+    moveLog.push(move);
+    if (!replayingSync && fromId === myId) writeCheckpoint();
+    return true;
+  }
+  if (move.kind === "seat_release") {
+    const id = roomPlayerIds[seat];
+    if (id == null || players[seat].isBot) return false;               // already a bot
+    if (id === myId) return false;                                     // we are right here
+    if (!replayTrusted && presentIds.has(id)) return false;            // a present player is not gone
+    if (!replayTrusted && (fromId == null || roomPlayerIds.indexOf(fromId) < 0)) return false;
+    const gone = players[seat].name;
+    seatBot(seat);                      // score stays on the seat; the bot inherits it
+    if (!replayingSync) toast(t("openLeftBot", gone));
+    moveLog.push(move);
+    if (!replayingSync && fromId === myId) writeCheckpoint();
+    return true;
+  }
+  return false;
+}
+// Claim a seat for the next unseated human. The lowest present seat writes it,
+// but — exactly like scheduleNextDeal — every other seated client covers on a
+// stagger, because a locked phone never leaves presentIds and a single elected
+// writer asleep would lock newcomers out of the room forever. Duplicate claims
+// are harmless: the second one finds the seat already human and is rejected by
+// every client identically.
+let lastSeatClaimAt = 0;
+const seatWaitSince = new Map();   // unseated player id → when we first saw them waiting
+function reconcileOpenSeats() {
+  if (!online || !gameStarted || pendingAction) return;
+  const waiting = unseatedPresent();
+  seatWaitSince.forEach((_, id) => { if (waiting.indexOf(id) < 0) seatWaitSince.delete(id); });
+  if (!waiting.length) return;
+  const id = waiting[0];
+  if (!seatWaitSince.has(id)) seatWaitSince.set(id, Date.now());
+  const rank = authorityRank();
+  if (rank < 0) return;                                                   // we hold no seat ourselves
+  const now = Date.now();
+  if (now - seatWaitSince.get(id) < rank * SEAT_STAGGER_MS) return;       // higher ranks go first
+  if (now - lastSeatClaimAt < SEAT_RETRY_MS) return;                      // never storm the relay
+  const seat = takeoverSeat();
+  if (seat < 0) return;             // no bot to displace — they watch until a seat frees up
+  const meta = playerMeta[id] || {};
+  lastSeatClaimAt = now;
+  try {
+    Usion.game.action("move", { kind: "seat_take", seat: seat, playerId: id,
+                                name: meta.name || null, avatar: meta.avatar || null })
+      .catch(function () { lastSeatClaimAt = 0; });
+  } catch (_) { lastSeatClaimAt = 0; }
+}
+// A departed seat goes back to a bot instead of folding out of the match: an
+// open table must survive its players leaving.
+function sendSeatRelease(seat) {
+  if (!online || seat < 0 || !Array.isArray(roomPlayerIds)) return;
+  const id = roomPlayerIds[seat];
+  if (id == null || presentIds.has(id)) return;
+  if (authorityRank() !== 0) return;          // exactly one elected writer
+  try {
+    Usion.game.action("move", { kind: "seat_release", seat: seat })
+      .catch(function () { toast(t("leaveFail")); Usion.game.requestSync(lastSeq); });
+  } catch (_) {}
+}
+// The 4-seat order this client would open the table with: present humans in
+// roster order (so playerIds[0] keeps seat 0), bots — `null` — for the rest.
+function buildOpenOrder() {
+  const order = new Array(OPEN_SEATS).fill(null);
+  let n = 0;
+  roomPlayerIds.forEach(id => {
+    if (id != null && presentIds.has(id) && n < OPEN_SEATS && order.indexOf(id) < 0) order[n++] = id;
+  });
+  presentIds.forEach(id => { if (n < OPEN_SEATS && order.indexOf(id) < 0) order[n++] = id; });
+  return order;
+}
+
+// Deal a round. Callers decide WHO may call it: the opening deal comes from the
+// staggered open-table election, later rounds go through scheduleNextDeal.
 function hostDeal(reset) {
   if (pendingAction) return;
   curSeed = randomSeed();
@@ -2663,7 +2997,9 @@ function sendMove(move, seat, proxy) {
   if (pendingAction) return;
   move.seat = (seat === undefined) ? mySeat : seat;
   move.ti = roundMoveNo;          // the move index this was built for → duplicate covers collapse
-  if (proxy) move.auto = true;
+  // A bot seat's move is already marked `bot` and validated against the engine's
+  // own choice; only a cover for a HUMAN seat is an `auto` forced move.
+  if (proxy && move.bot !== true) move.auto = true;
   if (!proxy) { pendingAction = true; renderControls(); }
   Usion.game.action("move", move)
     .then(res => {
@@ -2739,6 +3075,9 @@ function applyRemoteMove(move, fromId) {
     if (!replayingSync && fromId === myId) writeCheckpoint();   // the sender persists the outcome
     return true;
   }
+  // Seat changes are legal BETWEEN rounds as well as during one — an open table
+  // reseats the moment somebody arrives or leaves, mid-hand included.
+  if (move.kind === "seat_take" || move.kind === "seat_release") return applySeatMove(move, fromId);
   if (!dealActive) return false;
   // Duplicate/stale guard. Two clients can legitimately cover the SAME stalled
   // seat (staggered proxies) and both actions reach the server; `ti` is the move
@@ -2754,12 +3093,19 @@ function applyRemoteMove(move, fromId) {
 
   if (!replayTrusted) {
     if (senderSeat < 0) return false;
-    if (move.auto === true) {
+    if (move.bot === true) {
+      // Any SEATED client may drive a bot seat. Deliberately not gated on
+      // presence: presence cannot be reconstructed on replay, and a rule judged
+      // differently live and on replay is precisely what splits a table in two.
+      // The content check further down is the real guard — the sender does not
+      // get to choose the cards, the engine does.
+      if (seat === senderSeat) return false;
+    } else if (move.auto === true) {
       if (seat === senderSeat || fromId !== proxyAuthorityId(seat)) return false;
     } else if (seat !== senderSeat) {
       return false;
     }
-  } else if (move.auto !== true && senderSeat >= 0 && seat !== senderSeat) {
+  } else if (move.auto !== true && move.bot !== true && senderSeat >= 0 && seat !== senderSeat) {
     return false;
   }
 
@@ -2780,6 +3126,21 @@ function applyRemoteMove(move, fromId) {
   // so live and replay always reach the same verdict. `fromId` is absent for
   // moves replayed out of a checkpoint, so only validate the sender when we have
   // one.
+  // A bot seat's move must be EXACTLY what the engine would play for that hand,
+  // recomputed here from state every client already shares. Same principle as a
+  // proxy cover, except the engine gets its full choice instead of a forced
+  // minimal one — so relaying a bot can never smuggle in a chosen discard.
+  if (move.bot === true) {
+    if (!replayTrusted && (!players[seat] || !players[seat].isBot)) return false;
+    if (fromId != null && (roomPlayerIds.indexOf(fromId) < 0 || fromId === roomPlayerIds[seat])) return false;
+    const want = botDecision(seat);
+    if (!want || want.kind !== move.kind) return false;
+    if (want.kind === "play") {
+      const wantCards = want.combo.cards.map(cardWire).sort((a, b) => a - b).join(",");
+      const gotCards = Array.isArray(move.cards) ? move.cards.map(Number).sort((a, b) => a - b).join(",") : "";
+      if (!wantCards || wantCards !== gotCards) return false;
+    }
+  }
   if (move.auto === true) {
     if (fromId != null && (roomPlayerIds.indexOf(fromId) < 0 || fromId === roomPlayerIds[seat])) return false;
     if (table) {
@@ -2819,6 +3180,7 @@ function applyRemoteMove(move, fromId) {
 function onNetAction(data) {
   const sequence = Number(data.sequence);
   lastNetAt = Date.now();       // the table is still audible — see netWatchdog
+  noteRoomActivity();           // and it proves a match is already running here
   if (Number.isFinite(sequence)) lastSeq = Math.max(lastSeq, sequence);
   // Clear our "sending…" state the moment we SEE our own action echoed — BEFORE
   // the dedup return. If a resync already applied this seq, the echo is a dup and
@@ -2854,7 +3216,7 @@ function onNetRealtime(data) {
       avatar: normalizeAvatar(d.avatar)
     };
     presentIds.add(data.player_id);
-    if (typeof d.ready === "boolean") lobbyReady[data.player_id] = d.ready;
+
     // Adopt the match length only from the host, and only from the offered set —
     // it's the host's setting, and the deal will carry it authoritatively anyway.
     if (!gameStarted && data.player_id === roomPlayerIds[0] &&
@@ -2887,6 +3249,7 @@ function onNetSync(data) {
   const shouldApplyCheckpoint = hasCheckpoint &&
     (!gameStarted || snapshotIsNewer(checkpoint) || (Number.isFinite(cpSeq) && cpSeq > syncResumePoint()));
   const hasUnappliedActions = actions.some(a => a.sequence === undefined || !alreadyApplied(a.sequence));
+  if (hasCheckpoint || actions.length) noteRoomActivity();   // somebody's table is live in this room
 
   // A join acknowledgement reports the server's top sequence before this client
   // has applied it. Therefore data.sequence/lastSeq equality cannot prove that the
@@ -2915,6 +3278,7 @@ function onNetSync(data) {
   } finally {
     replayingSync = false;
   }
+  kickBotTurn();   // the tail may have left a bot seat on turn with nobody driving it
 }
 function onDeal(d, fromId) {
   // The deal we sent has landed (live echo, or recovered via resync/replay after a
@@ -2946,8 +3310,14 @@ function onDeal(d, fromId) {
     // race to the first stored deal.
     if (fromId == null || !Array.isArray(roomPlayerIds) || roomPlayerIds.indexOf(fromId) < 0) return false;
   } else if (!replayingSync) {
-    const expected = roomPlayerIds[0];   // pre-game the host owns the opening deal
-    if (fromId == null || fromId !== expected || d.order[0] !== expected) return false;
+    // Opening an OPEN table: the platform host normally deals it, but if they
+    // never do (asleep, or already gone) the next present client covers — the
+    // same staggered election that keeps later rounds moving. Accept a pre-game
+    // deal from anyone the order seats, as long as it still puts the host at
+    // seat 0 while the host is actually here.
+    if (fromId == null || !Array.isArray(d.order) || d.order.indexOf(fromId) < 0) return false;
+    const head = roomPlayerIds[0];
+    if (head != null && presentIds.has(head) && d.order[0] !== head) return false;
   }
   // Not seated in this match (e.g. wasn't ready when the host started) → stay in
   // the room instead of crashing on a -1 seat.
@@ -2983,7 +3353,7 @@ function onDeal(d, fromId) {
 }
 function refreshNames() {
   roomPlayerIds.forEach((id, i) => {
-    if (!players[i] || !playerMeta[id]) return;
+    if (id == null || !players[i] || players[i].isBot || !playerMeta[id]) return;   // bots keep their own name
     if (playerMeta[id].name) players[i].name = playerMeta[id].name;
     players[i].avatar = normalizeAvatar(playerMeta[id].avatar);
   });
