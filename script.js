@@ -59,6 +59,7 @@ const SEAT_STAGGER_MS = 2500;   // per authority rank, so a sleeping seat 0 can'
 const OPEN_REVIVE_MS = 20000;   // a room that owes us a seat and has gone silent is dead — reopen it
 const OPEN_ABANDONED_MS = 8000; // alone in a MID-MATCH room full of ghosts → clear it and start over
 const OPEN_EMPTY_MS = 2000;     // …but an empty room with only a stale log is ours almost immediately
+const OPEN_PROBE_MS = 1500;     // how long we look at one public table before trying the next
 const OPEN_STUCK_MS = 25000;    // never leave anybody staring at a spinner longer than this
 // A no-invite launch must land in a room it SHARES with other no-invite players.
 // The platform hands each such launch its own private `standalone_` room, so
@@ -2309,14 +2310,16 @@ function openTableWatchdog(now) {
     if (!abandonedSince) abandonedSince = now;
     else if (now - abandonedSince >= settle) { abandonedSince = 0; reopenOpenTable(); }
   } else abandonedSince = 0;
-  // Last resort: we have been hunting for a seat far too long. Something in this
-  // room is not answering — a peer on an older build, a wedged authority, a relay
-  // that will not take our actions. Whatever it is, the player is owed a game and
-  // not a spinner, so deal them the same table locally. The Share button still
-  // turns it back into a room with people in it.
+  // Last resort: we have been hunting for a seat far too long. Something here is
+  // not answering — a peer on an older build, a wedged authority, a relay that
+  // will not take our claims. Take the room over and deal against bots rather
+  // than leave the player on a spinner. Deliberately NOT a local game: staying in
+  // a real room is what lets the next person's search find us.
   if (!gameStarted && openSeekSince && now - openSeekSince >= OPEN_STUCK_MS) {
-    openSeekSince = 0;
-    leaveForBots();
+    openSeekSince = Date.now();       // and if even that fails, try again later
+    stopProbe();
+    lastOpenResetAt = 0;
+    reopenOpenTable();
     return;
   }
   // Seat anyone waiting, and make sure a bot seat that is on turn actually has
@@ -2418,9 +2421,40 @@ function registerNetHandlers() {
 }
 
 // ── Finding a public table ───────────────────────────────
+//
+// The whole point of a public table is that the next person to tap Play finds
+// the one you are already sitting at. That does not happen by itself: tables are
+// spread over a ladder of rooms, people leave gaps in it, and a client that only
+// ever looked at the first room would open a brand-new table right next to
+// somebody playing alone with bots two rooms along. Neither of them would ever
+// know. So arriving is a SEARCH, not a join.
+//
+// We walk the ladder, spending at most OPEN_PROBE_MS on each rung, and the join
+// acknowledgement tells us what is there:
+//
+//   somebody here + a bot seat free  → stay: this is the table we came for
+//   somebody here + all seats human  → full, try the next rung
+//   nobody here, never used at all   → tables fill in order, so nothing lies
+//                                      beyond this: open ours right here
+//   nobody here, but used before     → a table somebody has left behind. Remember
+//                                      it as somewhere we could set up, and keep
+//                                      looking for actual people first.
+//
+// Only when the ladder holds nobody at all do we settle into the emptiest rung we
+// saw and deal against bots — still in a real room, so the NEXT person's search
+// finds us. Going offline here would make us invisible, which is the one thing
+// this must never do.
 let openShard = 0;
 let openFallbackRoom = null;    // the platform's own room, if we can't pick our own
 let hopTimer = null;
+let probeTimer = null;
+// True from the moment we ask to leave one public table until the next one
+// acknowledges us. Walking the ladder means messages from the room we just left
+// are still in flight, and applying one of those — a checkpoint, a move, a sync —
+// would drag the previous table's state into the new room.
+let joiningRoom = false;
+let probeSettled = false;       // stopped searching: this room is where we are playing
+let staleCandidate = -1;        // first rung we found empty — where we set up if nobody is home
 // The seat order of the table we are queuing at, learned from a checkpoint we
 // could not apply because it does not seat us. A `null` in it means a bot is
 // holding a seat, so one is coming free for us and we should stay put.
@@ -2448,9 +2482,12 @@ async function joinOpenRoom(shard, fallbackRoomId) {
     return giveUp(err);       // the relay itself is unreachable
   }
   try {
+    joiningRoom = true;
     await Usion.game.join(publicRoomId(shard));
+    armProbe();               // the join ack decides whether we stay here
     return true;
   } catch (err) {
+    joiningRoom = false;
     // We could reach the relay but it would not let us pick our own room. Fall
     // back to the room the platform gave us: a private table against bots is
     // still a game, it just isn't a shared one.
@@ -2460,6 +2497,65 @@ async function joinOpenRoom(shard, fallbackRoomId) {
     return giveUp(err);
   }
 }
+// If the acknowledgement never arrives, treat the rung as a dead end and move on
+// rather than sitting on it.
+function armProbe() {
+  if (probeTimer) { clearTimeout(probeTimer); probeTimer = null; }
+  if (probeSettled) return;
+  probeTimer = setTimeout(function () { probeTimer = null; probeNextRung(); }, OPEN_PROBE_MS);
+}
+function stopProbe() {
+  if (probeTimer) { clearTimeout(probeTimer); probeTimer = null; }
+  probeSettled = true;
+}
+// Read the join acknowledgement and decide: is this the table we came for?
+// Returns false when we are moving on, so the caller stops making use of an
+// acknowledgement that belongs to a room we are already leaving.
+function probeRoom(data) {
+  if (!online || !openTable || probeSettled || gameStarted) return true;
+  if (probeTimer) { clearTimeout(probeTimer); probeTimer = null; }
+  const others = Math.max(0, Number(data && data.connected_count) - 1) || 0;
+  const cp = data && data.game_state;
+  const table = !!(cp && cp.seed !== undefined && Array.isArray(cp.order));
+  const freeSeat = table && cp.order.indexOf(null) >= 0;
+  const used = table || Number(data && data.sequence) > 0;
+
+  // People are here. Stay if there is room for us — or if they have not dealt
+  // yet, because they are about to and we would be walking away from a table
+  // that is still being set up.
+  if (others >= 1 && (!table || freeSeat)) { stopProbe(); return true; }
+  // Nobody here. Remember the FIRST such rung: if the search turns up no people
+  // at all we come back and set up there, which keeps tables bunched at the front
+  // of the ladder where the next person's search reaches them soonest.
+  if (!others && staleCandidate < 0) staleCandidate = openShard;
+  // Never used at all. Tables are only ever opened on the lowest empty rung, so
+  // an untouched one means nothing beyond it has ever existed either — there is
+  // nobody further along to find, and the search is over.
+  if (!used) return settleOnEmptyRung();
+  return probeNextRung();
+}
+function probeNextRung() {
+  if (!online || !openTable || probeSettled || gameStarted) return true;
+  if (openShard + 1 >= OPEN_ROOM_SHARDS) return settleOnEmptyRung();
+  try { if (window.Usion && Usion.game && Usion.game.leave) Usion.game.leave(); } catch (_) {}
+  joinOpenRoom(openShard + 1);
+  return false;
+}
+// Nobody on the whole ladder. Set up on the lowest empty rung we saw — going back
+// for it if we have walked past it — and deal against bots there. Still a real
+// room, so the next person's search finds this table instead of opening another.
+function settleOnEmptyRung() {
+  const target = staleCandidate >= 0 ? staleCandidate : openShard;
+  staleCandidate = -1;
+  stopProbe();
+  if (target === openShard) return true;   // already standing on it
+  claimOnArrival = true;                   // going back for a rung with leftovers on it
+  try { if (window.Usion && Usion.game && Usion.game.leave) Usion.game.leave(); } catch (_) {}
+  joinOpenRoom(target);
+  return false;
+}
+let claimOnArrival = false;    // the room we are joining is ours to clear out
+
 // Seatless for a while means this table is full. Rather than queue behind four
 // people we hop to the next public table, where we'll either find a bot seat or
 // open a fresh table of our own. The last shard is the end of the ladder — stay
@@ -2570,6 +2666,7 @@ function reconcilePresence(ids, confirmedId) {
 }
 
 function onJoined(data) {
+  joiningRoom = false;        // this ack is the new room speaking
   // Seats are locked to the roster the match was DEALT with (only the ready
   // players get seated), so once the game is running the server roster — which
   // also lists spectators who never got a seat — must not renumber us. Mid-game
@@ -2588,6 +2685,11 @@ function onJoined(data) {
   // live round straight away so a rejoin resumes instead of stalling on
   // "Dealing…". Guarded by !dealActive (don't disturb an in-progress round);
   // applying it marks the game started so maybeStart won't re-deal.
+  // Is this the table we came for? If not we are already on our way to the next
+  // one, and the rest of this acknowledgement — the roster, the checkpoint —
+  // describes a room we are leaving. Applying any of it would drag that table's
+  // state along with us.
+  if (openTable && !gameStarted && !probeRoom(data)) return;
   if (data.game_state && data.game_state.seed !== undefined) noteRoomActivity();
   if (!dealActive && data.game_state && data.game_state.seed !== undefined) applyCheckpoint(data.game_state);
   Usion.game.requestSync(0);   // SDK replays the stored deal + moves via onSync
@@ -3061,7 +3163,8 @@ function startOnlineGame(data) {
   clearForfeitGrace();
   stopSeatPoll();
   stopHop();                           // we have a seat — this is our table now
-  openSeekSince = 0;
+  stopProbe();
+  openSeekSince = 0; staleCandidate = -1; claimOnArrival = false;
   if (openStartTimer) { clearTimeout(openStartTimer); openStartTimer = null; }
   gameStarted = true; online = true;
   statsRecordedThisGame = false;   // new match → allow recording its outcome once
@@ -3327,6 +3430,9 @@ function openResetForWaiting() {
 // and when it expires their seat becomes a bot on its own).
 function openRoomIsAbandoned() {
   if (!online || !openTable) return false;
+  // We swept the whole ladder and came back to the emptiest rung on it. Whatever
+  // is still stored here belongs to a table nobody is playing.
+  if (claimOnArrival && !gameStarted) return true;
   // connectedCount, not presentIds: the relay's roster is frozen once a match
   // starts and still lists everybody who ever sat down, so presence alone cannot
   // tell a live opponent from a ghost. The server's connected count can. If the
@@ -3361,6 +3467,8 @@ function reopenOpenTable() {
   // ghosts. We have already established from connectedCount that nobody else is
   // connected, so throw it away — anyone who really is here re-announces
   // themselves through onPlayerJoined / player_info within a second.
+  claimOnArrival = false;
+  joiningRoom = false;
   presentIds.clear(); presentIds.add(myId);
   roomPlayerIds = buildOpenOrder();     // just the people actually here, bots for the rest
   numPlayers = OPEN_SEATS;
@@ -3667,6 +3775,7 @@ function applyRemoteMove(move, fromId) {
   return true;
 }
 function onNetAction(data) {
+  if (joiningRoom) return;    // still in flight from the table we just left
   const sequence = Number(data.sequence);
   lastNetAt = Date.now();       // the table is still audible — see netWatchdog
   noteRoomActivity();           // and it proves a match is already running here
@@ -3696,6 +3805,7 @@ function onNetAction(data) {
   if (!applied) requestCatchUp();
 }
 function onNetRealtime(data) {
+  if (joiningRoom) return;    // still in flight from the table we just left
   if (data.player_id === myId) return;
   const d = data.action_data || {};
   if (data.action_type === "player_info") {
@@ -3730,6 +3840,7 @@ function onNetRealtime(data) {
 // Catch-up replay (from requestSync). Each "deal" resets state, so replaying
 // the whole log from sequence 0 deterministically rebuilds the current round.
 function onNetSync(data) {
+  if (joiningRoom) return;    // still in flight from the table we just left
   lastNetAt = Date.now();
   const actions = Array.isArray(data.actions) ? data.actions : [];
   const checkpoint = data.game_state;

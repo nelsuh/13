@@ -46,10 +46,37 @@ itself — a short ladder of public tables:
 public-13-1, public-13-2, … public-13-8      (OPEN_ROOM_PREFIX / OPEN_ROOM_SHARDS)
 ```
 
-Everyone starts at table 1, so people pile into one table before a second opens.
-A player still seatless after `OPEN_HOP_MS` **hops to the next table** rather than
-queuing behind strangers — but only when the table really is four humans. If a bot
-is holding a seat they stay put, because one is about to come free.
+**Arriving is a search, not a join.** The point of a public table is that the
+next person to tap Play finds the one you are already sitting at — and that does
+not happen by itself. Tables spread over the ladder, people leave gaps in it, and
+a client that only ever looked at table 1 would open a brand-new table right next
+to somebody playing alone with bots two rungs along. Neither would ever know.
+
+So we walk the ladder, spending at most `OPEN_PROBE_MS` on each rung, and the join
+acknowledgement decides what happens:
+
+| what the rung looks like | what we do |
+|---|---|
+| somebody here, a bot seat free | **stay** — this is the table we came for |
+| somebody here, all four seats human | full, try the next rung |
+| nobody here, never used at all | tables fill from the front, so nothing lies beyond this — the search is over |
+| nobody here, but used before | remember it as somewhere to set up, and keep looking for actual people |
+
+When the ladder holds nobody, we settle on the **lowest** empty rung we saw —
+going back for it if we walked past — clear whatever is left in it and deal
+against bots. Tables stay bunched at the front, so the next person's search is
+short. The very first player probes exactly one rung and is dealt in immediately.
+
+Two details that are easy to get wrong and were both bugs first: an
+acknowledgement for a rung we are leaving must not be acted on (its roster and
+checkpoint belong to a room we are walking out of), and neither must anything
+still in flight from it (`joiningRoom` drops actions, syncs and realtime traffic
+until the next room answers). Otherwise the search drags the previous table's
+state along with it.
+
+Once settled, a player still seatless after `OPEN_HOP_MS` **hops on** rather than
+queuing behind strangers — but only when the table really is four humans. If a
+bot is holding a seat they stay put, because one is about to come free.
 
 If the host refuses a room id of our choosing, we fall back to the room it gave
 us (a private table with bots — a game, just not a shared one); if the relay is
@@ -71,12 +98,13 @@ and a reconnecting peer must not have the room wiped out from under them.
 **And it is never just a spinner.** The connect cover exists for the fraction of
 a second it takes to find a table — no READY, no host tag, no match-length picker,
 because there is nothing there for the player to decide. Three things make sure it
-stays that short: an empty shard holding only a stale log is claimed in about two
-seconds rather than after a hop; a table that owes us a seat is waited on rather
-than abandoned; and if after `OPEN_STUCK_MS` nobody in any room will seat us — a
-peer on an older build, a wedged authority, a relay refusing our claims — we stop
-asking and deal the same table locally. A player is owed a game, not a spinner,
-and Share still turns that local table back into a room with people in it.
+stays that short: an empty rung holding only a stale log is claimed in about two
+seconds; a table that owes us a seat is waited on rather than abandoned; and if
+after `OPEN_STUCK_MS` nobody anywhere will seat us — a peer on an older build, a
+wedged authority, a relay refusing our claims — we stop asking and take a table
+over ourselves. Note that we stay **online** to do it: dropping to a local game
+would make us invisible to the next person's search, which is the one thing
+matchmaking must never do. Only an unreachable relay falls back that far.
 
 **A table can never be locked, either.** Two friends on a road-to-20 table knock
 the bots out after a few rounds, and an eliminated seat cannot be handed to
@@ -295,7 +323,7 @@ Note: the platform injects `https://usions.com/usion-sdk.js`; the script tag in
 node 13/test/run_all.cjs
 ```
 
-128 headless scenario tests covering both modes, no dependencies and no browser:
+132 headless scenario tests covering both modes, no dependencies and no browser:
 every simulated player is the real `script.js` in its own `vm` realm on a virtual
 clock. See [test/README.md](test/README.md).
 

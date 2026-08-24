@@ -685,18 +685,21 @@ test("open room: the connect cover is a blink, not a lobby you have to deal with
 test("open room: a room nobody will seat us in still ends in a game, not a spinner", async () => {
   // Peers on an older cached build, a wedged authority, a relay that will not take
   // our seat claim — whatever the cause, the player must never be left staring at
-  // the connect cover. After OPEN_STUCK_MS we stop asking and deal locally; the
-  // Share button still turns that back into a room with people in it.
+  // the connect cover. After OPEN_STUCK_MS we stop asking and take a table over.
+  // Crucially we stay ONLINE doing it: dropping to a local game would make us
+  // invisible to the next person's search, which is the one thing matchmaking
+  // must never do.
   const w = await openWorld(2);
   await startMatch(w);
   w.clients.forEach(x => x.run("reconcileOpenSeats = function () {};"));   // nobody will let us in
   const c = arrive(w, "u3", "Chuck");
-  c.run("scheduleHop = function () {};");                                  // and we cannot walk away
-  const playing = await eventually(w, () => c.snap().dealActive, 90 * 1000, 500);
+  c.run("scheduleHop = function () {}; probeNextRung = function () {};");  // and we cannot walk away
+  const playing = await eventually(w, () => c.snap().dealActive, 120 * 1000, 500);
   ok(playing, "the player must end up with a game:\n" + dump(w));
   const s = c.snap();
   eq(s.counts, [13, 13, 13, 13], "a full table");
-  eq(s.online, false, "played locally, since the room would not have us");
+  eq(s.online, true, "and still in a real room, so the next search can find them");
+  eq(s.mySeat >= 0, true, "with a seat of their own");
   eq(s.overlays.lobby, false, "and the cover is down");
   eq(c.errors.map(String), [], "u3 threw");
 });
@@ -720,6 +723,71 @@ test("open room: a table left behind on a public shard does not slow the next pl
   ok(took <= 10000, "…and quickly: took " + took + "ms\n" + dump(w));
   eq(c.sdk.room.id, PUBLIC_ROOM, "on the shard they landed on, without hopping away");
   eq(c.snap().order, ["z1", null, null, null], "with a clean table");
+});
+
+// ── matchmaking: the next person must FIND the table you are already at ───
+test("open room: the very first player is dealt in without a search", async () => {
+  const w = await openWorld(1);
+  const t0 = w.clock.now;
+  const dealt = await eventually(w, () => w.clients[0].snap().dealActive, 30 * 1000, 100);
+  ok(dealt, "the first player must not sit through a ladder sweep:\n" + dump(w));
+  ok(w.clock.now - t0 <= 3000, "dealt in " + (w.clock.now - t0) + "ms");
+  eq(w.clients[0].sdk.room.id, PUBLIC_ROOM, "on the first table, where the next search looks first");
+  eq(w.clients[0].snap().order, ["u1", null, null, null], "alone with three bots — but in a real room");
+});
+
+test("open room: A plays bots, then B's search finds A instead of opening its own table", async () => {
+  // This is the whole promise of a public table: A could not find anybody, so A
+  // is sitting with three bots — and B, arriving later, has to end up at A's
+  // table rather than starting a second one nobody can see.
+  const w = await openWorld(1);
+  await startMatch(w);
+  const A = w.clients[0];
+  eq(A.snap().order, ["u1", null, null, null], "A is playing bots");
+  const B = arrive(w, "u2", "Bat");
+  const met = await eventually(w, () => B.snap().gameStarted && A.snap().order.indexOf("u2") >= 0, 60 * 1000, 250);
+  ok(met, "B must find A:\n" + dump(w));
+  eq(B.sdk.room.id, A.sdk.room.id, "same room");
+  eq(A.snap().order.slice(0, 2), ["u1", "u2"], "same table, two humans and two bots");
+  eq(consistency(w), null, dump(w));
+});
+
+test("open room: a search walks past an emptied table to find the people further along", async () => {
+  // The hard case. The first table filled up, so A was pushed further along the
+  // ladder; later everybody on the first table left. A client that only ever
+  // looked at the first table would find it empty, open a second one right there,
+  // and never discover A — two people playing bots side by side.
+  const w = await openWorld(4);
+  await startMatch(w);
+  const A = arrive(w, "uA", "Ariunaa");
+  ok(await eventually(w, () => A.snap().gameStarted, 60 * 1000, 250), "A should be pushed along:\n" + dump(w));
+  eq(A.sdk.room.id, PUBLIC_ROOM_2, "to the second table");
+  w.clients.slice(0, 4).forEach(c => c.leaveRoom());     // the first table empties out
+  await w.advance(3000);
+
+  const B = arrive(w, "uB", "Bat");
+  const met = await eventually(w, () => B.snap().gameStarted && A.snap().order.indexOf("uB") >= 0, 90 * 1000, 250);
+  ok(met, "B must walk past the empty table and find A:\n" + dump(w));
+  eq(B.sdk.room.id, PUBLIC_ROOM_2, "at A's table, not the empty one it passed");
+  eq(A.snap().order.slice(0, 2), ["uA", "uB"]);
+  eq(consistency(w), null, dump(w));
+});
+
+test("open room: with nobody anywhere, a search settles on the FIRST table, not the last", async () => {
+  // Where a lone player sets up matters: tables have to stay bunched at the front
+  // of the ladder, or every later search gets longer and people drift apart.
+  const w = await openWorld(1);
+  await startMatch(w);
+  await playOut(w, { done: () => w.clients[0].snap().dealEpoch >= 2, budget: 30 * 60 * 1000, consistency: false });
+  w.clients[0].leaveRoom();                              // leaves a used-but-empty first table
+  await w.advance(2000);
+
+  const c = arrive(w, "z1", "Zaya");
+  const dealt = await eventually(w, () => c.snap().dealActive, 60 * 1000, 250);
+  ok(dealt, "the next player should get a game:\n" + dump(w));
+  eq(c.sdk.room.id, PUBLIC_ROOM, "back on the first table, cleared out and reused");
+  eq(c.snap().order, ["z1", null, null, null], "with a clean table");
+  eq(c.snap().totals, [0, 0, 0, 0], "and no leftovers from whoever was here before");
 });
 
 // ── security: the seat log is as forgery-proof as the move log ────────────
