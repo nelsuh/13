@@ -395,8 +395,8 @@ test("open room: a no-invite launch deals immediately against bots — no lobby,
   eq(s.overlays.lobby, false, "the connect cover lifts as soon as cards land");
   eq(w.clients[0].el("readyBtn").style.display, "none", "there is no READY toggle");
   eq(w.clients[0].el("startGameBtn").style.display, "none", "and no Start button");
-  eq(w.clients[0].el("lobbyLoseRow").querySelectorAll(".count-btn").every(b => b.disabled), true,
-     "the match length is a read-only reminder");
+  eq(w.clients[0].el("lobbyLimit").style.display, "none",
+     "and no match-length picker — the target is fixed, so offering one would be a lie");
   eq(w.room.log[0].action_data.open, true, "the deal tells every client which mode the room runs");
 });
 
@@ -668,6 +668,60 @@ test("open room: a live table is never cleared out from under the people playing
   ok(r.ok, r.reason + "\n" + (r.dump || ""));
 });
 
+test("open room: the connect cover is a blink, not a lobby you have to deal with", async () => {
+  // Reported from the live app: a player sat looking at "waiting for a seat" with
+  // a host tag, a match-length picker and no idea what was happening. None of
+  // that belongs on a screen that should be up for well under a second.
+  const w = await openWorld(1);
+  const c = w.clients[0];
+  await startMatch(w);
+  eq(c.el("lobbyLimit").style.display, "none", "no match-length picker on an open table");
+  eq(c.el("readyBtn").style.display, "none", "no READY");
+  eq(c.el("startGameBtn").style.display, "none", "no Start");
+  eq(c.doc.querySelectorAll(".lobby-tag").length, 0, "and no host tag — an open room has no host");
+  eq(c.snap().overlays.lobby, false, "the cover is gone by the time cards land");
+});
+
+test("open room: a room nobody will seat us in still ends in a game, not a spinner", async () => {
+  // Peers on an older cached build, a wedged authority, a relay that will not take
+  // our seat claim — whatever the cause, the player must never be left staring at
+  // the connect cover. After OPEN_STUCK_MS we stop asking and deal locally; the
+  // Share button still turns that back into a room with people in it.
+  const w = await openWorld(2);
+  await startMatch(w);
+  w.clients.forEach(x => x.run("reconcileOpenSeats = function () {};"));   // nobody will let us in
+  const c = arrive(w, "u3", "Chuck");
+  c.run("scheduleHop = function () {};");                                  // and we cannot walk away
+  const playing = await eventually(w, () => c.snap().dealActive, 90 * 1000, 500);
+  ok(playing, "the player must end up with a game:\n" + dump(w));
+  const s = c.snap();
+  eq(s.counts, [13, 13, 13, 13], "a full table");
+  eq(s.online, false, "played locally, since the room would not have us");
+  eq(s.overlays.lobby, false, "and the cover is down");
+  eq(c.errors.map(String), [], "u3 threw");
+});
+
+test("open room: a table left behind on a public shard does not slow the next player down", async () => {
+  // Every public shard collects a stale log over time. Landing on one must not
+  // mean sitting through a hop to the next shard — if nobody is connected, the
+  // room is ours immediately.
+  const w = await openWorld(1);
+  await startMatch(w);
+  await playOut(w, { done: () => w.clients[0].snap().dealEpoch >= 2, budget: 30 * 60 * 1000, consistency: false });
+  w.clients[0].leaveRoom();
+  await w.advance(2000);
+  ok(w.room.log.length > 0, "the shard keeps a log behind");
+
+  const t0 = w.clock.now;
+  const c = arrive(w, "z1", "Zaya");
+  const dealt = await eventually(w, () => c.snap().dealActive, 60 * 1000, 250);
+  ok(dealt, "the next player should be dealt in:\n" + dump(w));
+  const took = w.clock.now - t0;
+  ok(took <= 10000, "…and quickly: took " + took + "ms\n" + dump(w));
+  eq(c.sdk.room.id, PUBLIC_ROOM, "on the shard they landed on, without hopping away");
+  eq(c.snap().order, ["z1", null, null, null], "with a clean table");
+});
+
 // ── security: the seat log is as forgery-proof as the move log ────────────
 test("open room: an unseated spectator cannot inject moves or deals", async () => {
   const w = await openWorld(4);
@@ -760,9 +814,13 @@ test("open room: every client runs the same fixed target", async () => {
   for (const c of w.clients) eq(c.snap().loseAt, 20, c.id + " adopts the open-room target");
   eq(w.room.log[0].action_data.loseAt, 20, "and the deal carries it");
   for (const c of w.clients) {
-    eq(c.doc.querySelectorAll("#lobbyLoseRow .count-btn").every(b => b.disabled), true,
-       c.id + ": nobody can change it mid-table");
+    eq(c.el("lobbyLimit").style.display, "none", c.id + ": the picker is not even offered");
+    // …and pressing it anyway must do nothing, since the element is still in the DOM
+    const btn = c.doc.querySelectorAll("#lobbyLoseRow .count-btn").find(b => b.getAttribute("data-lose") === "30");
+    if (btn) btn.dispatch("click");
   }
+  await w.advance(1000);
+  for (const c of w.clients) eq(c.snap().loseAt, 20, c.id + ": nobody can change it mid-table");
 });
 
 test("open room: the table restarts itself after the winner screen", async () => {

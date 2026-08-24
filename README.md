@@ -68,6 +68,16 @@ roster and cannot tell a live opponent from a ghost), and a full forfeit-grace
 window after anybody drops, because an *eliminated* seat gets no grace of its own
 and a reconnecting peer must not have the room wiped out from under them.
 
+**And it is never just a spinner.** The connect cover exists for the fraction of
+a second it takes to find a table — no READY, no host tag, no match-length picker,
+because there is nothing there for the player to decide. Three things make sure it
+stays that short: an empty shard holding only a stale log is claimed in about two
+seconds rather than after a hop; a table that owes us a seat is waited on rather
+than abandoned; and if after `OPEN_STUCK_MS` nobody in any room will seat us — a
+peer on an older build, a wedged authority, a relay refusing our claims — we stop
+asking and deal the same table locally. A player is owed a game, not a spinner,
+and Share still turns that local table back into a room with people in it.
+
 **A table can never be locked, either.** Two friends on a road-to-20 table knock
 the bots out after a few rounds, and an eliminated seat cannot be handed to
 anybody: it holds no cards, so its new owner would sit there with nothing to play.
@@ -285,7 +295,7 @@ Note: the platform injects `https://usions.com/usion-sdk.js`; the script tag in
 node 13/test/run_all.cjs
 ```
 
-125 headless scenario tests covering both modes, no dependencies and no browser:
+128 headless scenario tests covering both modes, no dependencies and no browser:
 every simulated player is the real `script.js` in its own `vm` realm on a virtual
 clock. See [test/README.md](test/README.md).
 
