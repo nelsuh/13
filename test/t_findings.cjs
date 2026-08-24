@@ -4,7 +4,7 @@
 // current script.js: that is the point. Everything in the other four suites
 // passes today. When a fix lands, these turn green.
 
-const { onlineWorld, startMatch, playOut, driveUntil, rejoin, eventually, consistency, dump } = require("./lib/world.cjs");
+const { onlineWorld, openWorld, startMatch, playOut, driveUntil, rejoin, eventually, consistency, dump } = require("./lib/world.cjs");
 const { test, ok, eq, run } = require("./lib/tap.cjs");
 
 async function matchAtTurn(n, seat) {
@@ -244,7 +244,7 @@ test("FINDING 3b: a foreground client that missed actions must self-heal", async
 // us in again — usually within a second, on whichever bot seat is now weakest.
 
 test("FINDING 4: a player released while offline must rejoin the room's round, not their own", async () => {
-  const w = await onlineWorld(3);
+  const w = await openWorld(3);   // only an open room ever reassigns a seat
   await startMatch(w);
   await driveUntil(w, () => w.clients[0].snap().roundMoveNo >= 3);
   const victim = w.clients[2];

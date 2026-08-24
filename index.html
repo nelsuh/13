@@ -82,14 +82,14 @@
   </div>
 </div>
 
-<!-- Online: open-table connect cover (no lobby — the table deals on its own) -->
+<!-- Online cover: the chat-invite waiting room, and the brief connect screen an open room shows before it deals itself -->
 <div id="onlineOverlay" class="overlay">
   <div class="overlay-card lobby-card">
     <div class="spinner" id="lobbySpinner"></div>
-    <h2 class="lobby-title" id="lobbyTitle">Нээлттэй ширээ</h2>
+    <h2 class="lobby-title" id="lobbyTitle">Хүлээх танхим</h2>
     <p class="overlay-text" id="onlineStatus">Холбогдож байна…</p>
     <div class="lobby-list" id="lobbyList"></div>
-    <!-- Match length: fixed on an open table, shown read-only -->
+    <!-- Match length: the host picks it for a chat invite; fixed and read-only in an open room -->
     <div class="lobby-limit" id="lobbyLimit" style="display:none">
       <div class="count-label" id="lobbyLoseLabel">ХОЖИГДОХ ОНОО</div>
       <div class="count-row" id="lobbyLoseRow">
@@ -151,7 +151,7 @@
 <button id="skinToggle" class="skin-toggle" aria-label="Ширээний өнгө солих"></button>
 
 <script src="https://usions.com/usion-sdk.js"></script>
-<script src="script.js?v=64"></script>
+<script src="script.js?v=65"></script>
 
 </body>
 </html>

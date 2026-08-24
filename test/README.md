@@ -17,14 +17,16 @@ realm on top of:
 | DOM | `lib/dom.cjs` | element tree, classes, `dataset`, selectors, events. Layout is zeroed; a **disabled button ignores clicks**, like a browser. |
 | clock | `lib/clock.cjs` | virtual time. An owner marked `frozen` keeps accruing wall-clock time but runs **no javascript** — a locked phone. |
 | relay | `lib/net.cjs` | `action` (sequenced + stored + broadcast), `realtime` (fire-and-forget), `setState` (CAS checkpoint), `requestSync` → `onSync`. Anything pushed at a frozen or disconnected client is **dropped**; recovery must come from a resync. |
-| scenarios | `lib/world.cjs` | build a room, wait for the open table to deal itself, drop extra players in and out, drive every client's turn through the real Play/Pass buttons, and watch for stalls. |
+| scenarios | `lib/world.cjs` | build a room in either mode — `onlineWorld()` for a chat invite, `openWorld()` for a no-invite open room — get a match under way (`startMatch` readies up and presses Start, or just waits for the open table to deal itself), drop extra players in and out with `arrive()`, drive every client's turn through the real Play/Pass buttons, and watch for stalls. |
 
 Because the clock is virtual, a 90-second turn timeout or a 20-second grace
 costs microseconds — a full 4-player match runs in about a second.
 
-A table always has four seats, so a world with fewer simulated clients is a real
-open table with bots in the rest: `onlineWorld(1)` is one human against three
-bots, and `botSeats(client)` reports which seats a newcomer could take.
+An open room always has four seats, so a world with fewer simulated clients is a
+real table with bots in the rest: `openWorld(1)` is one human against three bots,
+and `botSeats(client)` reports which seats a newcomer could take. `onlineWorld(n)`
+is the other mode — n invited players, no bots, and a waiting room to get through
+first.
 
 ### How a "dead end" is detected
 
@@ -46,12 +48,12 @@ through the UI, and computes a signature of what every client believes
 | suite | tests | covers |
 |---|---|---|
 | `t_rules.cjs` | 16 | combination classification and ordering, complete alternate-combo generation, 2-low↔A-high straights with no wrap, suit order ♠>♥>♣>♦, wire encoding, the penalty ladder, seeded dealing, bot hand-planning/endgame choices, and fuzz proving every generated move is legal and held |
-| `t_offline.cjs` | 14 | the GameTok zero-tap launch, the setup screen at 2/3/4 players × lose-at 20/30/40, 30 back-to-back solo matches, both hand-over buttons, rematch, the turn clock (auto-pass, and forced play when leading), the 5-card selection cap, hand drag-reorder |
-| `t_online.cjs` | 24 | the **open table** — dealing against bots with no lobby, bots actually playing online, a joiner taking over the lowest-scoring bot with its score and cards, B→C→D filling the table mid-round, a fifth arrival queuing for a seat, a walkout handing seat + score back to a bot, a freed seat going to whoever was waiting, forged seat claims, forged bot moves, 1–4 humans end to end, the fixed match target, rematch and self-restart, result-card payloads, round transitions, quick chat, avatars |
-| `t_adversity.cjs` | 41 | locked phones (guest, host, rolling, whole-round), socket drops and reconnects, permanent walkouts at 2p/3p/4p, double walkouts, rejoin inside the grace window, full exit + rejoin, lost echoes, deal races, proxy races, seat-claim races, seating while the elected authority sleeps, joining between rounds, join/leave churn through a whole match, forged actions, forged and stale checkpoints, live-vs-replay agreement, catch-up traffic cost, three server sync models, solo→room promotion, 500 ms latency |
+| `t_offline.cjs` | 14 | the no-room fallback (zero-tap, and a relay that cannot be reached), the setup screen at 2/3/4 players × lose-at 20/30/40, 30 back-to-back local matches, both hand-over buttons, rematch, the turn clock (auto-pass, and forced play when leading), the 5-card selection cap, hand drag-reorder |
+| `t_online.cjs` | 35 | **both modes.** Chat invite: the waiting room, READY gating, seat locking, 2/3/4-player matches end to end, the host's lose-at pick, late joiners, spectator injection, rematch, result cards, round transitions, quick chat, avatars. Open room: dealing against bots with no lobby, bots actually playing online, a joiner taking over the lowest-scoring bot with its score and cards, B→C→D filling the table mid-round, a fifth arrival queuing for a seat, a walkout handing seat + score back to a bot, a freed seat going to whoever was waiting, forged seat claims, forged bot moves, 1–4 humans end to end, the fixed target, self-restart |
+| `t_adversity.cjs` | 45 | locked phones (guest, host, rolling, whole-round), socket drops and reconnects, permanent walkouts at 2p/3p/4p **in both modes** (folds vs bot takeovers), double walkouts, rejoin inside the grace window, full exit + rejoin, lost echoes, deal races, proxy races, seat-claim races, seating while the elected authority sleeps, joining between rounds, join/leave churn through a whole match, forged actions, forged and stale checkpoints, live-vs-replay agreement, catch-up traffic cost, three server sync models, Share promotion (open room → waiting room), 500 ms latency |
 | `t_findings.cjs` | 10 | regression tests for the four bugs this harness found, plus one documented residual |
 
-## The bugs this found (all fixed, `script.js?v=64`)
+## The bugs this found (all fixed, `script.js?v=65`)
 
 `t_findings.cjs` keeps a reproduction for each, so a regression turns it red
 again. The reproductions and the reasoning live in the comment blocks there.

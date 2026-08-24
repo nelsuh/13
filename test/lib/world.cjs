@@ -37,12 +37,29 @@ class World {
   }
 }
 
-/** Create `n` online clients that have connected + joined the room. */
+/**
+ * `n` clients that arrived through a CHAT INVITE (mode 'multiplayer'): they land
+ * in the waiting room and wait for READY + the host's Start.
+ */
 async function onlineWorld(n, opts = {}) {
+  return spawnWorld(n, "multiplayer", opts);
+}
+
+/**
+ * `n` clients that arrived with NO INVITE (mode 'single', the Explore / GameTok
+ * "just play" launch) into one shared room: the open table, which deals itself
+ * against bots and seats arrivals by displacing the weakest bot.
+ */
+async function openWorld(n, opts = {}) {
+  return spawnWorld(n, "single", opts);
+}
+
+async function spawnWorld(n, mode, opts = {}) {
   const w = new World(opts);
+  w.mode = mode;
   for (let i = 0; i < n; i++) {
     const id = "u" + (i + 1);
-    const c = w.add(id, NAMES[i], { mode: "multiplayer", roomId: w.roomId });
+    const c = w.add(id, NAMES[i], { mode, roomId: w.roomId });
     c.start({ userId: id, userName: NAMES[i], userAvatar: opts.avatars && opts.avatars[i],
               roomId: w.roomId, playerIds: [] });
     await w.advance(50);       // stagger joins so the roster order is deterministic
@@ -62,22 +79,42 @@ async function eventually(w, pred, ms = 60000, step = 500) {
 }
 
 /**
- * An open table needs no lobby and no Start press: whoever is in the room deals
- * against bots on its own. This just waits for that first round to be live on
- * every seated client.
+ * Get a match under way, whichever mode the world is in.
+ *   chat invite → ready everyone up and let the host press Start.
+ *   open room   → nothing to press; just wait for the table to deal itself.
+ * Returns once the first round is live on every seated client.
  */
 async function startMatch(w, opts = {}) {
   const seats = opts.seats || w.clients;
+  if (w.mode !== "single") {
+    const host = seats[0];
+    for (const c of seats) { c.click("readyBtn"); await w.advance(120); }
+    if (opts.loseAt) {
+      const btn = host.doc.querySelectorAll("#lobbyLoseRow .count-btn").find(b => Number(b.getAttribute("data-lose")) === opts.loseAt);
+      if (btn) { btn.dispatch("click"); await w.advance(200); }
+    }
+    // Wait for the ready broadcasts to land before pressing Start — on a slow link
+    // the button is still disabled, and a disabled button ignores the press.
+    const armed = await eventually(w, () => host.el("startGameBtn").disabled === false, 30000, 250);
+    if (!armed) throw new Error("Start never unlocked:\n" + dump(w));
+    host.click("startGameBtn");
+  }
   const dealt = await eventually(w, () => seats.every(c => c.snap().dealActive), 30000, 250);
-  if (!dealt) throw new Error("the open table never dealt:\n" + dump(w));
+  if (!dealt) throw new Error("the table never dealt:\n" + dump(w));
   if (w.room) w.room.started = true;
   return w;
 }
 
-/** Add a client to the running room and wait until it holds a seat. */
-async function joinTable(w, id, name, opts = {}) {
-  const c = w.add(id, name, { mode: "multiplayer", roomId: w.roomId });
+/** Add a client to a running room, launched the same way the world was. */
+function arrive(w, id, name, opts = {}) {
+  const c = w.add(id, name, { mode: w.mode || "multiplayer", roomId: w.roomId });
   c.start({ userId: id, userName: name, userAvatar: opts.avatar, roomId: w.roomId, playerIds: [] });
+  return c;
+}
+
+/** Add a client to a running OPEN room and wait until it holds a seat. */
+async function joinTable(w, id, name, opts = {}) {
+  const c = arrive(w, id, name, opts);
   await eventually(w, () => c.snap().mySeat >= 0 && c.snap().gameStarted, opts.timeout || 20000, 250);
   return c;
 }
@@ -190,4 +227,4 @@ async function driveUntil(w, pred, opts = {}) {
   return playOut(w, Object.assign({ done: pred, budget: 10 * 60 * 1000, consistency: false }, opts));
 }
 
-module.exports = { World, onlineWorld, startMatch, joinTable, botSeats, playOut, driveUntil, rejoin, eventually, consistency, dump, signature, NAMES, flush };
+module.exports = { World, onlineWorld, openWorld, startMatch, arrive, joinTable, botSeats, playOut, driveUntil, rejoin, eventually, consistency, dump, signature, NAMES, flush };

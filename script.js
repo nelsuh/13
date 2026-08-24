@@ -31,13 +31,24 @@ const PLAYER_COLORS = ["#2ed573", "#ff4757", "#1e90ff", "#ffa502"];
 const HAND_OVER_SECONDS = 5;
 const TURN_SECONDS = 90;   // each player gets 2:00 to act; on expiry they auto-pass (auto-lead if leading)
 
-// ── Open table ───────────────────────────────────────────
-// An online room is an OPEN SERVER: it always seats 4, humans first and bots
-// filling whatever is left, and it never waits in a lobby. The first player in
-// deals immediately against 3 bots; everyone who arrives afterwards drops
-// straight into the round by taking over a bot seat — inheriting that seat's
-// accumulated penalty points. A player who leaves hands their seat (and score)
-// back to a bot, so the table stays full and the room keeps running.
+// ── The two online modes ─────────────────────────────────
+// A room is run one of two ways, decided entirely by HOW THE GAME WAS LAUNCHED:
+//
+//   CHAT INVITE (`mode: 'multiplayer'`) → the classic WAITING ROOM. The invited
+//   players gather, each toggles READY, the host presses Start, and the seat
+//   order is frozen for the whole match. Everyone who was invited plays; nobody
+//   else can take a seat. This is the flow a group chat expects.
+//
+//   NO INVITE, "just play" (`mode: 'single'` from Explore / the GameTok feed) →
+//   an OPEN ROOM. There is no lobby: the table always seats 4, deals itself
+//   immediately with bots in every empty seat, and anyone who wanders in takes
+//   over the bot carrying the FEWEST penalty points — inheriting that seat's
+//   score and the cards it is holding, mid-round. A player who leaves hands the
+//   seat (and its score) back to a bot, so the room outlives its players.
+//
+// `openTable` below is that switch. It is carried on the deal and on every
+// checkpoint, so the ROOM decides the mode, not the client — a client can never
+// end up running different rules from the table it is sitting at.
 const OPEN_SEATS = 4;           // an open table is always 4 seats wide
 const OPEN_START_MS = 600;      // let presence settle before the first deal
 const BOT_MOVE_MS = 900;        // how long an online bot "thinks" before its move goes out
@@ -87,17 +98,28 @@ const STR = {
     playAgain: "ДАХИН ТОГЛОХ",
     lobbyTitle: "Нээлттэй ширээ",
     connecting: "Холбогдож байна…",
+    waitingPlayers: (a, b) => "Тоглогчдыг хүлээж байна… (" + a + "/" + b + ")",
+    readyStarting: n => n + " тоглогч бэлэн — эхэлж байна…",
+    waitingJoin: "Тоглогчид нэгдэхийг хүлээж байна…",
+    readyCount: (a, b) => a + "/" + b + " бэлэн",
+    ready: "БЭЛЭН",
+    readyOn: "✓ БЭЛЭН",
+    notReady: "БЭЛЭН БИШ",
     hostTag: "ХОСТ",
+    hintHostGo: "Бүгд бэлэн — Эхлүүлэх дар!",
+    hintHostWait: "Бүх тоглогч бэлэн болмогц Эхлүүлэх нээгдэнэ.",
+    hintWaitHost: "Хост эхлүүлэхийг хүлээж байна…",
+    hintPressReady: "Бэлэн болсон бол БЭЛЭН гэж дар.",
     playerN: i => "Тоглогч " + i,
+    startedWithoutYou: "Хост таныг оруулалгүй эхлүүллээ.",
+    lobbyTitleInvite: "Хүлээх танхим",
     openBotNames: ["Бот Бат", "Бот Болд", "Бот Сүх", "Бот Дорж"],
     openWaitSeat: "Суудал чөлөөлөгдөхийг хүлээж байна…",
-    openJoining: "Ширээнд орж байна…",
     openTableTag: "НЭЭЛТТЭЙ ШИРЭЭ",
     openStatus: "Нээлттэй ширээ — хэн ч дундаас нь нэгдэж болно",
     openJoined: n => n + " ширээнд оролоо",
     openLeftBot: n => n + " гарлаа — бот суудлыг нь авлаа",
     openRestarting: "Шинэ ширээ бэлдэж байна…",
-    botTag: "БОТ",
     dealing: "Хөзөр тарааж байна…",
     startGame: "ТОГЛООМ ЭХЛҮҮЛЭХ",
     playBots: "БОТТОЙ ТОГЛОХ",
@@ -114,7 +136,7 @@ const STR = {
     playersLabel: "ТОГЛОГЧ",
     loseLabel: "ХОЖИГДОХ ОНОО",
     nameLabel: "ТАНЫ НЭР",
-    setupFoot: "Офлайн та ботуудтай. Онлайн бол нээлттэй ширээ — хүн ирэхэд ботын суудлыг авна.",
+    setupFoot: "Урилгаар ороход хүлээх танхим. Урилгагүй тоглоход нээлттэй ширээ — хүн ирэхэд ботын суудлыг авна.",
     skinToggle: "Ширээний өнгө солих",
     chatAria: "Түргэн харилцах",
     customChat: "Өөрийн мессеж",
@@ -162,17 +184,28 @@ const STR = {
     playAgain: "PLAY AGAIN",
     lobbyTitle: "Open table",
     connecting: "Connecting…",
+    waitingPlayers: (a, b) => "Waiting for players… (" + a + "/" + b + ")",
+    readyStarting: n => n + " players ready — starting…",
+    waitingJoin: "Waiting for players to join…",
+    readyCount: (a, b) => a + "/" + b + " ready",
+    ready: "READY",
+    readyOn: "✓ READY",
+    notReady: "NOT READY",
     hostTag: "HOST",
+    hintHostGo: "Everyone is ready — press Start!",
+    hintHostWait: "Start unlocks once every player is ready.",
+    hintWaitHost: "Waiting for the host to start…",
+    hintPressReady: "Press READY when you're set.",
     playerN: i => "Player " + i,
+    startedWithoutYou: "The host started without you.",
+    lobbyTitleInvite: "Waiting room",
     openBotNames: ["Bot Bat", "Bot Bold", "Bot Sukh", "Bot Dorj"],
     openWaitSeat: "Waiting for a seat to open…",
-    openJoining: "Taking a seat…",
     openTableTag: "OPEN TABLE",
     openStatus: "Open table — anyone can drop in",
     openJoined: n => n + " joined the table",
     openLeftBot: n => n + " left — a bot took the seat",
     openRestarting: "Starting a fresh table…",
-    botTag: "BOT",
     dealing: "Dealing…",
     startGame: "START GAME",
     playBots: "PLAY VS BOTS",
@@ -189,7 +222,7 @@ const STR = {
     playersLabel: "PLAYERS",
     loseLabel: "LOSE AT",
     nameLabel: "YOUR NAME",
-    setupFoot: "Offline you play bots. Online it is an open table — arrivals take over a bot's seat.",
+    setupFoot: "A chat invite opens a waiting room. Playing without one opens a table anyone can drop into.",
     skinToggle: "Change table colour",
     chatAria: "Quick chat",
     customChat: "Custom message",
@@ -575,7 +608,7 @@ function applyLang(lang) {
   set("setupTitle", "title"); set("setupSub", "setupSub");
   set("playersLabel", "playersLabel"); set("loseLabel", "loseLabel"); set("nameLabelText", "nameLabel");
   set("startBtn", "startGame"); set("setupFoot", "setupFoot");
-  set("lobbyTitle", "lobbyTitle"); set("startGameBtn", "startGame"); set("lobbyBotsBtn", "playBots");
+  set("lobbyTitle", "lobbyTitleInvite");   // enterLobby() swaps it for an open room set("startGameBtn", "startGame"); set("lobbyBotsBtn", "playBots");
   set("lobbyLoseLabel", "loseLabel");
   set("winnerLabel", "winnerLabel"); set("playAgainBtn", "playAgain");
   set("passBtn", "pass"); set("playBtn", "play");
@@ -1441,7 +1474,7 @@ function showGameOver() {
 let openRestartTimer = null;
 function scheduleOpenRestart() {
   if (openRestartTimer) { clearTimeout(openRestartTimer); openRestartTimer = null; }
-  if (!online) return;
+  if (!online || !openTable) return;   // a chat-invite match ends on PLAY AGAIN, not a timer
   const rank = authorityRank();
   if (rank < 0) return;
   const rs = document.getElementById("rematchStatus");
@@ -1685,6 +1718,11 @@ document.getElementById("startBtn").addEventListener("click", () => {
 
 // ── Online (Usion) ───────────────────────────────────────
 let online = false;
+// false → chat-invite room (waiting room, READY/Start, frozen roster)
+// true  → no-invite open room (self-dealing, bots fill empty seats, drop-in)
+// See "The two online modes" at the top of this file. Adopted from the deal /
+// checkpoint so every client in a room agrees which rules it is playing under.
+let openTable = false;
 let myId = null, myName = "", myAvatar = null;   // display-name fallback is t("you")
 let roomPlayerIds = [];
 let connectedCount = 0;
@@ -1714,7 +1752,10 @@ let pendingAction = false;
 const playerMeta = {};
 // ── Lobby (waiting room): who's connected + their ready state, pre-game ──
 const presentIds = new Set();   // player ids currently in the room (connected)
-// (An open table has no READY gate: nobody waits, so nothing tracks readiness.)
+// Waiting-room state. Used by the chat-invite mode only — an open room has no
+// READY gate, because nobody waits.
+let lobbyReady = {};            // id → bool ready flag
+let myReady = false;            // my own ready toggle
 
 // ── Usion capabilities: cloud stats · leaderboard · checkpoint ──
 // All wrappers are defensive: missing modules / standalone preview must never
@@ -1857,6 +1898,7 @@ function currentCheckpoint() {
     totals: roundStartTotals, outs: roundStartOuts,
     firstDeal: roundFirstDeal, lastWinner: roundLastWinner,
     loseAt: loseAt,          // host's elimination threshold, so reconnects/late joiners match
+    open: openTable,         // which of the two modes this room runs — never inferred locally
     names: nameMap(),
     avatars: avatarMap(),
     // Freshness is the SERVER's action sequence, never a wall clock: `version`
@@ -1942,6 +1984,7 @@ function seatOrderCompatible(next) {
 // room makes for that seat is one we reject, forever. So drop back to the waiting
 // state and let the table's own reconcileOpenSeats deal us in again.
 function becomeUnseated() {
+  if (!openTable) return;              // a chat-invite roster never reassigns a seat
   stopLocalRound();
   gameStarted = false;
   dealActive = false;
@@ -1953,13 +1996,15 @@ function becomeUnseated() {
   startSeatPoll();
   render();
 }
-// Every seat is taken by a human right now. Not an error on an open table — sit
-// tight and the next seat that frees up is ours (startSeatPoll keeps asking).
+// We have no seat in this match. In a chat-invite room that is final for the
+// match — the host started without us. In an open room it just means all four
+// seats are human right now, so sit tight: the next one to free up is ours
+// (startSeatPoll keeps asking).
 function showNotSeated() {
   if (!gameStarted) mySeat = -1;   // we hold no seat — renderers must not draw one
   onlineOverlay.classList.add("show");
   const status = document.getElementById("onlineStatus");
-  if (status) status.textContent = t("openWaitSeat");
+  if (status) status.textContent = openTable ? t("openWaitSeat") : t("startedWithoutYou");
 }
 
 // Rebuild the current round from a host checkpoint (received as game_state on a
@@ -1969,9 +2014,9 @@ function showNotSeated() {
 function applyCheckpoint(state) {
   if (!state || typeof state !== "object" || state.seed === undefined || !validSeatOrder(state.order)) return false;
   if (state.order.indexOf(myId) < 0) {
-    // Not in this snapshot's roster. Before the match that just means the table
-    // is full and we are queuing for a seat.
-    if (!gameStarted) { showNotSeated(); return false; }
+    // Not in this snapshot's roster. Before the match that means the host started
+    // without us (chat invite) or all four seats are human (open room).
+    if (!gameStarted || !openTable) { showNotSeated(); return false; }
     // Mid-match it means one of two very different things. A snapshot that is
     // BEHIND us simply predates our (re)seating — acting on it would throw away a
     // seat we do hold. A snapshot that is genuinely AHEAD of everything we have
@@ -1984,7 +2029,10 @@ function applyCheckpoint(state) {
   }
   // A live match has frozen seating. A checkpoint may restore that match, but it
   // must never be able to replace its roster (including via a forged state_push).
-  if (gameStarted && !seatOrderCompatible(state.order)) return false;
+  // A chat-invite match has a frozen roster, so a snapshot may not change it at
+  // all. An open room's roster legitimately moves, so only the weaker check
+  // applies there — see seatOrderCompatible.
+  if (gameStarted && !(openTable ? seatOrderCompatible(state.order) : sameSeatOrder(state.order, roomPlayerIds))) return false;
   applyNames(state.names);                              // host-supplied identities before seating
   applyAvatars(state.avatars);
   if (!gameStarted && !startOnlineGame({ order: state.order })) return false;
@@ -2001,6 +2049,7 @@ function applyCheckpoint(state) {
   firstDeal = !!state.firstDeal;
   lastWinner = (typeof state.lastWinner === "number") ? state.lastWinner : -1;
   if (Number.isFinite(state.loseAt) && state.loseAt > 0) loseAt = state.loseAt;   // adopt host's elimination threshold
+  if (typeof state.open === "boolean") openTable = state.open;   // the ROOM decides which mode it runs
   curSeed = state.seed;
   moveLog = [];
   onlineOverlay.classList.remove("show");
@@ -2097,17 +2146,22 @@ if (window.Usion && Usion.init) {
       try {
         if (Usion.game && Usion.game.onRoomAssigned) Usion.game.onRoomAssigned(function () { onRoomPromoted(); });
       } catch (_) {}
-      // Solo launch (GameTok / Explore, mode 'single') → drop straight into a
-      // zero-tap 4-player round vs bots (road to 20), no menu and no lobby. Only a
-      // real multiplayer launch (chat game invite, roomId) goes online to the
-      // waiting room — chat-invite play is preserved.
-      if (!launchedSolo(config) && config.roomId) {
+      // Which of the two online modes are we in? It is the LAUNCH that decides:
+      //   chat game-invite (mode 'multiplayer') → waiting room, READY + Start,
+      //     frozen roster: exactly the people who were invited play.
+      //   no invite (mode 'single', from Explore or the GameTok feed) → the open
+      //     room: 4 seats, bots in the empty ones, deals itself, anyone can drop
+      //     in mid-round by taking over the weakest bot.
+      // Without a roomId at all (self-hosted preview) there is nothing to join,
+      // so fall back to a purely local table.
+      if (config.roomId) {
+        openTable = launchedSolo(config);
         online = true;
         setupOverlay.classList.remove("show");
         onlineOverlay.classList.add("show");
         await setupMultiplayer(config.roomId);
       } else {
-        startBotsGame();   // GameTok / Explore solo → zero-tap you + 3 bots, road to 20
+        startBotsGame();   // no room to join → zero-tap you + 3 bots, road to 20
       }
     });
   } catch (e) { /* standalone preview */ }
@@ -2291,7 +2345,12 @@ async function setupMultiplayer(roomId) {
     await Usion.game.join(roomId);
   } catch (err) {
     console.error("Multiplayer failed:", err);
-    online = false; onlineOverlay.classList.remove("show"); setupOverlay.classList.add("show");
+    online = false; onlineOverlay.classList.remove("show");
+    // The no-invite launch owes the player a zero-tap game (GameTok contract), so
+    // a room we cannot reach degrades to the same table played locally rather
+    // than dumping them on a menu.
+    if (openTable) { openTable = false; startBotsGame(); return; }
+    setupOverlay.classList.add("show");
   }
 }
 
@@ -2301,13 +2360,22 @@ async function setupMultiplayer(roomId) {
 // job is to drop the bots round, register the handlers, and open the waiting
 // room; onJoined lands right after and the normal lobby flow takes over.
 function onRoomPromoted() {
-  if (online) return;   // already in a room — nothing to flip
+  if (online && !openTable) return;   // already in an invite room with a waiting room
   stopLocalRound();
-  // The room we are being promoted INTO is brand new, so nothing we may have
-  // learned about a previous room should stop us opening a table in it.
+  stopSeatPoll();
+  if (openStartTimer) { clearTimeout(openStartTimer); openStartTimer = null; }
+  if (openRestartTimer) { clearTimeout(openRestartTimer); openRestartTimer = null; }
+  // Sharing IS inviting, so the promoted room follows the chat-invite rules: a
+  // waiting room, READY, and a roster frozen at Start. It is also a DIFFERENT
+  // room from whatever we were in, so every piece of per-room bookkeeping has to
+  // start over or we would judge the new room's log against the old one's.
+  openTable = false;
+  roomPlayerIds = []; moveLog = [];
+  lastSeq = 0; appliedBaseSeq = 0; appliedSequences = new Set();
   sawRoomCheckpoint = false; lastRoomActivityAt = 0;
+  seatWaitSince.clear(); lastSeatClaimAt = 0;
   online = true; gameStarted = false; dealActive = false;
-  presentIds.clear(); presentIds.add(myId);
+  myReady = false; lobbyReady = {}; presentIds.clear(); presentIds.add(myId);
   players = []; hands = [];
   setupOverlay.classList.remove("show");
   handOverlay.classList.remove("show");
@@ -2335,8 +2403,8 @@ function stopLocalRound() {
 // fires on join, on every (re)join of a peer, and on each ready toggle, so the
 // match length reaches late arrivals without a channel of its own.
 function sendPlayerInfo() {
-  const info = { name: myName || t("you"), avatar: myAvatar || null };
-  if (isHostPlayer()) info.loseAt = loseAt;
+  const info = { name: myName || t("you"), avatar: myAvatar || null, ready: myReady };
+  if (!openTable && isHostPlayer()) info.loseAt = loseAt;
   Usion.game.realtime("player_info", info);
 }
 // Point targets offered in the waiting room. The deal carries the chosen value,
@@ -2468,10 +2536,23 @@ function applyLeaveOutcome(seat, endMatch) {
   }
 }
 
-// NB: nothing writes leave_fold / forfeit_win any more — an open table releases a
-// departed seat back to a bot (sendSeatRelease) instead of folding it out of the
-// match. applyRemoteMove still ACCEPTS both, so a log written by an older client
-// still replays, and the checks there still reject a forged one.
+// Chat-invite mode: a departed seat is FOLDED out of the match, because the
+// roster is the people who were invited and nobody may take their place. (An
+// open room releases the seat to a bot instead — see sendSeatRelease.) Exactly
+// one deterministic authority (the lowest live seat) may write it.
+function sendHostLeaveOutcome(seat, endMatch) {
+  if (seat < 0 || openTable) return;
+  const rank = authorityRank();
+  // Only the elected lowest present seat may write a fold. Accepting staggered
+  // writes from every peer makes `auto:true`/leave outcomes forgeable.
+  if (rank !== 0) return;
+  if (players[seat] && players[seat].out) return;   // already folded — someone beat us to it
+  Usion.game.action("move", { kind: endMatch ? "forfeit_win" : "leave_fold", seat })
+    .catch(() => {
+      toast(t("leaveFail"));
+      Usion.game.requestSync(lastSeq);
+    });
+}
 
 function startForfeitGrace(seat, playerId) {
   if (seat < 0 || playerId == null) return;
@@ -2495,11 +2576,14 @@ function startForfeitGrace(seat, playerId) {
       }
     });
 
-    // Open table: a seat whose player really is gone goes back to a bot (keeping
-    // its score) instead of folding out of the match, so the room keeps running.
+    // Open room: a seat whose player really is gone goes back to a bot, keeping
+    // its score, so the table stays full and the room keeps running.
+    // Chat invite: the roster is fixed, so the seat folds out of the match and
+    // the last player standing wins by forfeit.
     expired.forEach(([id, seat]) => {
       pendingLeaves.delete(id);
-      sendSeatRelease(seat);
+      if (openTable) { sendSeatRelease(seat); return; }
+      sendHostLeaveOutcome(seat, activeSeats().filter(s => s !== seat).length <= 1);
     });
 
     if (!pendingLeaves.size) {
@@ -2515,7 +2599,7 @@ function onPlayerLeft(data) {
   connectedCount = Math.max(0, connectedCount - 1);
   if (!gameStarted) {
     if (data && data.player_ids) roomPlayerIds = data.player_ids;   // roster only changes pre-game; seats are fixed once started
-    if (data && data.player_id != null) presentIds.delete(data.player_id);
+    if (data && data.player_id != null) { presentIds.delete(data.player_id); delete lobbyReady[data.player_id]; }
     isHost = roomPlayerIds[0] === myId;
     renderLobby();
     return;
@@ -2546,10 +2630,19 @@ function onPlayerLeft(data) {
   // exactly one elected live client writes each expired outcome.
   startForfeitGrace(seat, data.player_id);
 }
+// number of seats this online match has: an open room is always 4; a chat-invite
+// match seats exactly the people who were invited (2–4).
+function targetSeats() {
+  return openTable ? OPEN_SEATS : Math.max(2, Math.min(4, roomPlayerIds.length || 2));
+}
 function updateOnlineStatus() {
   const s = document.getElementById("onlineStatus");
   if (!s || gameStarted || dealActive) return;
-  s.textContent = t("openStatus");
+  if (openTable) { s.textContent = t("openStatus"); return; }
+  const n = targetSeats();
+  s.textContent = connectedCount < n
+    ? t("waitingPlayers", Math.min(connectedCount, n), n)
+    : t("readyStarting", n);
 }
 // Is somebody's table already running in this room? A late arrival must NOT deal
 // a rival match over the top of one — it waits to be seated instead. Stored
@@ -2566,9 +2659,11 @@ let openStartTimer = null;
 let seatPollTimer = null;
 function maybeStart() {
   if (gameStarted || dealActive) { stopSeatPoll(); return; }
-  if (online) loseAt = OPEN_LOSE_AT;   // open tables run one fixed road-to-20 match
+  // Chat invite: gather in the waiting room and wait for the host's Start.
+  if (!online || !openTable) { enterLobby(); return; }
+  // No invite: no waiting room. Deal against bots and seat arrivals as they come.
+  loseAt = OPEN_LOSE_AT;               // an open room runs one fixed road-to-20
   enterLobby();
-  if (!online) return;
   scheduleOpenStart();
   startSeatPoll();
 }
@@ -2576,7 +2671,7 @@ function maybeStart() {
 // (asleep, or gone before the first hand) the next present client covers,
 // staggered by rank — the same election that keeps later rounds moving.
 function scheduleOpenStart() {
-  if (openStartTimer || !online) return;
+  if (openStartTimer || !online || !openTable) return;
   const seats = roomPlayerIds.filter(id => id != null && presentIds.has(id));
   const rank = seats.indexOf(myId);
   if (rank < 0) return;
@@ -2605,7 +2700,7 @@ function scheduleOpenStart() {
 // or its seat claim hasn't landed) keeps asking for state until a checkpoint
 // arrives with it seated.
 function startSeatPoll() {
-  if (seatPollTimer || !online) return;
+  if (seatPollTimer || !online || !openTable) return;
   seatPollTimer = setInterval(function () {
     if (!online || gameStarted) { stopSeatPoll(); return; }
     try { if (window.Usion && Usion.game && Usion.game.requestSync) Usion.game.requestSync(0); } catch (_) {}
@@ -2615,6 +2710,9 @@ function stopSeatPoll() { if (seatPollTimer) { clearInterval(seatPollTimer); sea
 function enterLobby() {
   if (gameStarted || dealActive) return;
   presentIds.add(myId);
+  if (!openTable) lobbyReady[myId] = myReady;
+  const title = document.getElementById("lobbyTitle");
+  if (title) title.textContent = openTable ? t("lobbyTitle") : t("lobbyTitleInvite");
   onlineOverlay.classList.add("show");
   renderLobby();
 }
@@ -2630,7 +2728,8 @@ function renderLobby() {
   const ids = lobbyOrder();
   const hostId = roomPlayerIds[0];
   const spinner = document.getElementById("lobbySpinner");
-  if (spinner) spinner.style.display = "block";   // an open table is always about to deal
+  // An open room is always a moment away from dealing, so the spinner stays.
+  if (spinner) spinner.style.display = (openTable || !ids.length) ? "block" : "none";
   list.innerHTML = "";
   ids.forEach((id, i) => {
     const meta = playerMeta[id] || {};
@@ -2649,18 +2748,48 @@ function renderLobby() {
       nameEl.appendChild(tag);
     }
     row.appendChild(nameEl);
+    if (!openTable) {                       // READY badges belong to the waiting room
+      const badge = document.createElement("span");
+      const ready = !!lobbyReady[id];
+      badge.className = "lobby-badge " + (ready ? "ready" : "wait");
+      badge.textContent = ready ? t("ready") : t("notReady");
+      row.appendChild(badge);
+    }
     list.appendChild(row);
   });
   const statusEl = document.getElementById("onlineStatus");
-  if (statusEl) statusEl.textContent = t("openStatus");
-  // An open table never gates on READY and never needs a Start press.
   const readyBtn = document.getElementById("readyBtn");
-  if (readyBtn) readyBtn.style.display = "none";
   const startBtn = document.getElementById("startGameBtn");
-  if (startBtn) { startBtn.style.display = "none"; startBtn.disabled = true; }
-  renderLobbyLimit();
   const hint = document.getElementById("lobbyHint");
-  if (hint) hint.textContent = t("openTableTag");
+  if (openTable) {
+    // No invite: nothing to press. This cover is only up while we connect.
+    if (statusEl) statusEl.textContent = t("openStatus");
+    if (readyBtn) readyBtn.style.display = "none";
+    if (startBtn) { startBtn.style.display = "none"; startBtn.disabled = true; }
+    renderLobbyLimit();
+    if (hint) hint.textContent = t("openTableTag");
+    return;
+  }
+  // Chat invite: the classic waiting room — everyone readies, the host starts.
+  const present = ids.length;
+  const readyCount = ids.filter(id => lobbyReady[id]).length;
+  const allReady = present >= 2 && readyCount === present;
+  if (statusEl) statusEl.textContent = present < 2 ? t("waitingJoin") : t("readyCount", readyCount, present);
+  if (readyBtn) {
+    readyBtn.style.display = "block";
+    readyBtn.textContent = myReady ? t("readyOn") : t("ready");
+    readyBtn.classList.toggle("btn-ready-on", myReady);
+  }
+  if (startBtn) {
+    startBtn.style.display = isHost ? "block" : "none";
+    startBtn.disabled = !allReady || pendingAction;
+  }
+  renderLobbyLimit();
+  if (hint) {
+    hint.textContent = isHost
+      ? (allReady ? t("hintHostGo") : t("hintHostWait"))
+      : (myReady ? t("hintWaitHost") : t("hintPressReady"));
+  }
 }
 // Show the match length to everyone; only the host can change it. Hidden until
 // we're actually in a room (the overlay also covers the "connecting…" state).
@@ -2670,20 +2799,37 @@ function renderLobbyLimit() {
   // isHostPlayer() reads the roster directly — the `isHost` flag is only assigned
   // once onJoined lands, which would render the host's own picker read-only for
   // the first moment of the lobby.
-  // Open tables run one fixed target (OPEN_LOSE_AT), so this is a read-only
-  // reminder of the match length rather than a picker.
+  // Chat invite: the host picks the match length and everyone sees the same value.
+  // Open room: there is no host to pick, so it is a read-only reminder of the
+  // fixed target (OPEN_LOSE_AT).
+  // isHostPlayer() reads the roster directly — the `isHost` flag is only assigned
+  // once onJoined lands, which would render the host's own picker read-only for
+  // the first moment of the lobby.
+  const amHost = !openTable && isHostPlayer();
   wrap.style.display = (online && roomPlayerIds.length > 0) ? "block" : "none";
-  wrap.classList.add("readonly");
+  wrap.classList.toggle("readonly", !amHost);
   document.querySelectorAll("#lobbyLoseRow .count-btn").forEach(btn => {
     btn.classList.toggle("selected", Number(btn.dataset.lose) === loseAt);
-    btn.disabled = true;
+    btn.disabled = !amHost;
   });
 }
 // Host only: lock the seats to the present + ready players and deal.
+// Chat invite only: lock the seats to the present + ready players and deal.
+function hostStartGame() {
+  if (gameStarted || openTable || !isHost) return;
+  const order = lobbyOrder().filter(id => lobbyReady[id]);
+  if (order.length < 2) return;
+  roomPlayerIds = order;
+  numPlayers = order.length;
+  isHost = roomPlayerIds[0] === myId;
+  if (!isHost) return;
+  firstDeal = true; lastWinner = -1;   // fresh match → lowest-card holder leads
+  hostDeal();   // broadcasts the deal (with this order) → every client begins
+}
 // Start a solo offline game vs 3 bots (you + Bot Anh/Bat/Cag = 4 seats).
 function startBotsGame() {
-  online = false; gameStarted = false; dealActive = false;
-  presentIds.clear();
+  online = false; openTable = false; gameStarted = false; dealActive = false;
+  myReady = false; presentIds.clear(); lobbyReady = {};
   onlineOverlay.classList.remove("show");
   handOverlay.classList.remove("show");
   setupOverlay.classList.remove("show");
@@ -2710,12 +2856,30 @@ function leaveForBots() {
   const readyBtn = document.getElementById("readyBtn");
   const startBtn = document.getElementById("startGameBtn");
   const botsBtn = document.getElementById("lobbyBotsBtn");
-  // READY and START are gone with the waiting room — an open table deals on its
-  // own and seats arrivals mid-match. The elements stay in the markup so the
-  // overlay keeps its layout while we are still connecting.
-  if (readyBtn) readyBtn.style.display = "none";
-  if (startBtn) { startBtn.style.display = "none"; startBtn.disabled = true; }
+  // READY / Start drive the chat-invite waiting room. renderLobby() hides both in
+  // an open room, and a hidden (or disabled) button ignores clicks anyway.
+  if (readyBtn) readyBtn.addEventListener("click", () => {
+    if (openTable) return;
+    myReady = !myReady;
+    lobbyReady[myId] = myReady;
+    if (online && window.Usion && Usion.game) sendPlayerInfo();
+    renderLobby();
+  });
+  if (startBtn) startBtn.addEventListener("click", hostStartGame);
   if (botsBtn) botsBtn.addEventListener("click", leaveForBots);
+  // Host picks how many penalty points knock a player out. Broadcast immediately
+  // so everyone in the room sees the target before they ready up. Open rooms run
+  // a fixed target, so the picker is inert there.
+  document.querySelectorAll("#lobbyLoseRow .count-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (openTable || !isHostPlayer() || gameStarted) return;
+      const v = Number(btn.dataset.lose);
+      if (LOSE_OPTIONS.indexOf(v) < 0 || v === loseAt) return;
+      loseAt = v;
+      if (online && window.Usion && Usion.game) sendPlayerInfo();
+      renderLobby();
+    });
+  });
 })();
 function startOnlineGame(data) {
   if (gameStarted) return true;
@@ -2863,6 +3027,7 @@ function seatBot(seat) {
 // replaying the same log reach the same verdict — the property that keeps the
 // table from splitting in two.
 function applySeatMove(move, fromId) {
+  if (!openTable) return false;        // a chat-invite match has a frozen roster
   if (!gameStarted || !Array.isArray(players) || !players.length) return false;
   const seat = Number(move.seat);
   if (!Number.isInteger(seat) || seat < 0 || seat >= numPlayers || !players[seat]) return false;
@@ -2915,7 +3080,7 @@ function applySeatMove(move, fromId) {
 let lastSeatClaimAt = 0;
 const seatWaitSince = new Map();   // unseated player id → when we first saw them waiting
 function reconcileOpenSeats() {
-  if (!online || !gameStarted || pendingAction) return;
+  if (!online || !openTable || !gameStarted || pendingAction) return;
   const waiting = unseatedPresent();
   seatWaitSince.forEach((_, id) => { if (waiting.indexOf(id) < 0) seatWaitSince.delete(id); });
   if (!waiting.length) return;
@@ -2939,7 +3104,7 @@ function reconcileOpenSeats() {
 // A departed seat goes back to a bot instead of folding out of the match: an
 // open table must survive its players leaving.
 function sendSeatRelease(seat) {
-  if (!online || seat < 0 || !Array.isArray(roomPlayerIds)) return;
+  if (!online || !openTable || seat < 0 || !Array.isArray(roomPlayerIds)) return;
   const id = roomPlayerIds[seat];
   if (id == null || presentIds.has(id)) return;
   if (authorityRank() !== 0) return;          // exactly one elected writer
@@ -2972,7 +3137,8 @@ function hostDeal(reset) {
   // eliminations) in onDeal before dealing, so the whole table restarts as one.
   const d = { seed: curSeed, order: roomPlayerIds, names: nameMap(), avatars: avatarMap(),
               firstDeal: reset ? true : firstDeal, lastWinner: reset ? -1 : lastWinner,
-              loseAt: loseAt };   // host owns the elimination threshold → every client adopts it
+              loseAt: loseAt,     // host owns the elimination threshold → every client adopts it
+              open: openTable };  // and the room's mode travels with it
   if (reset) d.reset = true;
   pendingAction = true;
   renderLobby();
@@ -3215,6 +3381,7 @@ function onNetRealtime(data) {
       name: (typeof d.name === "string" && d.name) ? d.name : previous.name,
       avatar: normalizeAvatar(d.avatar)
     };
+    if (typeof d.ready === "boolean") lobbyReady[data.player_id] = d.ready;   // waiting-room only
     presentIds.add(data.player_id);
 
     // Adopt the match length only from the host, and only from the offered set —
@@ -3309,8 +3476,11 @@ function onDeal(d, fromId) {
     // the room, and `if (dealActive) return false` above still collapses a deal
     // race to the first stored deal.
     if (fromId == null || !Array.isArray(roomPlayerIds) || roomPlayerIds.indexOf(fromId) < 0) return false;
+  } else if (!replayingSync && !(d.open === true || (d.open === undefined && openTable))) {
+    const expected = roomPlayerIds[0];   // chat invite: the host owns the opening deal
+    if (fromId == null || fromId !== expected || d.order[0] !== expected) return false;
   } else if (!replayingSync) {
-    // Opening an OPEN table: the platform host normally deals it, but if they
+    // Opening an OPEN room: the platform host normally deals it, but if they
     // never do (asleep, or already gone) the next present client covers — the
     // same staggered election that keeps later rounds moving. Accept a pre-game
     // deal from anyone the order seats, as long as it still puts the host at
@@ -3342,6 +3512,7 @@ function onDeal(d, fromId) {
   if (typeof d.firstDeal === "boolean") firstDeal = d.firstDeal;
   if (typeof d.lastWinner === "number") lastWinner = d.lastWinner;
   if (typeof d.loseAt === "number") loseAt = d.loseAt;   // adopt host's elimination threshold
+  if (typeof d.open === "boolean") openTable = d.open;   // …and which mode the room runs
   curSeed = d.seed; moveLog = [];
   handOverlay.classList.remove("show");
   numPlayers = d.order.length;

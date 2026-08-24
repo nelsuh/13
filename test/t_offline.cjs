@@ -1,19 +1,26 @@
-// Suite 2 — solo / offline play: the GameTok zero-tap launch, the setup screen
-// for every player count and every lose-at target, the hand-over overlay's two
-// buttons, rematch, and the turn clock.
+// Suite 2 — LOCAL play: the no-room fallback (self-hosted preview, or a room the
+// game could not reach), the setup screen for every player count and every
+// lose-at target, the hand-over overlay's two buttons, rematch, and the turn
+// clock. A launch that DOES have a room is online now — even without an invite —
+// so those paths live in t_online.cjs.
 
 const { World, playOut, dump } = require("./lib/world.cjs");
 const { test, ok, eq, run } = require("./lib/tap.cjs");
 
 function soloWorld(id, launch) {
   const w = new World();
-  const c = w.add(id, "Alice", launch || { mode: "single", roomId: "standalone_a" });
+  const c = w.add(id, "Alice", launch || { mode: "single" });
   return { w, c };
 }
 
+/**
+ * Launch with NO room at all — the self-hosted preview, and the fallback when a
+ * room cannot be reached. There is nothing to join, so the game deals a purely
+ * local table: you plus 3 bots, no network.
+ */
 async function bootSolo(id) {
   const { w, c } = soloWorld(id);
-  c.start({ userId: id, userName: "Alice", roomId: "standalone_a", playerIds: [id] });
+  c.start({ userId: id, userName: "Alice", playerIds: [id] });
   await w.advance(1000);
   return { w, c };
 }
@@ -34,10 +41,10 @@ async function bootSetup(id, players, loseAt) {
   return { w, c };
 }
 
-test("GameTok solo launch deals a zero-tap 4-player road-to-20 vs bots", async () => {
+test("a launch with no room deals a zero-tap 4-player road-to-20 vs bots", async () => {
   const { w, c } = await bootSolo("solo1");
   const s = c.snap();
-  eq(s.online, false, "a 'single' launch must not go online");
+  eq(s.online, false, "with no room to join there is nothing to go online to");
   eq(s.gameStarted, false);
   eq(s.numPlayers, 4);
   eq(s.loseAt, 20);
@@ -46,13 +53,18 @@ test("GameTok solo launch deals a zero-tap 4-player road-to-20 vs bots", async (
   eq(s.counts.reduce((a, b) => a + b, 0) >= 13 * 4 - 12, true, "everyone was dealt in");
 });
 
-test("solo launch with a standalone_ room id still stays offline", async () => {
+test("a room the game cannot reach falls back to the same table, played locally", async () => {
   const w = new World();
-  const c = w.add("solo2", "Alice", { roomId: "standalone_xyz" });   // no mode field at all
+  const c = w.add("solo2", "Alice", { mode: "single", roomId: "standalone_xyz" });
+  c.sdk.failConnect = true;                 // the relay is unreachable
   c.start({ userId: "solo2", userName: "Alice", roomId: "standalone_xyz", playerIds: ["solo2"] });
-  await w.advance(1000);
-  eq(c.snap().online, false, "a standalone_ room is not a real multiplayer room");
-  eq(c.snap().dealActive, true);
+  // Step the clock: connect() has to reject and the fallback has to run, and a
+  // single big jump does not interleave the awaits inside Usion.init.
+  for (let i = 0; i < 6; i++) await w.advance(200);
+  const s = c.snap();
+  eq(s.online, false, "we could not get online, so we must not pretend we did");
+  eq(s.dealActive, true, "and the player still gets their zero-tap game");
+  eq(s.numPlayers, 4);
 });
 
 test("solo match plays all the way to a winner with no dead end", async () => {

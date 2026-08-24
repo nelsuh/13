@@ -141,7 +141,12 @@ class SDK {
       cloud: { get: () => Promise.resolve(null), set: () => Promise.resolve({}), shared: { incr: () => Promise.resolve({}) } },
       leaderboard: { submit: (v) => { self.calls.leaderboard.push(v); return Promise.resolve({ success: true }); } },
       game: {
-        connect: () => later(() => ({ success: true })),
+        // `failConnect` simulates a relay we cannot reach at all, so the game has
+        // to fall back to a local table instead of stranding the player.
+        connect: () => later(() => {
+          if (self.failConnect) throw new Error("connect failed");
+          return { success: true };
+        }),
         join: (roomId) => later(() => {
           const room = srv.room(roomId);
           self.room = room;
