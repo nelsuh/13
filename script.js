@@ -65,7 +65,7 @@ const OPEN_REVIVE_MS = 20000;   // a room that owes us a seat and has gone silen
 // people pile into the first one until it is full before a second one opens.
 const OPEN_ROOM_PREFIX = "public-13-";
 const OPEN_ROOM_SHARDS = 8;
-const OPEN_HOP_MS = 8000;       // still seatless after this → that table is full, try the next
+const OPEN_HOP_MS = 12000;      // still seatless after this, with no free seat in sight → next table
 const OPTIMISTIC_STUCK_MS = 6000;   // our own move has not come back → assume we are out of step
 
 // ── i18n ─────────────────────────────────────────────────
@@ -2050,6 +2050,7 @@ function applyCheckpoint(state) {
     // seat we do hold. A snapshot that is genuinely AHEAD of everything we have
     // applied is the room telling us our seat is gone, and arguing with it strands
     // us in a private copy of the round.
+    lastSeenOrder = state.order.slice();   // what the table we are queuing at looks like
     const cpSeq = Number(state.seq);
     const ahead = Number.isFinite(cpSeq) ? cpSeq > syncResumePoint() : snapshotIsNewer(state);
     if (ahead) becomeUnseated();
@@ -2381,6 +2382,10 @@ function registerNetHandlers() {
 let openShard = 0;
 let openFallbackRoom = null;    // the platform's own room, if we can't pick our own
 let hopTimer = null;
+// The seat order of the table we are queuing at, learned from a checkpoint we
+// could not apply because it does not seat us. A `null` in it means a bot is
+// holding a seat, so one is coming free for us and we should stay put.
+let lastSeenOrder = null;
 function publicRoomId(n) { return OPEN_ROOM_PREFIX + ((n % OPEN_ROOM_SHARDS) + 1); }
 
 async function joinOpenRoom(shard, fallbackRoomId) {
@@ -2423,6 +2428,10 @@ function scheduleHop() {
   hopTimer = setTimeout(function () {
     hopTimer = null;
     if (!online || !openTable || gameStarted) return;
+    // A bot still holds a seat here, so this table owes us one — the claim is
+    // just taking its time. Moving on now would leave us alone at an empty table
+    // while there are people right here to play with.
+    if (Array.isArray(lastSeenOrder) && lastSeenOrder.indexOf(null) >= 0) { scheduleHop(); return; }
     if (openShard + 1 >= OPEN_ROOM_SHARDS) { scheduleHop(); return; }
     try { if (window.Usion && Usion.game && Usion.game.leave) Usion.game.leave(); } catch (_) {}
     joinOpenRoom(openShard + 1);
@@ -2749,7 +2758,8 @@ function resetRoomState() {
   lastSeq = 0; appliedBaseSeq = 0; appliedSequences = new Set();
   checkpointVersion = 0;
   sawRoomCheckpoint = false; lastRoomActivityAt = 0;
-  seatWaitSince.clear(); lastSeatClaimAt = 0;
+  seatWaitSince.clear(); lastSeatClaimAt = 0; lastOpenResetAt = 0;
+  lastSeenOrder = null;
   pendingAction = false;
   mySeat = -1;
 }
@@ -3088,12 +3098,23 @@ function openBotSeats() {
 // (the best-placed bot), lowest seat index breaking a tie. Computed from
 // replayable state alone, so every client — live or replaying — picks the same
 // seat and the log stays deterministic.
+//
+// An ELIMINATED bot seat is not offered: it holds no cards, so a human dropped
+// into it would sit out with nothing to play. When every bot has been knocked out
+// — exactly where two friends end up after a few rounds on a road-to-20 table —
+// the way back in is a fresh match, not a dead seat. See openResetForWaiting().
 function takeoverSeat() {
   const seats = openBotSeats();
   if (!seats.length) return -1;
   let best = seats[0];
   seats.forEach(s => { if (players[s].total < players[best].total) best = s; });
   return best;
+}
+// Are there bot seats, but all of them eliminated? Then the table has no way to
+// let anybody in, and two players could hold the room against everybody else
+// just by knocking the bots out.
+function openTableIsClosed() {
+  return players.some(p => p && p.isBot) && !openBotSeats().length;
 }
 // Humans in the room with no seat yet, in a stable order.
 function unseatedPresent() {
@@ -3205,7 +3226,15 @@ function reconcileOpenSeats() {
   if (now - seatWaitSince.get(id) < rank * SEAT_STAGGER_MS) return;       // higher ranks go first
   if (now - lastSeatClaimAt < SEAT_RETRY_MS) return;                      // never storm the relay
   const seat = takeoverSeat();
-  if (seat < 0) return;             // no bot to displace — they watch until a seat frees up
+  if (seat < 0) {
+    // Somebody is waiting and there is no seat to give them. If that is only
+    // because every bot has been eliminated, the honest answer is a fresh match —
+    // that match was nearly over anyway, and the alternative is a room two people
+    // have locked against everybody else. Four humans is a genuinely full table,
+    // and the newcomer's own client moves them on to another one (scheduleHop).
+    if (openTableIsClosed()) openResetForWaiting();
+    return;
+  }
   const meta = playerMeta[id] || {};
   lastSeatClaimAt = now;
   try {
@@ -3214,6 +3243,23 @@ function reconcileOpenSeats() {
       .catch(function () { lastSeatClaimAt = 0; });
   } catch (_) { lastSeatClaimAt = 0; }
 }
+// Deal a fresh match so somebody waiting outside can be seated. Between rounds
+// only — a reset deal mid-hand would yank the cards out of everyone's hands — and
+// rate-limited, because the newcomer stays unseated until the reset lands and we
+// must not fire one on every tick of the watchdog until it does.
+let lastOpenResetAt = 0;
+const OPEN_RESET_COOLDOWN_MS = 15000;
+function openResetForWaiting() {
+  if (dealActive || pendingAction) return;
+  if (authorityRank() !== 0) return;                     // one elected writer
+  if (Date.now() - lastOpenResetAt < OPEN_RESET_COOLDOWN_MS) return;
+  lastOpenResetAt = Date.now();
+  if (endTimer) { clearTimeout(endTimer); endTimer = null; }
+  if (handCdInterval) { clearInterval(handCdInterval); handCdInterval = null; }
+  if (handCdTimeout) { clearTimeout(handCdTimeout); handCdTimeout = null; }
+  hostDeal(true);   // reset: every total back to zero, every seat back in play
+}
+
 // A departed seat goes back to a bot instead of folding out of the match: an
 // open table must survive its players leaving.
 function sendSeatRelease(seat) {

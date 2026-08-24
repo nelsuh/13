@@ -265,7 +265,7 @@ Note: the platform injects `https://usions.com/usion-sdk.js`; the script tag in
 node 13/test/run_all.cjs
 ```
 
-122 headless scenario tests covering both modes, no dependencies and no browser:
+123 headless scenario tests covering both modes, no dependencies and no browser:
 every simulated player is the real `script.js` in its own `vm` realm on a virtual
 clock. See [test/README.md](test/README.md).
 

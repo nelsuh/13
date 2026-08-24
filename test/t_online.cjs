@@ -567,6 +567,42 @@ test("open room: a seat freed by a walkout is handed to the next person through 
   eq(consistency(w), null);
 });
 
+test("open room: two friends who knock the bots out cannot lock the room", async () => {
+  // Reported from the live app: nelsuh and nelsuh_pc were playing with 2 bots and
+  // a third person could not get in. After a few rounds on a road-to-20 table
+  // both bots are ELIMINATED, so there is no seat to hand out — and the newcomer
+  // used to give up and open an empty table of their own on the next shard.
+  const w = await openWorld(2);
+  await startMatch(w);
+  const host = w.clients[0];
+  const bots = () => host.snap().order.map((id, i) => (id === null ? i : -1)).filter(i => i >= 0);
+  const r = await playOut(w, {
+    done: () => bots().every(s => host.snap().outs[s]),
+    budget: 30 * 60 * 1000, consistency: false,
+  });
+  ok(r.ok, "could not reach the all-bots-eliminated state: " + r.reason);
+  eq(host.read("takeoverSeat()"), -1, "there really is no seat to give away");
+  eq(host.read("openTableIsClosed()"), true, "and the table is closed, not full");
+
+  const c = arrive(w, "u3", "Chuck");
+  const inPlay = await eventually(w, () => {
+    const s = c.snap();
+    return s.gameStarted && s.mySeat >= 0 && !s.outs[s.mySeat] && s.counts[s.mySeat] > 0;
+  }, 120 * 1000, 250);
+  ok(inPlay, "the third player must get into THIS game, not a private one:\n" + dump(w));
+  eq(c.sdk.room.id, PUBLIC_ROOM, "at the same table as the other two");
+  eq(w.clients[0].sdk.room.id, PUBLIC_ROOM);
+  eq(w.clients[1].sdk.room.id, PUBLIC_ROOM);
+  const s = c.snap();
+  eq(s.numPlayers, 4);
+  eq(s.order.filter(Boolean).sort(), ["u1", "u2", "u3"], "all three humans on one table");
+  eq(s.totals, [0, 0, 0, 0], "a fresh match, since the old one had nothing left to join");
+  eq(s.outs, [false, false, false, false], "and nobody is sitting it out");
+  eq(consistency(w), null, dump(w));
+  const done = await playOut(w, { done: () => openFinished(w), budget: 60 * 60 * 1000 });
+  ok(done.ok, done.reason + "\n" + (done.dump || ""));
+});
+
 // ── security: the seat log is as forgery-proof as the move log ────────────
 test("open room: an unseated spectator cannot inject moves or deals", async () => {
   const w = await openWorld(4);
