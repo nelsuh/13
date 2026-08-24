@@ -58,7 +58,7 @@ through the UI, and computes a signature of what every client believes
 | `t_adversity.cjs` | 45 | locked phones (guest, host, rolling, whole-round), socket drops and reconnects, permanent walkouts at 2p/3p/4p **in both modes** (folds vs bot takeovers), double walkouts, rejoin inside the grace window, full exit + rejoin, lost echoes, deal races, proxy races, seat-claim races, seating while the elected authority sleeps, joining between rounds, join/leave churn through a whole match, forged actions, forged and stale checkpoints, live-vs-replay agreement, catch-up traffic cost, three server sync models, Share promotion (open room → waiting room), 500 ms latency |
 | `t_findings.cjs` | 10 | regression tests for the four bugs this harness found, plus one documented residual |
 
-## The bugs this found (all fixed, `script.js?v=67`)
+## The bugs this found (all fixed, `script.js?v=68`)
 
 `t_findings.cjs` keeps a reproduction for each, so a regression turns it red
 again. The reproductions and the reasoning live in the comment blocks there.

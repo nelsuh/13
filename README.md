@@ -47,14 +47,34 @@ public-13-1, public-13-2, … public-13-8      (OPEN_ROOM_PREFIX / OPEN_ROOM_SHA
 ```
 
 Everyone starts at table 1, so people pile into one table before a second opens.
-A player who is still seatless after `OPEN_HOP_MS` (the table was already four
-humans) **hops to the next table** rather than queuing behind strangers — where
-they either find a bot seat or start a fresh table of their own. The last rung of
-the ladder is the end: stay and wait for a seat.
+A player still seatless after `OPEN_HOP_MS` **hops to the next table** rather than
+queuing behind strangers — but only when the table really is four humans. If a bot
+is holding a seat they stay put, because one is about to come free.
 
 If the host refuses a room id of our choosing, we fall back to the room it gave
 us (a private table with bots — a game, just not a shared one); if the relay is
 unreachable at all, we fall back to the same table played locally.
+
+**A dead room is cleared, not resumed.** The relay keeps a table's action log and
+checkpoint after everybody has left it, so tapping Play again would drop you back
+into the leftovers of your own finished match — your old score, your old
+elimination, and seats still held by people who are not there. Nothing in that
+table will ever move, because the players it is waiting on are gone. So if we are
+the only one connected and the roster names anybody else, the room is finished:
+`openRoomIsAbandoned()` spots it and `reopenOpenTable()` deals a fresh match seated
+on whoever is actually present. Two guards keep that off live tables — the
+server's `connected_count` (not presence, which is built from the relay's frozen
+roster and cannot tell a live opponent from a ghost), and a full forfeit-grace
+window after anybody drops, because an *eliminated* seat gets no grace of its own
+and a reconnecting peer must not have the room wiped out from under them.
+
+**A table can never be locked, either.** Two friends on a road-to-20 table knock
+the bots out after a few rounds, and an eliminated seat cannot be handed to
+anybody: it holds no cards, so its new owner would sit there with nothing to play.
+Rather than turn the newcomer away, the table deals a **fresh match**
+(`openResetForWaiting()`, between rounds and rate-limited), putting every bot seat
+back in play and the newcomer straight into one. The match that gets reset was
+nearly over anyway; a room two people can close is worse.
 
 ## Game rules (short)
 
@@ -265,7 +285,7 @@ Note: the platform injects `https://usions.com/usion-sdk.js`; the script tag in
 node 13/test/run_all.cjs
 ```
 
-123 headless scenario tests covering both modes, no dependencies and no browser:
+125 headless scenario tests covering both modes, no dependencies and no browser:
 every simulated player is the real `script.js` in its own `vm` realm on a virtual
 clock. See [test/README.md](test/README.md).
 

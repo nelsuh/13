@@ -57,6 +57,7 @@ const OPEN_LOSE_AT = 20;        // open tables run the 4-player road to 20 point
 const SEAT_RETRY_MS = 3000;     // don't re-send a seat claim faster than this
 const SEAT_STAGGER_MS = 2500;   // per authority rank, so a sleeping seat 0 can't lock newcomers out
 const OPEN_REVIVE_MS = 20000;   // a room that owes us a seat and has gone silent is dead — reopen it
+const OPEN_ABANDONED_MS = 8000; // alone in a room full of ghosts this long → clear it and start over
 // A no-invite launch must land in a room it SHARES with other no-invite players.
 // The platform hands each such launch its own private `standalone_` room, so
 // joining that would put every player at their own table with three bots and the
@@ -2326,7 +2327,14 @@ function requestCatchUp() {
       optimisticStale = true;
       requestCatchUp();
     }
-    // 4. open table upkeep: seat anyone waiting, and make sure a bot seat that is
+    // 4. we may have walked back into a room everybody else has left. Give
+    // presence a few seconds to settle first — a peer who is really there just
+    // has not said so yet.
+    if (openRoomIsAbandoned()) {
+      if (!abandonedSince) abandonedSince = now;
+      else if (now - abandonedSince >= OPEN_ABANDONED_MS) { abandonedSince = 0; reopenOpenTable(); }
+    } else abandonedSince = 0;
+    // 5. open table upkeep: seat anyone waiting, and make sure a bot seat that is
     // on turn actually has somebody driving it (the elected client may have
     // changed since the turn began).
     reconcileOpenSeats();
@@ -2692,6 +2700,7 @@ function startForfeitGrace(seat, playerId) {
 
 function onPlayerLeft(data) {
   connectedCount = Math.max(0, connectedCount - 1);
+  lastPlayerLeftAt = Date.now();   // give them the grace window before calling the room dead
   if (!gameStarted) {
     if (data && data.player_ids) roomPlayerIds = data.player_ids;   // roster only changes pre-game; seats are fixed once started
     if (data && data.player_id != null) { presentIds.delete(data.player_id); delete lobbyReady[data.player_id]; }
@@ -2759,6 +2768,7 @@ function resetRoomState() {
   checkpointVersion = 0;
   sawRoomCheckpoint = false; lastRoomActivityAt = 0;
   seatWaitSince.clear(); lastSeatClaimAt = 0; lastOpenResetAt = 0;
+  abandonedSince = 0; lastPlayerLeftAt = 0;
   lastSeenOrder = null;
   pendingAction = false;
   mySeat = -1;
@@ -3212,6 +3222,8 @@ function applySeatMove(move, fromId) {
 // are harmless: the second one finds the seat already human and is rejected by
 // every client identically.
 let lastSeatClaimAt = 0;
+let abandonedSince = 0;            // when we first noticed we were alone with ghosts
+let lastPlayerLeftAt = 0;          // last time anybody dropped out of the room
 const seatWaitSince = new Map();   // unseated player id → when we first saw them waiting
 function reconcileOpenSeats() {
   if (!online || !openTable || !gameStarted || pendingAction) return;
@@ -3258,6 +3270,67 @@ function openResetForWaiting() {
   if (handCdInterval) { clearInterval(handCdInterval); handCdInterval = null; }
   if (handCdTimeout) { clearTimeout(handCdTimeout); handCdTimeout = null; }
   hostDeal(true);   // reset: every total back to zero, every seat back in play
+}
+
+// ── Walking back into a dead room ────────────────────────
+// The relay keeps a public table's action log and checkpoint after everybody has
+// left it, so tapping Play again drops you back into the leftovers of your own
+// finished match: your old score, your old elimination, and seats still held by
+// people who are not here. That is not a table, it is a ghost — and nothing in
+// it will ever move, because the players it is waiting on are gone.
+//
+// If we are the only one connected and the roster names anybody else, that is
+// exactly what we are looking at. Note the two things this deliberately does NOT
+// fire on: a legitimate solo table (every other seat is a bot, so no id but ours
+// is in the roster), and a player mid-disconnect (their forfeit grace is running,
+// and when it expires their seat becomes a bot on its own).
+function openRoomIsAbandoned() {
+  if (!online || !openTable) return false;
+  // connectedCount, not presentIds: the relay's roster is frozen once a match
+  // starts and still lists everybody who ever sat down, so presence alone cannot
+  // tell a live opponent from a ghost. The server's connected count can. If the
+  // host does not report one we simply never auto-clear — better a stale table
+  // than one cleared out from under two people who are really playing.
+  if (!Number.isFinite(connectedCount) || connectedCount < 1 || connectedCount > 1) return false;
+  if (pendingLeaves.size) return false;          // somebody's grace is still running
+  // Somebody dropped out a moment ago. An ELIMINATED seat gets no forfeit grace
+  // of its own (there is nothing left to fold), so without this a peer who is
+  // merely reconnecting would have the whole room wiped out from under them.
+  if (lastPlayerLeftAt && Date.now() - lastPlayerLeftAt < FORFEIT_GRACE_MS) return false;
+  if (!gameStarted) return roomAlreadyRunning(); // a stale log with nobody left to play it
+  return roomPlayerIds.some(id => id != null && id !== myId);
+}
+// Clear the room out and open a fresh table on it. We cannot delete the relay's
+// log, but a reset deal makes the room's CURRENT state a brand-new match seated
+// on whoever is actually here — which is all anybody can see.
+function reopenOpenTable() {
+  if (!online || !openTable || pendingAction) return;
+  if (Date.now() - lastOpenResetAt < OPEN_RESET_COOLDOWN_MS) return;
+  lastOpenResetAt = Date.now();
+  stopLocalRound();
+  stopHop();
+  clearForfeitGrace();
+  dealActive = false;
+  awaitingDeal = false;
+  moveLog = []; optimisticMoves = []; optimisticStale = false;
+  releasedIds.clear(); seatWaitSince.clear(); lastSeatClaimAt = 0;
+  handOverlay.classList.remove("show");
+  document.getElementById("winnerOverlay").classList.remove("show");
+  // Presence is built from the relay's frozen roster, so it still lists the
+  // ghosts. We have already established from connectedCount that nobody else is
+  // connected, so throw it away — anyone who really is here re-announces
+  // themselves through onPlayerJoined / player_info within a second.
+  presentIds.clear(); presentIds.add(myId);
+  roomPlayerIds = buildOpenOrder();     // just the people actually here, bots for the rest
+  numPlayers = OPEN_SEATS;
+  isHost = roomPlayerIds[0] === myId;
+  loseAt = OPEN_LOSE_AT;
+  firstDeal = true; lastWinner = -1;
+  // Take the pre-game path on the way back so startOnlineGame() rebuilds `players`
+  // from the new roster — otherwise the ghost's name would still be sitting on a
+  // seat a bot now holds.
+  gameStarted = false;
+  hostDeal(true);
 }
 
 // A departed seat goes back to a bot instead of folding out of the match: an

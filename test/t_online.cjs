@@ -603,6 +603,71 @@ test("open room: two friends who knock the bots out cannot lock the room", async
   ok(done.ok, done.reason + "\n" + (done.dump || ""));
 });
 
+test("open room: walking back into a room everyone has left clears it, not resumes it", async () => {
+  // Reported from the live app: tap Play, land back in the public table you were
+  // last in, and get your OWN finished match back — your old score, your old
+  // elimination, and a seat still held by somebody who is not there. The relay
+  // keeps a room's log and checkpoint after everybody leaves, and rejoining with
+  // the same user id means the stored roster still names you, so the checkpoint
+  // applies cleanly and rebuilds a table of ghosts that will never move.
+  const w = await openWorld(2);
+  await startMatch(w);
+  await playOut(w, { done: () => w.clients[0].snap().dealEpoch >= 2, budget: 30 * 60 * 1000, consistency: false });
+  const abandoned = w.clients[0].snap();
+  ok(abandoned.totals.some(t => t > 0), "the match we are abandoning has real scores");
+  w.clients[0].leaveRoom();
+  w.clients[1].leaveRoom();
+  await w.advance(2000);
+  ok(w.room.log.length > 0, "the relay keeps the log behind");
+  ok(w.room.state && w.room.state.order.indexOf("u1") >= 0, "and a checkpoint that still names us");
+
+  const back = arrive(w, "u1", "Alice");           // same user id taps Play again
+  const cleared = await eventually(w, () => {
+    const s = back.snap();
+    return s.dealActive && s.order.filter(Boolean).length === 1 && s.totals.every(t => t === 0);
+  }, 60 * 1000, 250);
+  ok(cleared, "the dead room must be cleared, not resumed:\n" + dump(w));
+  const s = back.snap();
+  eq(s.order, ["u1", null, null, null], "one human, three bots — nobody's ghost holding a seat");
+  eq(s.totals, [0, 0, 0, 0], "a fresh match, not the old scoreline");
+  eq(s.outs, [false, false, false, false], "and nobody eliminated from a game that is over");
+  eq(s.counts, [13, 13, 13, 13], "everyone dealt in");
+  eq(s.mySeat, 0);
+  const r = await playOut(w, { done: () => back.snap().roundMoveNo >= 6, budget: 5 * 60 * 1000 });
+  ok(r.ok, "and the cleared table actually plays: " + r.reason);
+  eq(back.errors.map(String), [], "u1 threw");
+});
+
+test("open room: a live table is never cleared out from under the people playing it", async () => {
+  // The flip side of clearing dead rooms: two people really playing must never
+  // have their match wiped, and neither must a brief disconnect (that is what the
+  // forfeit grace is for).
+  const w = await openWorld(2);
+  await startMatch(w);
+  await playOut(w, { done: () => w.clients[0].snap().dealEpoch >= 2, budget: 30 * 60 * 1000, consistency: false });
+  const before = w.clients[0].snap();
+  ok(before.totals.some(t => t > 0), "there is a scoreline worth protecting");
+  eq(before.order.slice(0, 2), ["u1", "u2"], "both humans seated");
+
+  // sit here far longer than the abandoned-room window with nothing happening
+  await w.advance(60 * 1000);
+  eq(w.clients[0].snap().order.slice(0, 2), ["u1", "u2"], "the roster survives\n" + dump(w));
+  ok(w.clients[0].snap().totals.some(t => t > 0), "and so does the scoreline");
+
+  // now a real socket blip on the peer — still not an abandoned room. This holds
+  // even when their seat is already eliminated, which gets no forfeit grace of
+  // its own: dropping out is not the same as never having been here.
+  w.clients[1].netDrop();
+  await w.advance(15 * 1000);
+  eq(w.clients[0].snap().order.slice(0, 2), ["u1", "u2"],
+     "a blip inside the grace window must not wipe the room\n" + dump(w));
+  w.clients[1].netRestore();
+  await w.advance(10 * 1000);
+  eq(consistency(w), null, dump(w));
+  const r = await playOut(w, { done: () => openFinished(w), budget: 60 * 60 * 1000 });
+  ok(r.ok, r.reason + "\n" + (r.dump || ""));
+});
+
 // ── security: the seat log is as forgery-proof as the move log ────────────
 test("open room: an unseated spectator cannot inject moves or deals", async () => {
   const w = await openWorld(4);
