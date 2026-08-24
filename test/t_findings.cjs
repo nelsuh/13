@@ -187,29 +187,35 @@ test("RESIDUAL (needs a platform-side gate): a forced pass can still be triggere
 // ── FINDING 3 — LOW: nothing recovers a message lost on a live socket.
 //
 // Every resync trigger is an event: visibilitychange, the >3s wall-clock gap
-// watchdog, or onReconnect (script.js:1675-1737). A message lost while the
-// socket stays up and the app stays in the foreground therefore has no recovery
-// path at all. For the actor's own echo the effect is permanent: the "Sending…"
-// latch (pendingAction) never clears, Play and Pass stay dead for the rest of
-// the round, and both hostDeal() and sendMove() bail while it is set.
+// watchdog, or onReconnect. A message lost while the socket stays up and the app
+// stays in the foreground therefore had no recovery path at all. For the actor's
+// own echo the effect was permanent: the "Sending…" latch (pendingAction) never
+// cleared, Play and Pass stayed dead for the rest of the round, and both
+// hostDeal() and sendMove() bail while it is set.
 //
-// A TCP relay makes this unlikely, and backgrounding or a socket blip both
-// recover (see t_adversity.cjs) — but the latch has no timeout of its own.
-//
-// Suggested fix: when pendingAction has been set for more than a few seconds,
-// call Usion.game.requestSync(lastSeq).
+// Fixed twice over. syncResumePoint() + the 1 s watchdog heal the lost message
+// (see 3b), and the actor no longer waits on their own echo at all: a move is
+// played onto its own board the moment it is sent (applyOptimisticMove), because
+// waiting a full round trip for every tap is what made a two-player game feel
+// sluggish. So the latch is not merely released late — it is never the thing
+// standing between the player and their next move.
 
 test("FINDING 3: a lost own-move echo must not lock the player out for the round", async () => {
   const w = await matchAtTurn(3, 1);
   const victim = w.clients[1];
+  const before = victim.snap();
   w.server.dropNext.push({ to: "u2", type: "action" });   // eat only u2's own echo
   victim.uiPlay();
-  await w.advance(2000);
-  eq(victim.snap().pendingAction, true, "the latch is set while the echo is in flight");
-  await w.advance(180 * 1000);                            // three full turn clocks
-  eq(victim.snap().pendingAction, false,
-    "the 'Sending…' latch never cleared — Play and Pass stay dead\n" + dump(w));
-  eq(victim.snap().counts, w.clients[0].snap().counts, "and the board stayed a move behind");
+  await w.advance(50);
+  const justAfter = victim.snap();
+  eq(justAfter.pendingAction, false, "the player is never left holding a dead Play button");
+  ok(justAfter.counts[1] < before.counts[1] || justAfter.roundMoveNo > before.roundMoveNo,
+     "and their move is on the board immediately, not a round trip later\n" + dump(w));
+  // The echo is gone for good, so the only question left is whether the client
+  // notices and heals rather than drifting into a private copy of the round.
+  ok(await eventually(w, () => consistency(w) === null, 180 * 1000),
+     "a client whose own echo vanished must converge again\n" + dump(w));
+  eq(victim.snap().counts, w.clients[0].snap().counts, "on the same board as everyone else");
 });
 
 test("FINDING 3b: a foreground client that missed actions must self-heal", async () => {

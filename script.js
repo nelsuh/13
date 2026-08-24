@@ -57,6 +57,16 @@ const OPEN_LOSE_AT = 20;        // open tables run the 4-player road to 20 point
 const SEAT_RETRY_MS = 3000;     // don't re-send a seat claim faster than this
 const SEAT_STAGGER_MS = 2500;   // per authority rank, so a sleeping seat 0 can't lock newcomers out
 const OPEN_REVIVE_MS = 20000;   // a room that owes us a seat and has gone silent is dead — reopen it
+// A no-invite launch must land in a room it SHARES with other no-invite players.
+// The platform hands each such launch its own private `standalone_` room, so
+// joining that would put every player at their own table with three bots and the
+// open room could never fill — the whole point of it. So we pick the room
+// ourselves: a small ladder of well-known public tables, tried in order, so
+// people pile into the first one until it is full before a second one opens.
+const OPEN_ROOM_PREFIX = "public-13-";
+const OPEN_ROOM_SHARDS = 8;
+const OPEN_HOP_MS = 8000;       // still seatless after this → that table is full, try the next
+const OPTIMISTIC_STUCK_MS = 6000;   // our own move has not come back → assume we are out of step
 
 // ── i18n ─────────────────────────────────────────────────
 // Mongolian is the default; every other host language falls back to English.
@@ -1126,6 +1136,7 @@ function startDeal(seed) {
   dealEpoch += 1;
   awaitingDeal = false;
   roundMoveNo = 0;
+  optimisticMoves = []; optimisticStale = false;   // a new round retires any in-flight move
   stopTurnTimer();
   // snapshot scores/elimination + starter context AT THE START of this round, so
   // a host checkpoint replays deterministically on reconnecting clients (replay
@@ -1749,9 +1760,22 @@ let appliedSequences = new Set();
 // duplicate cards on the table. Replay only what is PROVABLY new.
 let appliedBaseSeq = 0;
 let pendingAction = false;
+// Moves we have already played on our own board but the relay has not echoed
+// back yet. Waiting for that echo costs a full round trip on EVERY tap, which is
+// what makes a two-player game feel sluggish — so we apply our own move (and any
+// bot move we relay) the moment it is sent, and recognise the echo as a no-op
+// when it arrives. Each entry is { ti, key, at }.
+let optimisticMoves = [];
+let optimisticStale = false;    // an echo is overdue → let a same-sequence checkpoint correct us
 const playerMeta = {};
 // ── Lobby (waiting room): who's connected + their ready state, pre-game ──
 const presentIds = new Set();   // player ids currently in the room (connected)
+// Players whose seat we have already handed back to a bot. The server's
+// `player_ids` roster is frozen once a match starts, so it still lists them — and
+// a roster echo would otherwise mark them present again, put them back in the
+// queue for a seat, and hand them the very bot seat they just vacated. Only a
+// join event that NAMES them counts as actually coming back.
+const releasedIds = new Set();
 // Waiting-room state. Used by the chat-invite mode only — an open room has no
 // READY gate, because nobody waits.
 let lobbyReady = {};            // id → bool ready flag
@@ -1918,6 +1942,9 @@ function snapshotIsNewer(state) {
   return Number((state && state.version) || 0) > checkpointVersion;
 }
 function writeCheckpoint() {
+  // Our log holds a move the relay has not sequenced yet, so a snapshot of it
+  // would tell a rebuilding client to replay a move that may never exist.
+  if (optimisticMoves.length) return;
   try {
     if (window.Usion && Usion.game && Usion.game.setState) {
       const checkpoint = Usion.game.setState(currentCheckpoint());
@@ -1943,6 +1970,7 @@ function writeCheckpoint() {
 // is present whenever a non-host returns.
 function broadcastStatePush() {
   if (!online || !dealActive || !isPrimaryAuthority()) return;
+  if (optimisticMoves.length) return;   // see writeCheckpoint
   try {
     if (window.Usion && Usion.game && Usion.game.realtime) Usion.game.realtime("state_push", currentCheckpoint());
   } catch (_) {}
@@ -2052,6 +2080,7 @@ function applyCheckpoint(state) {
   if (typeof state.open === "boolean") openTable = state.open;   // the ROOM decides which mode it runs
   curSeed = state.seed;
   moveLog = [];
+  optimisticMoves = []; optimisticStale = false;   // the snapshot is the truth now
   onlineOverlay.classList.remove("show");
   handOverlay.classList.remove("show");
   startDeal(state.seed);                                 // same seed → same hands & lead
@@ -2159,7 +2188,11 @@ if (window.Usion && Usion.init) {
         online = true;
         setupOverlay.classList.remove("show");
         onlineOverlay.classList.add("show");
-        await setupMultiplayer(config.roomId);
+        // Invite → the private room the invite created. No invite → a SHARED
+        // public table, because the room the platform handed us is private to
+        // this player and nobody else could ever walk into it.
+        if (openTable) await joinOpenRoom(0, config.roomId);
+        else await setupMultiplayer(config.roomId);
       } else {
         startBotsGame();   // no room to join → zero-tap you + 3 bots, road to 20
       }
@@ -2286,7 +2319,13 @@ function requestCatchUp() {
     // have stopped hearing the table — a client that misses every message has
     // nothing to reject and so no other way to notice. An up-to-date client just
     // gets an empty tail back, so this costs one small request per idle window.
-    // 3. open table upkeep: seat anyone waiting, and make sure a bot seat that is
+    // 3. our own move never came back. We are playing a board the room may not
+    // share, so ask for the authoritative state and let it overwrite us.
+    if (optimisticMoves.length && now - optimisticMoves[0].at >= OPTIMISTIC_STUCK_MS) {
+      optimisticStale = true;
+      requestCatchUp();
+    }
+    // 4. open table upkeep: seat anyone waiting, and make sure a bot seat that is
     // on turn actually has somebody driving it (the elected client may have
     // changed since the turn began).
     reconcileOpenSeats();
@@ -2338,6 +2377,59 @@ function registerNetHandlers() {
   });
 }
 
+// ── Finding a public table ───────────────────────────────
+let openShard = 0;
+let openFallbackRoom = null;    // the platform's own room, if we can't pick our own
+let hopTimer = null;
+function publicRoomId(n) { return OPEN_ROOM_PREFIX + ((n % OPEN_ROOM_SHARDS) + 1); }
+
+async function joinOpenRoom(shard, fallbackRoomId) {
+  openShard = shard;
+  if (fallbackRoomId !== undefined) openFallbackRoom = fallbackRoomId;
+  resetRoomState();
+  onlineOverlay.classList.add("show");
+  const giveUp = (err) => {
+    console.error("Open room failed:", err);
+    online = false; openTable = false;
+    onlineOverlay.classList.remove("show");
+    startBotsGame();          // no relay at all → the same table, played locally
+    return false;
+  };
+  try {
+    await Usion.game.connect();
+    registerNetHandlers();
+  } catch (err) {
+    return giveUp(err);       // the relay itself is unreachable
+  }
+  try {
+    await Usion.game.join(publicRoomId(shard));
+    return true;
+  } catch (err) {
+    // We could reach the relay but it would not let us pick our own room. Fall
+    // back to the room the platform gave us: a private table against bots is
+    // still a game, it just isn't a shared one.
+    if (openFallbackRoom) {
+      try { await Usion.game.join(openFallbackRoom); return true; } catch (_) { /* fall through */ }
+    }
+    return giveUp(err);
+  }
+}
+// Seatless for a while means this table is full. Rather than queue behind four
+// people we hop to the next public table, where we'll either find a bot seat or
+// open a fresh table of our own. The last shard is the end of the ladder — stay
+// there and wait for a seat.
+function scheduleHop() {
+  if (hopTimer || !online || !openTable || gameStarted) return;
+  hopTimer = setTimeout(function () {
+    hopTimer = null;
+    if (!online || !openTable || gameStarted) return;
+    if (openShard + 1 >= OPEN_ROOM_SHARDS) { scheduleHop(); return; }
+    try { if (window.Usion && Usion.game && Usion.game.leave) Usion.game.leave(); } catch (_) {}
+    joinOpenRoom(openShard + 1);
+  }, OPEN_HOP_MS);
+}
+function stopHop() { if (hopTimer) { clearTimeout(hopTimer); hopTimer = null; } }
+
 async function setupMultiplayer(roomId) {
   try {
     await Usion.game.connect();
@@ -2361,22 +2453,15 @@ async function setupMultiplayer(roomId) {
 // room; onJoined lands right after and the normal lobby flow takes over.
 function onRoomPromoted() {
   if (online && !openTable) return;   // already in an invite room with a waiting room
-  stopLocalRound();
-  stopSeatPoll();
-  if (openStartTimer) { clearTimeout(openStartTimer); openStartTimer = null; }
-  if (openRestartTimer) { clearTimeout(openRestartTimer); openRestartTimer = null; }
   // Sharing IS inviting, so the promoted room follows the chat-invite rules: a
   // waiting room, READY, and a roster frozen at Start. It is also a DIFFERENT
   // room from whatever we were in, so every piece of per-room bookkeeping has to
   // start over or we would judge the new room's log against the old one's.
+  resetRoomState();
   openTable = false;
-  roomPlayerIds = []; moveLog = [];
-  lastSeq = 0; appliedBaseSeq = 0; appliedSequences = new Set();
-  sawRoomCheckpoint = false; lastRoomActivityAt = 0;
-  seatWaitSince.clear(); lastSeatClaimAt = 0;
-  online = true; gameStarted = false; dealActive = false;
-  myReady = false; lobbyReady = {}; presentIds.clear(); presentIds.add(myId);
-  players = []; hands = [];
+  openFallbackRoom = null;
+  online = true;
+  myReady = false; lobbyReady = {};
   setupOverlay.classList.remove("show");
   handOverlay.classList.remove("show");
   document.getElementById("winnerOverlay").classList.remove("show");
@@ -2422,12 +2507,13 @@ function reconcilePresence(ids, confirmedId) {
     presentIds.clear();
     ids.forEach(id => {
       // player_ids is the room roster and may still contain another player whose
-      // custom leave grace is running. Only the player named by THIS join event is
-      // confirmed back; keep every other pending leaver absent.
-      if (!pendingLeaves.has(id) || id === confirmedId) presentIds.add(id);
+      // custom leave grace is running, or one whose seat has already gone back to
+      // a bot. Only the player named by THIS join event is confirmed back; keep
+      // every other departed player absent.
+      if (id === confirmedId || (!pendingLeaves.has(id) && !releasedIds.has(id))) presentIds.add(id);
     });
   }
-  if (confirmedId != null) presentIds.add(confirmedId);
+  if (confirmedId != null) { presentIds.add(confirmedId); releasedIds.delete(confirmedId); }
 }
 
 function onJoined(data) {
@@ -2644,6 +2730,30 @@ function updateOnlineStatus() {
     ? t("waitingPlayers", Math.min(connectedCount, n), n)
     : t("readyStarting", n);
 }
+// Forget everything we know about the room we were in. Used when hopping to
+// another public table and when a Share promotion moves us into an invite room:
+// the sequence numbers, roster, checkpoint and presence of the OLD room would all
+// be judged against the new one's log otherwise.
+function resetRoomState() {
+  stopSeatPoll();
+  stopHop();
+  if (openStartTimer) { clearTimeout(openStartTimer); openStartTimer = null; }
+  if (openRestartTimer) { clearTimeout(openRestartTimer); openRestartTimer = null; }
+  stopLocalRound();
+  clearForfeitGrace();
+  gameStarted = false; dealActive = false;
+  players = []; hands = []; moveLog = []; optimisticMoves = []; optimisticStale = false;
+  table = null; trickPlays = []; lastAction = {};
+  roomPlayerIds = [];
+  presentIds.clear(); presentIds.add(myId); releasedIds.clear();
+  lastSeq = 0; appliedBaseSeq = 0; appliedSequences = new Set();
+  checkpointVersion = 0;
+  sawRoomCheckpoint = false; lastRoomActivityAt = 0;
+  seatWaitSince.clear(); lastSeatClaimAt = 0;
+  pendingAction = false;
+  mySeat = -1;
+}
+
 // Is somebody's table already running in this room? A late arrival must NOT deal
 // a rival match over the top of one — it waits to be seated instead. Stored
 // actions and checkpoints are the evidence: a genuinely fresh room has neither.
@@ -2666,6 +2776,7 @@ function maybeStart() {
   enterLobby();
   scheduleOpenStart();
   startSeatPoll();
+  scheduleHop();                       // …and move on if this table turns out to be full
 }
 // Open the table. Seat 0 stays the platform host, but if the host never deals
 // (asleep, or gone before the first hand) the next present client covers,
@@ -2889,6 +3000,7 @@ function startOnlineGame(data) {
   }
   clearForfeitGrace();
   stopSeatPoll();
+  stopHop();                           // we have a seat — this is our table now
   if (openStartTimer) { clearTimeout(openStartTimer); openStartTimer = null; }
   gameStarted = true; online = true;
   statsRecordedThisGame = false;   // new match → allow recording its outcome once
@@ -2999,6 +3111,7 @@ function seatHuman(seat, id) {
   players[seat].name = meta.name || (id === myId ? (myName || t("you")) : t("playerN", seat + 1));
   players[seat].avatar = normalizeAvatar(meta.avatar) || (id === myId ? myAvatar : null);
   presentIds.add(id);
+  releasedIds.delete(id);
   clearForfeitGrace(id);
   if (botTimer && turn === seat) { clearTimeout(botTimer); botTimer = null; }
   if (id === myId) {
@@ -3018,7 +3131,7 @@ function seatBot(seat) {
   players[seat].isBot = true;
   players[seat].name = botSeatName(seat);
   players[seat].avatar = null;
-  if (id != null) { presentIds.delete(id); clearForfeitGrace(id); }
+  if (id != null) { presentIds.delete(id); releasedIds.add(id); clearForfeitGrace(id); }
   render();
   if (dealActive && turn === seat) scheduleBotMove(seat);
 }
@@ -3156,6 +3269,40 @@ function hostDeal(reset) {
       renderLobby();
     });
 }
+// A move's identity for matching an echo against what we already played: the
+// kind plus the exact cards, order-independent.
+function moveKey(m) {
+  return m.kind + "|" + (Array.isArray(m.cards) ? m.cards.map(Number).sort((a, b) => a - b).join(",") : "");
+}
+// Play a move we are SENDING straight onto our own board, without waiting for the
+// relay to hand it back. This is not a guess: the move was built and validated
+// with the exact rules every other client will apply to it, and the same
+// deterministic engine produces the same result everywhere. The echo is matched
+// on (ti, cards) and skipped, and a watchdog resyncs us if it never turns up.
+function applyOptimisticMove(move) {
+  const seat = Number(move.seat);
+  if (!dealActive || !Number.isInteger(seat) || turn !== seat) return false;
+  if (Number(move.ti) !== roundMoveNo) return false;
+  if (!players[seat] || players[seat].out) return false;
+  let combo = null;
+  if (move.kind === "pass") {
+    if (!table) return false;
+  } else if (move.kind === "play") {
+    const cards = decodeMoveCards(move.cards);
+    if (!cards || !handOwnsCards(seat, cards)) return false;
+    combo = classify(cards);
+    if (!isLegalPlay(combo)) return false;
+  } else return false;
+  optimisticMoves.push({ ti: Number(move.ti), key: moveKey(move), at: Date.now() });
+  // The board already shows the move, so leaving the controls latched would just
+  // reintroduce the delay we are removing.
+  pendingAction = false;
+  roundMoveNo += 1;
+  const record = JSON.parse(JSON.stringify(move));
+  if (move.kind === "pass") doPass(seat); else doPlay(seat, combo);
+  moveLog.push(record);
+  return true;
+}
 // `seat` defaults to our own. `proxy` means we're covering a stalled player: the
 // move belongs to THEIR seat, so it must not latch our own "sending…" state, and
 // receivers must credit it to `move.seat` rather than to us, the sender.
@@ -3167,19 +3314,20 @@ function sendMove(move, seat, proxy) {
   // own choice; only a cover for a HUMAN seat is an `auto` forced move.
   if (proxy && move.bot !== true) move.auto = true;
   if (!proxy) { pendingAction = true; renderControls(); }
+  // A move we OWN — our own play/pass, or a bot seat we are the elected relay for
+  // — goes onto our board immediately. A cover for another human's stalled seat
+  // does not: that one really is a guess about somebody else, so it waits.
+  const ours = (!proxy && move.seat === mySeat) || move.bot === true;
+  const failed = () => {
+    pendingAction = false;
+    if (!proxy) toast(t("moveFail"));
+    if (ours) { optimisticStale = true; requestCatchUp(); }   // our board may now be ahead of the room
+    render();
+  };
   Usion.game.action("move", move)
-    .then(res => {
-      if (res && res.success === false) {
-        pendingAction = false;
-        if (!proxy) toast(t("moveFail"));
-        render();
-      }
-    })
-    .catch(() => {
-      pendingAction = false;
-      if (!proxy) toast(t("moveFail"));
-      render();
-    });
+    .then(res => { if (res && res.success === false) failed(); })
+    .catch(failed);
+  if (ours) applyOptimisticMove(move);
 }
 function proxyAuthorityId(targetSeat) {
   for (let s = 0; s < roomPlayerIds.length; s++) {
@@ -3223,6 +3371,21 @@ function applyRemoteMove(move, fromId) {
   // silently blocks hostDeal(), freezing the WHOLE table on the next round transition.
   if (fromId != null && fromId === myId) { pendingAction = false; renderControls(); }
   if (!move || typeof move !== "object") return false;
+  // Our own move coming back. We played it the moment we sent it, so the echo is
+  // a no-op — but it MUST still count as applied, or the sequence bookkeeping
+  // gets a hole in it and every client starts asking for pointless catch-ups.
+  if (fromId != null && fromId === myId && optimisticMoves.length) {
+    const i = optimisticMoves.findIndex(o => o.ti === Number(move.ti) && o.key === moveKey(move));
+    if (i >= 0) {
+      optimisticMoves.splice(i, 1);
+      if (!optimisticMoves.length) optimisticStale = false;
+      // Only NOW is the move really in the room's log, so only now may we
+      // snapshot a state that includes it.
+      if (!replayingSync && dealActive) writeCheckpoint();
+      renderControls();
+      return true;
+    }
+  }
   if (move.kind === "leave_fold" || move.kind === "forfeit_win") {
     const leaveSeat = Number(move.seat);
     if (!Number.isInteger(leaveSeat) || leaveSeat < 0 || leaveSeat >= numPlayers ||
@@ -3382,7 +3545,10 @@ function onNetRealtime(data) {
       avatar: normalizeAvatar(d.avatar)
     };
     if (typeof d.ready === "boolean") lobbyReady[data.player_id] = d.ready;   // waiting-room only
+    // A player_info broadcast is live proof the sender is in the room right now —
+    // unlike the frozen roster — so it also un-releases somebody who came back.
     presentIds.add(data.player_id);
+    releasedIds.delete(data.player_id);
 
     // Adopt the match length only from the host, and only from the offered set —
     // it's the host's setting, and the deal will carry it authoritatively anyway.
@@ -3414,7 +3580,10 @@ function onNetSync(data) {
   // once the log has been compacted past the gap.
   const cpSeq = Number(checkpoint && checkpoint.seq);
   const shouldApplyCheckpoint = hasCheckpoint &&
-    (!gameStarted || snapshotIsNewer(checkpoint) || (Number.isFinite(cpSeq) && cpSeq > syncResumePoint()));
+    (!gameStarted || snapshotIsNewer(checkpoint) || (Number.isFinite(cpSeq) && cpSeq > syncResumePoint()) ||
+     // An overdue own-move echo means our board may be a move AHEAD of the room's,
+     // and a snapshot at our own sequence is then exactly the correction we need.
+     (optimisticStale && Number.isFinite(cpSeq) && cpSeq >= syncResumePoint()));
   const hasUnappliedActions = actions.some(a => a.sequence === undefined || !alreadyApplied(a.sequence));
   if (hasCheckpoint || actions.length) noteRoomActivity();   // somebody's table is live in this room
 

@@ -10,7 +10,7 @@
 //
 // Every match is watched for desync and dead ends.
 
-const { World, onlineWorld, openWorld, startMatch, arrive, botSeats, playOut, eventually, consistency, dump } = require("./lib/world.cjs");
+const { World, onlineWorld, openWorld, startMatch, arrive, botSeats, playOut, eventually, consistency, dump, PUBLIC_ROOM, PUBLIC_ROOM_2 } = require("./lib/world.cjs");
 const { test, ok, eq, run } = require("./lib/tap.cjs");
 
 const finished = (w) => w.drivers().every(c => c.snap().overlays.winner);
@@ -308,6 +308,32 @@ test("profile pictures render in the lobby and at every table seat", async () =>
      "the reconnect checkpoint should preserve profile pictures");
 });
 
+test("your own move lands on your board instantly, however slow the relay is", async () => {
+  // Waiting for the relay to echo your own move back costs a full round trip on
+  // every single tap — the thing that makes a two-player game feel sluggish.
+  const w = await onlineWorld(2, { latency: 500 });
+  await startMatch(w);
+  const r = await playOut(w, {
+    done: () => w.clients[0].snap().dealActive && w.clients[0].snap().turn === 0,
+    budget: 5 * 60 * 1000, step: 50, consistency: false,
+  });
+  ok(r.ok, "could not reach seat 0's turn: " + r.reason);
+  const me = w.clients[0], peer = w.clients[1];
+  const before = me.snap();
+  me.uiPlay();
+  eq(me.snap().counts[0] < before.counts[0], true, "the cards leave my hand on the tap, not a round trip later");
+  eq(me.snap().pendingAction, false, "and the controls are never dead while the relay catches up");
+  eq(me.snap().turn !== 0 || !me.snap().dealActive, true, "the turn has already moved on");
+  // The peer still only learns about it when the relay tells them — but when the
+  // echo does come back it must be a no-op, not a second copy of the move.
+  await w.advance(3000);
+  eq(consistency(w), null, "one move, applied once, on both clients\n" + dump(w));
+  eq(me.snap().counts, peer.snap().counts, "same hands");
+  eq(me.snap().roundMoveNo, peer.snap().roundMoveNo, "and the same move count — the echo was not replayed");
+  await playOut(w, { done: () => finished(w), budget: 60 * 60 * 1000 });
+  eq(consistency(w), null, "and the match still finishes in step");
+});
+
 // ══ PART B — no invite: the open room ════════════════════════════════════
 //
 // Same relay, same deterministic engine, different rules: 4 seats always, bots
@@ -337,6 +363,23 @@ async function watchUntil(w, c, pred, ms = 40000) {
   }, ms, 250);
   return { hit, prev, now: c.snap() };
 }
+
+test("open room: two people who 'just play' land at the SAME table, not two private ones", async () => {
+  // The platform hands each no-invite launch its own private standalone_ room.
+  // Joining that would put every player alone with three bots and the open table
+  // could never fill, so the game has to go and find the shared public table.
+  const w = await openWorld(2);
+  await startMatch(w);
+  for (const c of w.clients) {
+    eq(c.sdk.room.id, PUBLIC_ROOM, c.id + " should be on the shared public table");
+    const s = c.snap();
+    eq(s.order.slice(0, 2), ["u1", "u2"], c.id + " should see BOTH humans seated");
+    eq(s.order.slice(2), [null, null], "with bots in the two spare seats");
+  }
+  eq(w.clients[0].snap().mySeat, 0);
+  eq(w.clients[1].snap().mySeat, 1);
+  eq(consistency(w), null, "and they agree on one round, not two");
+});
 
 test("open room: a no-invite launch deals immediately against bots — no lobby, no Start", async () => {
   const w = await openWorld(1);
@@ -458,17 +501,20 @@ test("open room: B, then C, then D drop into the running round and fill the tabl
   ok(r.ok, r.reason + "\n" + (r.dump || ""));
 });
 
-test("open room: a fifth arrival has no bot to displace and waits for a seat", async () => {
+test("open room: a fifth arrival hops to the next public table instead of queuing", async () => {
   const w = await openWorld(4);
   await startMatch(w);
   const late = arrive(w, "u5", "Erdene");
-  await w.advance(8000);
+  // No bot to displace here, so after the hop window they move on and open a
+  // table of their own rather than watching four strangers play.
+  const moved = await eventually(w, () => late.snap().gameStarted, 40000, 250);
+  ok(moved, "the fifth player should end up in a game:\n" + dump(w));
+  eq(late.sdk.room.id, PUBLIC_ROOM_2, "on the next public table");
   const s = late.snap();
-  eq(s.gameStarted, false, "no seat, so no match");
-  eq(s.mySeat, -1);
-  eq(s.overlays.lobby, true, "they sit on the waiting cover");
-  eq(late.el("onlineStatus").textContent, late.read('t("openWaitSeat")'), "and are told a seat has to free up");
-  eq(w.clients[0].snap().order, ["u1", "u2", "u3", "u4"], "the running table is untouched");
+  eq(s.mySeat, 0, "as the first player there");
+  eq(s.order, ["u5", null, null, null], "with three bots");
+  eq(w.clients[0].snap().order, ["u1", "u2", "u3", "u4"], "and the first table is untouched");
+  eq(w.clients[0].sdk.room.id, PUBLIC_ROOM);
 });
 
 test("open room: a player who leaves hands the seat AND its score back to a bot", async () => {
@@ -504,18 +550,19 @@ test("open room: a player who leaves hands the seat AND its score back to a bot"
   for (const c of rest) eq(c.errors.map(String), [], c.id + " threw");
 });
 
-test("open room: a seat freed by a walkout goes to whoever was waiting for one", async () => {
+test("open room: a seat freed by a walkout is handed to the next person through the door", async () => {
   const w = await openWorld(4);
   await startMatch(w);
   const host = w.clients[0];
-  const late = arrive(w, "u5", "Erdene");
-  await w.advance(4000);
-  eq(late.snap().mySeat, -1, "no seat while the table is full");
-
   w.clients[3].leaveRoom();                       // Dana walks out of seat 3
-  const seen = await watchUntil(w, host, s => s.order.indexOf("u5") >= 0, 60000);
-  ok(seen.hit, "the waiting player should inherit the freed seat:\n" + dump(w));
-  eq(seen.now.order.indexOf("u5"), 3, "and it is the seat that opened up");
+  const freed = await eventually(w, () => host.snap().order[3] === null, 60000, 250);
+  ok(freed, "the seat should go back to a bot first:\n" + dump(w));
+
+  const late = arrive(w, "u5", "Erdene");
+  const seen = await watchUntil(w, host, s => s.order.indexOf("u5") >= 0, 40000);
+  ok(seen.hit, "and then to the next arrival:\n" + dump(w));
+  eq(seen.now.order.indexOf("u5"), 3, "the seat that opened up");
+  eq(late.sdk.room.id, PUBLIC_ROOM, "no need to hop — this table had room");
   await eventually(w, () => late.snap().gameStarted && late.snap().mySeat === 3, 20000, 250);
   eq(consistency(w), null);
 });

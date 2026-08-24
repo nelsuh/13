@@ -6,6 +6,9 @@ const { Server } = require("./net.cjs");
 const { Client } = require("./client.cjs");
 
 const NAMES = ["Alice", "Bob", "Chuck", "Dana"];
+// Must match OPEN_ROOM_PREFIX + "1" in script.js: the first public table.
+const PUBLIC_ROOM = "public-13-1";
+const PUBLIC_ROOM_2 = "public-13-2";
 
 class World {
   constructor(opts = {}) {
@@ -47,11 +50,22 @@ async function onlineWorld(n, opts = {}) {
 
 /**
  * `n` clients that arrived with NO INVITE (mode 'single', the Explore / GameTok
- * "just play" launch) into one shared room: the open table, which deals itself
- * against bots and seats arrivals by displacing the weakest bot.
+ * "just play" launch). Each is handed its own private standalone room, exactly
+ * as the platform does — the game is expected to IGNORE that and put them all on
+ * the same shared public table, which is what `w.roomId` points at here.
  */
 async function openWorld(n, opts = {}) {
-  return spawnWorld(n, "single", opts);
+  const w = new World(Object.assign({}, opts, { roomId: PUBLIC_ROOM }));
+  w.mode = "single";
+  for (let i = 0; i < n; i++) {
+    const id = "u" + (i + 1);
+    const c = w.add(id, NAMES[i], { mode: "single", roomId: "standalone_" + id });
+    c.start({ userId: id, userName: NAMES[i], userAvatar: opts.avatars && opts.avatars[i],
+              roomId: "standalone_" + id, playerIds: [id] });
+    await w.advance(50);       // stagger joins so the roster order is deterministic
+  }
+  await w.advance(900);
+  return w;
 }
 
 async function spawnWorld(n, mode, opts = {}) {
@@ -105,10 +119,16 @@ async function startMatch(w, opts = {}) {
   return w;
 }
 
-/** Add a client to a running room, launched the same way the world was. */
+/**
+ * Add a client to a running room, launched the way the world was. A no-invite
+ * arrival gets its own standalone room id, like the platform gives it — finding
+ * the shared public table is the game's job.
+ */
 function arrive(w, id, name, opts = {}) {
-  const c = w.add(id, name, { mode: w.mode || "multiplayer", roomId: w.roomId });
-  c.start({ userId: id, userName: name, userAvatar: opts.avatar, roomId: w.roomId, playerIds: [] });
+  const open = w.mode === "single";
+  const roomId = open ? "standalone_" + id : w.roomId;
+  const c = w.add(id, name, { mode: w.mode || "multiplayer", roomId });
+  c.start({ userId: id, userName: name, userAvatar: opts.avatar, roomId, playerIds: open ? [id] : [] });
   return c;
 }
 
@@ -227,4 +247,4 @@ async function driveUntil(w, pred, opts = {}) {
   return playOut(w, Object.assign({ done: pred, budget: 10 * 60 * 1000, consistency: false }, opts));
 }
 
-module.exports = { World, onlineWorld, openWorld, startMatch, arrive, joinTable, botSeats, playOut, driveUntil, rejoin, eventually, consistency, dump, signature, NAMES, flush };
+module.exports = { World, onlineWorld, openWorld, startMatch, arrive, joinTable, botSeats, playOut, driveUntil, rejoin, eventually, consistency, dump, signature, NAMES, PUBLIC_ROOM, PUBLIC_ROOM_2, flush };

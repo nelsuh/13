@@ -22,6 +22,7 @@ who is allowed to sit down.
 | | **Chat invite** (`mode: 'multiplayer'`) | **No invite — "just play"** (`mode: 'single'`) |
 |---|---|---|
 | Where from | a game invite in a chat | Explore, the GameTok feed, the Play button |
+| Which room | the **private** room the invite created (`config.roomId`) | a **shared public table** the game picks itself — see below |
 | Getting started | a **waiting room**: everyone toggles READY, the host presses Start | none — the table **deals itself** a moment after you land |
 | Seats | 2–4, exactly the people who were invited, **frozen at Start** | always **4**: humans first, bots in the rest |
 | Somebody arrives | too late — they watch this match out | they **take over the bot with the fewest penalty points**, inheriting its score, its standing and the cards it is holding *right now*, mid-round |
@@ -32,6 +33,28 @@ who is allowed to sit down.
 Sharing mid-game *is* inviting, so a Share promotion (`onRoomAssigned`) moves an
 open room over to the invite rules: the table is torn down and a waiting room
 opens in the new room.
+
+### Why the open room picks its own room id
+
+The platform hands **every** no-invite launch its own private `standalone_` room.
+Joining that is what an open table must *not* do: two people who both tap Play
+would sit in two different rooms, each alone with three bots, and the open table
+could never fill. So the game ignores that room and joins a shared one it names
+itself — a short ladder of public tables:
+
+```
+public-13-1, public-13-2, … public-13-8      (OPEN_ROOM_PREFIX / OPEN_ROOM_SHARDS)
+```
+
+Everyone starts at table 1, so people pile into one table before a second opens.
+A player who is still seatless after `OPEN_HOP_MS` (the table was already four
+humans) **hops to the next table** rather than queuing behind strangers — where
+they either find a bot seat or start a fresh table of their own. The last rung of
+the ladder is the end: stay and wait for a seat.
+
+If the host refuses a room id of our choosing, we fall back to the room it gave
+us (a private table with bots — a game, just not a shared one); if the relay is
+unreachable at all, we fall back to the same table played locally.
 
 ## Game rules (short)
 
@@ -81,7 +104,35 @@ the other mode's table.
 | `onPlayerLeft` → settle the seat, with grace | 20 s `startForfeitGrace()` — a quick rejoin resumes the hand untouched; otherwise the seat folds (invite) or goes to a bot (open) |
 | `onPlayerJoined` → seat the newcomer | open rooms only: `reconcileOpenSeats()` writes a `seat_take` for the lowest-scoring bot |
 
-### 3. Reconnect recovery: checkpoint + replay tail
+### 3. Your own move does not wait for the relay
+
+The deterministic log means a move is only real once the relay has sequenced it.
+Applied literally that costs **a full round trip on every tap**: your card sits in
+your hand, the Play button stays dead, and the turn does not move until the echo
+comes back. Over a phone connection that is the whole feel of the game.
+
+So a move you *own* — your own play or pass, and a bot seat you are the elected
+relay for — is applied to your board the instant it is sent
+(`applyOptimisticMove`). This is not a prediction: the move was built and
+validated with the exact rules every other client will apply to it, and the same
+engine produces the same result everywhere. The echo is then matched on
+`(ti, cards)` and skipped — while still counting as applied, so the sequence
+bookkeeping keeps no holes.
+
+The safety rails around it:
+
+- **Nothing is snapshotted early.** `writeCheckpoint()` and `broadcastStatePush()`
+  both bail while a move is in flight, so no other client can be told to replay a
+  move the relay may never have stored.
+- **A send that fails marks us stale** and asks for a catch-up, because our board
+  may now be a move ahead of the room's.
+- **An echo that never arrives** (6 s) does the same, and a checkpoint at our own
+  sequence is then accepted as the correction.
+
+A cover for *another* human's stalled seat is deliberately excluded: that one
+really is a guess about somebody else, so it waits for the relay.
+
+### 4. Reconnect recovery: checkpoint + replay tail
 
 - Whoever **just acted** persists a checkpoint with `Usion.game.setState()`
   (`currentCheckpoint()`): seed, seat order, this round's moves, round-start
@@ -100,7 +151,7 @@ the other mode's table.
 - As a second recovery path the host **pushes** the current checkpoint over the
   room broadcast when someone (re)joins (`broadcastStatePush`).
 
-### 4. Rematch and auto-restart (platform mode)
+### 5. Rematch and auto-restart (platform mode)
 
 Platform mode has **no server-side restart event** — `Usion.game.requestRematch()`
 is a pure broadcast to the other players. So: a non-host's PLAY AGAIN sends the
@@ -114,7 +165,7 @@ reset deal `OPEN_RESTART_MS` after the champion screen (rank-staggered), so nobo
 has to press anything for the room to keep going. PLAY AGAIN just brings it
 forward. A chat-invite match does not — it ends when it ends.
 
-### 5a. The waiting room (chat invite)
+### 6a. The waiting room (chat invite)
 
 While invited players trickle into `config.roomId`, the game shows who's present
 with a ready toggle; the host locks the final seat order into the `deal` action so
@@ -122,7 +173,7 @@ every client (and every reconnect) derives identical seating. The lobby never
 creates rooms or draws invite/share UI — the platform owns invites (host Share
 button / `Usion.game.invite()`).
 
-### 5b. The open room (no invite)
+### 6b. The open room (no invite)
 
 There is no waiting room and nothing to press. `maybeStart()` schedules
 `scheduleOpenStart()`, which deals a 4-seat round `OPEN_START_MS` after the room
@@ -165,20 +216,21 @@ client covers `SEAT_STAGGER_MS` later. A locked phone never leaves `presentIds`,
 so a single elected writer asleep would otherwise lock newcomers out of the room
 forever — the same trap as finding 1.
 
-### 6. GameTok / Explore
+### 7. GameTok / Explore
 
 A `'single'` launch (Explore or the GameTok feed) drops straight into a zero-tap
 round vs 3 bots — no menu, per the GameTok contract. What changed is that it is
-now an **open room**: the same three bots, except every move is a stored action,
-so anyone who wanders into that room can walk in and take a bot's seat. With no
-room to join (self-hosted preview) or a relay it cannot reach, it degrades to the
-identical table played locally rather than stranding the player on a menu.
+now an **open room on a shared public table**: the same three bots, except every
+move is a stored action and anyone else who taps Play lands at the same table and
+takes a bot's seat. With no room to join (self-hosted preview) or a relay it
+cannot reach, it degrades to the identical table played locally rather than
+stranding the player on a menu.
 
 The same build registers all multiplayer handlers up front, so the Share button
 can promote the room mid-session: `onRoomPromoted()` tears the open table down
 and opens the invite waiting room in the new room.
 
-### 7. Platform capabilities used
+### 8. Platform capabilities used
 
 - `Usion.cloud` — cross-device win/loss stats (localStorage fallback), plus a
   shared `games_total` counter via atomic `shared.incr`.
@@ -194,9 +246,9 @@ npx @usions/devkit dev path/to/13     # or: usion dev .
 # Player 2: http://localhost:4747/?player=2
 ```
 
-Launched without an invite, player 1 is dealt in against 3 bots straight away;
-open the `?player=2` tab and watch them take over the lowest-scoring bot
-mid-round. Launched from a chat invite, both tabs land in the waiting room and
+Launched without an invite, both tabs find the same public table: player 1 is
+dealt in against 3 bots straight away, and player 2 takes over the lowest-scoring
+bot mid-round. Launched from a chat invite, both tabs land in the waiting room and
 wait for READY + Start.
 
 The devkit fake host serves the game with real platform semantics (rooms,
@@ -213,7 +265,7 @@ Note: the platform injects `https://usions.com/usion-sdk.js`; the script tag in
 node 13/test/run_all.cjs
 ```
 
-120 headless scenario tests covering both modes, no dependencies and no browser:
+122 headless scenario tests covering both modes, no dependencies and no browser:
 every simulated player is the real `script.js` in its own `vm` realm on a virtual
 clock. See [test/README.md](test/README.md).
 

@@ -321,18 +321,17 @@ test("full exit and rejoin mid-round rebuilds the board from the checkpoint", as
 // live socket in the foreground has NO recovery trigger at all; that gap is
 // reproduced separately in t_findings.cjs.
 
-test("losing your own move echo while backgrounded does not strand you on 'Sending…'", async () => {
+test("losing your own move echo while backgrounded does not strand you", async () => {
   const w = await matchAtTurn(3, 1);
   const victim = w.clients[1];
   w.server.dropNext.push({ to: "u2", type: "action" });   // eat u2's own echo
   victim.uiPlay();
   await w.advance(1000);
-  eq(victim.snap().pendingAction, true, "the latch is set while the echo is missing");
+  eq(victim.snap().pendingAction, false, "the move went onto the board without waiting for the echo");
   victim.freeze(); await w.advance(5000); victim.thaw();  // the player backgrounds the app
-  ok(await eventually(w, () => !victim.snap().pendingAction, 120 * 1000),
-    "recovery must clear the latch\n" + dump(w));
-  eq(victim.snap().counts, w.clients[0].snap().counts, "and land the missing move\n" + dump(w));
-  eq(consistency(w), null, dump(w));
+  ok(await eventually(w, () => consistency(w) === null, 120 * 1000),
+    "recovery must put the client back on the room's board\n" + dump(w));
+  eq(victim.snap().counts, w.clients[0].snap().counts, "with the same hands\n" + dump(w));
   await mustFinish(w, "after a lost own-move echo");
 });
 
