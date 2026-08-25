@@ -61,6 +61,7 @@ const OPEN_ABANDONED_MS = 8000; // alone in a MID-MATCH room full of ghosts → 
 const OPEN_EMPTY_MS = 2000;     // …but an empty room with only a stale log is ours almost immediately
 const OPEN_PROBE_MS = 1500;     // how long we look at one public table before trying the next
 const OPEN_STUCK_MS = 25000;    // never leave anybody staring at a spinner longer than this
+const OPEN_REGROUP_MS = 20000;  // playing alone away from the front → go back and look again
 // A no-invite launch must land in a room it SHARES with other no-invite players.
 // The platform hands each such launch its own private `standalone_` room, so
 // joining that would put every player at their own table with three bots and the
@@ -2316,12 +2317,33 @@ function openTableWatchdog(now) {
   // than leave the player on a spinner. Deliberately NOT a local game: staying in
   // a real room is what lets the next person's search find us.
   if (!gameStarted && openSeekSince && now - openSeekSince >= OPEN_STUCK_MS) {
-    openSeekSince = Date.now();       // and if even that fails, try again later
     stopProbe();
-    lastOpenResetAt = 0;
-    reopenOpenTable();
+    if (roomPlayerIds.some(id => id != null && id !== myId)) {
+      // People are here and simply will not seat us. Their table is not ours to
+      // clear out, so go and find — or make — a different one.
+      searchAgainFrom(openShard + 1 < OPEN_ROOM_SHARDS ? openShard + 1 : 0);
+    } else {
+      openSeekSince = Date.now();     // and if taking it over fails, try again later
+      lastOpenResetAt = 0;
+      reopenOpenTable();
+    }
     return;
   }
+  // Sitting alone at a table that is not the one searches look at first? Go back
+  // and look again — somebody may have been at the front the whole time. Between
+  // rounds only, so we never walk out on our own hand.
+  if (gameStarted && openShard > 0 && aloneAtTable()) {
+    if (!lastRegroupAt) lastRegroupAt = now;
+    else {
+      const waited = now - lastRegroupAt;
+      // Prefer a round boundary so we do not walk out on our own hand — but a
+      // round against three bots can run for a while, and sitting at the wrong
+      // table is the thing we are trying to stop. After twice as long, go anyway.
+      if (waited >= OPEN_REGROUP_MS && (!dealActive || waited >= OPEN_REGROUP_MS * 2)) {
+        lastRegroupAt = 0; regroupToFront(); return;
+      }
+    }
+  } else lastRegroupAt = 0;
   // Seat anyone waiting, and make sure a bot seat that is on turn actually has
   // somebody driving it (the elected client may have changed mid-turn).
   reconcileOpenSeats();
@@ -2555,6 +2577,32 @@ function settleOnEmptyRung() {
   return false;
 }
 let claimOnArrival = false;    // the room we are joining is ours to clear out
+
+// Two people playing bots at two different tables is the one outcome this whole
+// mechanism exists to prevent, and no amount of care over a single join
+// acknowledgement can rule it out: an ack can be stale, a relay can report a room
+// differently than we assumed, two searches can cross. So rather than trust the
+// search to be right first time, a player sitting ALONE anywhere but the front of
+// the ladder periodically walks back and searches again. Whoever guessed wrong
+// drifts down to the front, where everybody looks first, and the two tables
+// become one. Alone means nothing is lost by moving: the seat we vacate becomes a
+// bot, and the table we leave behind is a ghost the next arrival clears out.
+let lastRegroupAt = 0;
+function aloneAtTable() {
+  return Array.isArray(roomPlayerIds) && roomPlayerIds.filter(id => id != null).length <= 1;
+}
+function searchAgainFrom(shard) {
+  if (!online || !openTable) return;
+  staleCandidate = -1;
+  claimOnArrival = false;
+  openSeekSince = 0;
+  probeSettled = false;          // search again, properly, from here
+  try { if (window.Usion && Usion.game && Usion.game.leave) Usion.game.leave(); } catch (_) {}
+  joinOpenRoom(shard);
+}
+function regroupToFront() {
+  if (openShard > 0) searchAgainFrom(0);
+}
 
 // Seatless for a while means this table is full. Rather than queue behind four
 // people we hop to the next public table, where we'll either find a bot seat or
@@ -2906,7 +2954,7 @@ function resetRoomState() {
   checkpointVersion = 0;
   sawRoomCheckpoint = false; lastRoomActivityAt = 0;
   seatWaitSince.clear(); lastSeatClaimAt = 0; lastOpenResetAt = 0;
-  abandonedSince = 0; lastPlayerLeftAt = 0;
+  abandonedSince = 0; lastPlayerLeftAt = 0; lastRegroupAt = 0;
   lastSeenOrder = null;
   pendingAction = false;
   mySeat = -1;
@@ -3452,6 +3500,12 @@ function openRoomIsAbandoned() {
 // on whoever is actually here — which is all anybody can see.
 function reopenOpenTable() {
   if (!online || !openTable || pendingAction) return;
+  // Never clear out a table other people are sitting at. Every caller believes
+  // the room is dead, but they reach that from presence and connection counts,
+  // and being wrong here means wiping a live game somebody else is playing.
+  if (roomPlayerIds.some(id => id != null && id !== myId)) {
+    if (Number.isFinite(connectedCount) && connectedCount > 1) return;
+  }
   if (Date.now() - lastOpenResetAt < OPEN_RESET_COOLDOWN_MS) return;
   lastOpenResetAt = Date.now();
   stopLocalRound();

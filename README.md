@@ -78,6 +78,31 @@ Once settled, a player still seatless after `OPEN_HOP_MS` **hops on** rather tha
 queuing behind strangers — but only when the table really is four humans. If a
 bot is holding a seat they stay put, because one is about to come free.
 
+### The search is allowed to be wrong
+
+Two people playing bots at two different tables is the one outcome this whole
+mechanism exists to prevent, and no amount of care over a single join
+acknowledgement can rule it out. An ack can be stale. A relay can describe a room
+differently than we assumed. Two searches can cross. So the design does not rely
+on getting it right first time — it relies on **noticing and fixing it**:
+
+> A player sitting **alone** anywhere but the front of the ladder waits
+> `OPEN_REGROUP_MS` and then walks back and searches again.
+
+Whoever guessed wrong drifts down to the front, where everybody looks first, and
+the two tables become one. Sitting alone is what makes this free: the seat we
+vacate turns into a bot and the table we leave is a ghost the next arrival clears
+out, so nobody else notices. Three things keep it from becoming churn — a player
+alone **at** the front stays put (they are already where searches land), a table
+with company never moves, and it only happens at a round boundary unless the wait
+has run to twice `OPEN_REGROUP_MS`.
+
+The same principle bounds the failure modes elsewhere: **nothing ever clears out a
+table other people are sitting at.** Every "this room is dead" path reaches that
+conclusion from presence and connection counts, and being wrong there would wipe
+somebody's live game — so `reopenOpenTable()` refuses outright when another human
+holds a seat. A client that cannot get seated moves on instead.
+
 If the host refuses a room id of our choosing, we fall back to the room it gave
 us (a private table with bots — a game, just not a shared one); if the relay is
 unreachable at all, we fall back to the same table played locally.
@@ -323,7 +348,7 @@ Note: the platform injects `https://usions.com/usion-sdk.js`; the script tag in
 node 13/test/run_all.cjs
 ```
 
-132 headless scenario tests covering both modes, no dependencies and no browser:
+135 headless scenario tests covering both modes, no dependencies and no browser:
 every simulated player is the real `script.js` in its own `vm` realm on a virtual
 clock. See [test/README.md](test/README.md).
 

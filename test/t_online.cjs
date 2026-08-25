@@ -10,7 +10,7 @@
 //
 // Every match is watched for desync and dead ends.
 
-const { World, onlineWorld, openWorld, startMatch, arrive, botSeats, playOut, eventually, consistency, dump, PUBLIC_ROOM, PUBLIC_ROOM_2 } = require("./lib/world.cjs");
+const { World, onlineWorld, openWorld, startMatch, arrive, botSeats, sameRoom, playOut, eventually, consistency, dump, PUBLIC_ROOM, PUBLIC_ROOM_2 } = require("./lib/world.cjs");
 const { test, ok, eq, run } = require("./lib/tap.cjs");
 
 const finished = (w) => w.drivers().every(c => c.snap().overlays.winner);
@@ -693,7 +693,6 @@ test("open room: a room nobody will seat us in still ends in a game, not a spinn
   await startMatch(w);
   w.clients.forEach(x => x.run("reconcileOpenSeats = function () {};"));   // nobody will let us in
   const c = arrive(w, "u3", "Chuck");
-  c.run("scheduleHop = function () {}; probeNextRung = function () {};");  // and we cannot walk away
   const playing = await eventually(w, () => c.snap().dealActive, 120 * 1000, 500);
   ok(playing, "the player must end up with a game:\n" + dump(w));
   const s = c.snap();
@@ -701,6 +700,9 @@ test("open room: a room nobody will seat us in still ends in a game, not a spinn
   eq(s.online, true, "and still in a real room, so the next search can find them");
   eq(s.mySeat >= 0, true, "with a seat of their own");
   eq(s.overlays.lobby, false, "and the cover is down");
+  // …and crucially without clearing out the table that would not have them.
+  eq(w.clients[0].snap().order.slice(0, 2), ["u1", "u2"], "the unresponsive table is left alone");
+  ok(w.clients[0].snap().dealActive, "and is still playing");
   eq(c.errors.map(String), [], "u3 threw");
 });
 
@@ -788,6 +790,62 @@ test("open room: with nobody anywhere, a search settles on the FIRST table, not 
   eq(c.sdk.room.id, PUBLIC_ROOM, "back on the first table, cleared out and reused");
   eq(c.snap().order, ["z1", null, null, null], "with a clean table");
   eq(c.snap().totals, [0, 0, 0, 0], "and no leftovers from whoever was here before");
+});
+
+test("open room: a player left alone at the wrong table finds their way to the others", async () => {
+  // Reported from the live app: A and B end up together, but C — searching at the
+  // same moment — ends up at a table of its own. No amount of care over a single
+  // join acknowledgement can rule that out (an ack can be stale, a relay can
+  // describe a room differently than we assume, two searches can cross), so the
+  // system has to fix itself: a player sitting ALONE anywhere but the front of the
+  // ladder goes back and searches again.
+  const w = await openWorld(2);
+  await startMatch(w);
+  const A = w.clients[0];
+  // C's search lands on the wrong rung, exactly as reported.
+  const C = w.add("uC", "Chuluun", { mode: "single", roomId: "standalone_uC" });
+  C.run("var __j = joinOpenRoom; joinOpenRoom = function (s, f) { return __j(1, f); };");
+  C.start({ userId: "uC", userName: "Chuluun", roomId: "standalone_uC", playerIds: ["uC"] });
+  ok(await eventually(w, () => C.snap().dealActive, 60 * 1000, 250), "C should get a game somewhere");
+  eq(C.sdk.room.id, PUBLIC_ROOM_2, "at its own table, away from A and B");
+  eq(C.snap().order, ["uC", null, null, null], "alone with bots");
+  C.run("joinOpenRoom = __j;");   // from here it searches honestly
+
+  const merged = await eventually(w, () => A.snap().order.indexOf("uC") >= 0, 180 * 1000, 500);
+  ok(merged, "C must find its way to A and B rather than play beside them forever:\n" + dump(w));
+  eq(C.sdk.room.id, PUBLIC_ROOM, "at the front of the ladder, where everybody looks first");
+  eq(sameRoom([A, w.clients[1], C]), PUBLIC_ROOM, "all three at one table");
+  eq(A.snap().order.filter(Boolean).sort(), ["u1", "u2", "uC"]);
+  eq(consistency(w, PUBLIC_ROOM), null, dump(w));
+});
+
+test("open room: a lone player already at the front stays put", async () => {
+  // The flip side: regrouping must not become churn. Somebody alone at the table
+  // every search reaches first is exactly where they should be.
+  const w = await openWorld(1);
+  await startMatch(w);
+  const c = w.clients[0];
+  c.run("globalThis.__joins = 0; var __j = joinOpenRoom; joinOpenRoom = function (s, f) { __joins++; return __j(s, f); };");
+  await w.advance(150 * 1000);
+  eq(c.read("__joins"), 0, "no re-searching from the front");
+  eq(c.sdk.room.id, PUBLIC_ROOM);
+  ok(c.snap().dealActive, "and the game just carries on");
+});
+
+test("open room: two people playing together never wander off looking for a third", async () => {
+  // Regrouping is for players sitting ALONE. A table with company stays where it
+  // is, even when it is not at the front of the ladder.
+  const w = await openWorld(4);
+  await startMatch(w);
+  const A = arrive(w, "uA", "Ariunaa");
+  ok(await eventually(w, () => A.snap().gameStarted, 60 * 1000, 250), "A is pushed along the ladder");
+  eq(A.sdk.room.id, PUBLIC_ROOM_2);
+  const B = arrive(w, "uB", "Bat");
+  ok(await eventually(w, () => A.snap().order.indexOf("uB") >= 0, 60 * 1000, 250), "B joins A");
+  await w.advance(150 * 1000);
+  eq(sameRoom([A, B]), PUBLIC_ROOM_2, "the pair stays put\n" + dump(w));
+  eq(A.snap().order.slice(0, 2), ["uA", "uB"]);
+  eq(consistency(w, PUBLIC_ROOM_2), null, dump(w));
 });
 
 // ── security: the seat log is as forgery-proof as the move log ────────────

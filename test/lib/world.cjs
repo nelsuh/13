@@ -214,9 +214,16 @@ function dump(w) {
   }).join("\n");
 }
 
-/** Every running, connected, seated client must believe the same thing. */
-function consistency(w) {
-  const live = w.clients.filter(c => c.alive && c.connected && c.snap().gameStarted);
+/**
+ * Every running, connected, seated client must believe the same thing — but only
+ * within ONE room. Public matchmaking can legitimately spread clients over
+ * several tables, and two different games are supposed to disagree. Pass a room
+ * id to scope the check; with none, every client is compared, which is only
+ * meaningful when the world holds a single table.
+ */
+function consistency(w, roomId) {
+  const live = w.clients.filter(c => c.alive && c.connected && c.snap().gameStarted &&
+    (!roomId || (c.sdk.room && c.sdk.room.id === roomId)));
   if (live.length < 2) return null;
   const keys = ["dealActive", "turn", "curSeed", "roundMoveNo", "passStreak", "tableLen", "tableSeat"];
   const base = live[0].snap();
@@ -236,6 +243,12 @@ function consistency(w) {
   return null;
 }
 
+/** Are all these clients sitting at the same public table? */
+function sameRoom(clients) {
+  const ids = clients.map(c => c.sdk.room && c.sdk.room.id);
+  return ids.every(id => id && id === ids[0]) ? ids[0] : null;
+}
+
 /** The SDK's auto-rejoin after a real exit: join the room again from scratch. */
 async function rejoin(w, c, ms = 1500) {
   c.run(`Usion.game.join(${JSON.stringify(w.roomId)}).catch(function () {})`);
@@ -247,4 +260,4 @@ async function driveUntil(w, pred, opts = {}) {
   return playOut(w, Object.assign({ done: pred, budget: 10 * 60 * 1000, consistency: false }, opts));
 }
 
-module.exports = { World, onlineWorld, openWorld, startMatch, arrive, joinTable, botSeats, playOut, driveUntil, rejoin, eventually, consistency, dump, signature, NAMES, PUBLIC_ROOM, PUBLIC_ROOM_2, flush };
+module.exports = { World, onlineWorld, openWorld, startMatch, arrive, joinTable, botSeats, sameRoom, playOut, driveUntil, rejoin, eventually, consistency, dump, signature, NAMES, PUBLIC_ROOM, PUBLIC_ROOM_2, flush };
