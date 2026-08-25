@@ -136,8 +136,12 @@ body {
   width: 124px;
 }
 .opp--top   { top: 6px;  left: 50%; transform: translateX(-50%); }
-.opp--left  { top: 22%;  left: 2px;  width: 110px; }
-.opp--right { top: 22%;  right: 2px; width: 110px; }
+/* The side seats sit ABOVE the played cards, never level with them. A 13-card
+   fan is ~110px wide, so with one on each side barely 150px of a phone screen is
+   left in the middle — narrower than a five-card combo, which means the two will
+   always overlap horizontally. Clearance has to come from the vertical. */
+.opp--left  { top: 17%;  left: 2px;  width: 110px; }
+.opp--right { top: 17%;  right: 2px; width: 110px; }
 .opp-name {
   display: flex; align-items: center; gap: 5px;
   max-width: 100%; font-size: 11px; font-weight: 700; letter-spacing: .2px;
@@ -177,6 +181,23 @@ body {
   box-shadow: 0 1px 2px rgba(0,0,0,.4);
 }
 .opp-fan .mini-back:first-child { margin-left: 0; }
+/* The side seats are the only ones level with the played cards, and on a short
+   phone there is no room to lift them clear: the band between the top seat and
+   the cards is narrower than a seat block. So they also have to stop reaching
+   into the middle — a tighter fan keeps all 13 backs visible in ~75px instead of
+   ~110px, which is what actually guarantees no collision at any height. */
+.opp--left .mini-back, .opp--right .mini-back { margin-left: -13px; }
+/* Short screens have the least room of all: the table area shrinks, so the
+   played cards ride higher and meet the side seats head on. Compact those seats
+   — smaller avatar, shorter and tighter fan — so they clear the cards sideways
+   even when there is no height left to lift them into. */
+@media (max-height: 740px) {
+  .opp--left, .opp--right { top: 12%; }
+  .opp--left .opp-profile-timer, .opp--right .opp-profile-timer { width: 30px; height: 30px; }
+  .opp--left .mini-back, .opp--right .mini-back {
+    width: 13px; height: 19px; margin-left: -10px;
+  }
+}
 .opp-count { font-size: 10px; font-weight: 600; color: var(--text-dim); }
 .opp-action {
   font-size: 10px; font-weight: 700;
