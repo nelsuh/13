@@ -13,7 +13,9 @@ const PUBLIC_ROOM_2 = "public-13-2";
 class World {
   constructor(opts = {}) {
     this.clock = new Clock();
-    this.server = new Server(this.clock, { latency: opts.latency || 20, syncModel: opts.syncModel || "tail" });
+    this.server = new Server(this.clock, { latency: opts.latency || 20, syncModel: opts.syncModel || "tail",
+                                           bareJoinAck: !!opts.bareJoinAck,
+                                           lingeringCount: !!opts.lingeringCount });
     this.roomId = opts.roomId || "room1";
     this.clients = [];
     this.trace = [];

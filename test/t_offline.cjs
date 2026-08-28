@@ -295,5 +295,41 @@ test("the table trick shows who played it", async () => {
   eq(c.read('tableComboEl.querySelector(".tp-owner").parentNode.classList.contains("tp-cards")'), true, "the profile badge is anchored to the card stack");
 });
 
+test("a long name is cut down instead of running through the seats beside it", async () => {
+  // Reported from the live app with a screenshot: a player called BAT BOLORJIN
+  // put "BAT BOLORJIN-ийн ээлж…" across the seat label next to it. Names come
+  // from the platform profile, so the game cannot assume they are short.
+  const { w, c } = await bootSolo("longname1");
+  let guard = 0;
+  while (!c.snap().dealActive && guard++ < 20) await w.advance(250);
+  c.run(`
+    players[1].name = "BAT BOLORJIN";
+    players[2].name = "Мөнхбаатар Ганзориг";
+    players[3].name = "Сүх";
+    dealActive = true; turn = 1;
+    render();
+  `);
+  const shown = c.doc.querySelectorAll(".opp-pname").map(e => e.textContent);
+  ok(shown.every(n => n.length <= 10), "every seat label is clipped to fit: " + JSON.stringify(shown));
+  ok(shown.some(n => n.slice(-1) === "…"), "…with an ellipsis where something was cut: " + JSON.stringify(shown));
+  eq(shown[shown.length - 1], "Сүх", "a short name is left exactly as it is");
+  const line = c.el("turnLine").textContent;
+  ok(line.indexOf("BAT BOLORJIN") < 0 && line.indexOf("BAT BOLOR") >= 0,
+     "and the turn line carries the clipped name, not the full one: " + line);
+  eq(c.read("players[1].name"), "BAT BOLORJIN", "while the real name is kept for the result card");
+});
+
+test("the turn line is told when there are seats on both sides of it", async () => {
+  // The stylesheet keeps the line inside the corridor between the side seats, and
+  // it needs the class to know the corridor is there.
+  const { w, c } = await bootSolo("sideseats1");
+  let guard = 0;
+  while (!c.snap().dealActive && guard++ < 20) await w.advance(250);
+  eq(c.read("numPlayers"), 4);
+  eq(c.read('document.body.classList.contains("has-side-seats")'), true, "4 seats: a neighbour on each side");
+  c.run("numPlayers = 2; renderOpponents();");
+  eq(c.read('document.body.classList.contains("has-side-seats")'), false, "2 seats: nothing beside the line");
+});
+
 if (require.main === module) run("OFFLINE").then(r => process.exit(r.fails.length ? 1 : 0));
 module.exports = { run: () => run("OFFLINE") };

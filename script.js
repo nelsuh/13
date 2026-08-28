@@ -62,6 +62,14 @@ const OPEN_EMPTY_MS = 2000;     // …but an empty room with only a stale log is
 const OPEN_PROBE_MS = 1500;     // how long we look at one public table before trying the next
 const OPEN_STUCK_MS = 25000;    // never leave anybody staring at a spinner longer than this
 const OPEN_REGROUP_MS = 20000;  // playing alone away from the front → go back and look again
+// The hard floor under every other open-table timer: nobody waits longer than
+// this for a game. Whatever the room is doing — a ghost roster holding all four
+// seats, a claim nobody answers, an election that keeps deferring to a "live"
+// table that is really just our own polling — at this point we fill the empty
+// seats with bots and deal. Three people staring at a spinner while the table
+// waits for a fourth who never comes is the failure this closes.
+const OPEN_FORCE_START_MS = 20000;
+const OPEN_COUNTDOWN_AT = 12;   // …and the cover starts counting it down out loud with this long left
 // A no-invite launch must land in a room it SHARES with other no-invite players.
 // The platform hands each such launch its own private `standalone_` room, so
 // joining that would put every player at their own table with three bots and the
@@ -132,6 +140,7 @@ const STR = {
     openWaitSeat: "Суудал чөлөөлөгдөхийг хүлээж байна…",
     openTableTag: "НЭЭЛТТЭЙ ШИРЭЭ",
     openStatus: "Нээлттэй ширээ — хэн ч дундаас нь нэгдэж болно",
+    openStartIn: s => "Ботуудтай " + s + " секундын дараа эхэлнэ…",
     openJoined: n => n + " ширээнд оролоо",
     openLeftBot: n => n + " гарлаа — бот суудлыг нь авлаа",
     openRestarting: "Шинэ ширээ бэлдэж байна…",
@@ -218,6 +227,7 @@ const STR = {
     openWaitSeat: "Waiting for a seat to open…",
     openTableTag: "OPEN TABLE",
     openStatus: "Open table — anyone can drop in",
+    openStartIn: s => "Starting with bots in " + s + "s…",
     openJoined: n => n + " joined the table",
     openLeftBot: n => n + " left — a bot took the seat",
     openRestarting: "Starting a fresh table…",
@@ -252,6 +262,16 @@ const STR = {
   },
 };
 let LANG = "mn";
+// Names come from the platform profile and can be long enough to break the seat
+// they are written under — or, in the turn line, to run straight through the
+// seats on either side of it. Clip once, here, so every place a name is shown
+// agrees on how long a name is allowed to be. The full name is kept in `players`
+// and in playerMeta: result cards and tooltips still use the real thing.
+const NAME_MAX = 10;
+function shortName(n) {
+  const s = String(n == null ? "" : n).trim();
+  return s.length > NAME_MAX ? s.slice(0, NAME_MAX - 1) + "…" : s;
+}
 function t(key) {
   let v = STR[LANG] ? STR[LANG][key] : undefined;
   if (v === undefined) v = STR.mn[key];
@@ -693,7 +713,7 @@ function makeAvatarEl(name, avatar, className, isBot) {
 function renderMyPlayer() {
   const p = players[mySeat];
   if (!p) return;
-  meNameEl.textContent = p.name;
+  meNameEl.textContent = shortName(p.name);
   paintAvatar(meAvatarEl, p.name, p.avatar, p.isBot);
 }
 function render() {
@@ -828,6 +848,10 @@ const OPP_POSITIONS = { 2: ["top"], 3: ["left", "right"], 4: ["left", "top", "ri
 function renderOpponents() {
   oppEl.innerHTML = "";
   const positions = OPP_POSITIONS[numPlayers] || ["top", "left", "right"];
+  // Side seats stand where the turn line wants to be. Tell the stylesheet they
+  // are there so it can keep the line inside the corridor between them instead of
+  // running a long name straight through somebody's label.
+  if (document.body) document.body.classList.toggle("has-side-seats", positions.indexOf("left") >= 0);
   for (let i = 1; i < numPlayers; i++) {
     const seat = (mySeat + i) % numPlayers;
     const p = players[seat];
@@ -848,7 +872,7 @@ function renderOpponents() {
     const nameRow = document.createElement("div");
     nameRow.className = "opp-name";
     nameRow.innerHTML =
-        '<span class="opp-pname">' + escapeHtml(p.name) + "</span>" +
+        '<span class="opp-pname">' + escapeHtml(shortName(p.name)) + "</span>" +
         '<span class="opp-score">' + p.total + "</span>";
     div.appendChild(nameRow);
     const fan = document.createElement("div");
@@ -885,7 +909,7 @@ function renderTable() {
   }
   if (!dealActive) { turnLine.textContent = "—"; turnLine.className = "turn-line"; return; }
   if (turn === mySeat) { turnLine.textContent = t("yourTurn"); turnLine.className = "turn-line mine"; }
-  else { turnLine.textContent = t("turnOf", players[turn].name); turnLine.className = "turn-line"; }
+  else { turnLine.textContent = t("turnOf", shortName(players[turn].name)); turnLine.className = "turn-line"; }
 }
 function renderHand() {
   clearHandDropIndicator();
@@ -1180,7 +1204,7 @@ function startDeal(seed) {
   handOverlay.classList.remove("show");
   onlineOverlay.classList.remove("show");   // cards are in — clear the "Dealing…" cover
   render();
-  if (dragon !== undefined) { toast(t("dragon", players[dragon].name)); dealActive = false; endHand(dragon, true); return; }
+  if (dragon !== undefined) { toast(t("dragon", shortName(players[dragon].name))); dealActive = false; endHand(dragon, true); return; }
   beginTurn();
 }
 
@@ -1336,7 +1360,7 @@ function endHand(winnerSeat, dragon) {
 // ── Hand-over overlay ────────────────────────────────────
 function showHandOver(winnerSeat, deltas, newlyOut) {
   newlyOut = newlyOut || [];
-  document.getElementById("handTitle").textContent = winnerSeat === mySeat ? t("youWonRound") : t("wonRound", players[winnerSeat].name);
+  document.getElementById("handTitle").textContent = winnerSeat === mySeat ? t("youWonRound") : t("wonRound", shortName(players[winnerSeat].name));
   const sb = document.getElementById("handScoreboard");
   sb.innerHTML = "";
   // lower total is safer → list best (lowest) first
@@ -1350,7 +1374,7 @@ function showHandOver(winnerSeat, deltas, newlyOut) {
     const tag = p.out ? '<span class="rv-foul">' + t("eliminatedTag") + "</span>" : (seat === winnerSeat ? t("wonTag") : t("cardsLeft", hands[seat].length));
     row.innerHTML =
       '<div class="sb-dot" style="background:' + p.color + (p.out ? ";opacity:.4" : "") + '"></div>' +
-      '<div class="sb-name"' + (p.out ? ' style="opacity:.55"' : "") + '>' + escapeHtml(p.name) + "</div>" +
+      '<div class="sb-name"' + (p.out ? ' style="opacity:.55"' : "") + '>' + escapeHtml(shortName(p.name)) + "</div>" +
       '<div class="sb-rank" style="width:auto;opacity:.7">' + tag + "</div>" +
       '<div class="sb-delta" style="color:' + (deltas[seat] ? "#ff9aa2" : "#7be8a8") + '">' + (deltas[seat] ? "+" + deltas[seat] : "—") + "</div>" +
       '<div class="sb-score">' + p.total + '<small> / ' + loseAt + "</small></div>";
@@ -1405,8 +1429,22 @@ function startNextLocal() {
 // the worst case is a duplicate `deal` action, which the server orders so every
 // client still lands on the same round.
 const DEAL_STAGGER_MS = 2500;
+// Who may write on the table's behalf, in seat order. A GHOST MUST NOT BE IN
+// HERE: the roster keeps naming somebody who closed the app days ago, and every
+// election — the next deal, the seat claim for a newcomer, the release of an
+// abandoned seat — hands the job to the lowest such seat and then waits forever
+// for them to do it. That is how a live player ends up sitting opposite a name
+// that never moves, unable to do anything about it: the ghost outranks them.
+//
+// Only open tables, and only once the room has had time to answer us — before
+// that, silence proves nothing and the roster is the best we have.
+function mayActForTable(id) {
+  if (!presentIds.has(id)) return false;
+  const settled = openTable && roomJoinedAt && Date.now() - roomJoinedAt >= GHOST_SETTLE_MS;
+  return !settled || isLivePeer(id);
+}
 function authoritySeats() {
-  return roomPlayerIds.map((id, s) => s).filter(s => presentIds.has(roomPlayerIds[s]));
+  return roomPlayerIds.map((id, s) => s).filter(s => mayActForTable(roomPlayerIds[s]));
 }
 function authorityRank() { return authoritySeats().indexOf(mySeat); }
 // Primary = lowest-seated client still in the room. Falls through to the host when
@@ -1466,7 +1504,7 @@ function showGameOver() {
   const champ = survivors.length ? survivors[0] : ranked[0];
   recordOutcome(champ === mySeat);   // multiplayer-only, idempotent per match
   reportMatchResult(champ, ranked);  // host reports to the originating group or players' DMs
-  document.getElementById("winnerName").textContent = champ === mySeat ? t("you") : players[champ].name;
+  document.getElementById("winnerName").textContent = champ === mySeat ? t("you") : shortName(players[champ].name);
   const sb = document.getElementById("finalScoreboard");
   sb.innerHTML = "";
   ranked.forEach(seat => {
@@ -1475,7 +1513,7 @@ function showGameOver() {
     row.className = "sb-row" + (seat === champ ? " lead" : "");
     row.innerHTML =
       '<div class="sb-dot" style="background:' + p.color + '"></div>' +
-      '<div class="sb-name">' + escapeHtml(p.name) + "</div>" +
+      '<div class="sb-name">' + escapeHtml(shortName(p.name)) + "</div>" +
       '<div class="sb-rank" style="width:auto;opacity:.7">' + (seat === champ ? t("survived") : t("lostTag")) + "</div>" +
       '<div class="sb-score">' + p.total + "</div>";
     sb.appendChild(row);
@@ -2038,6 +2076,10 @@ function showNotSeated() {
   onlineOverlay.classList.add("show");
   const status = document.getElementById("onlineStatus");
   if (status) status.textContent = openTable ? t("openWaitSeat") : t("startedWithoutYou");
+  // …unless we are on the clock to deal this table ourselves, in which case
+  // "waiting for a seat" is no longer what is happening. The seat poll runs this
+  // every 1.5s, so without it the countdown would only ever flicker.
+  renderOpenWaitStatus();
 }
 
 // Rebuild the current round from a host checkpoint (received as game_state on a
@@ -2253,6 +2295,11 @@ var _resyncBaseSeq = -1;
 var _resyncDeadline = 0;
 function beginResync(reason) {
   turnTrusted = false;   // we were frozen/dropped — our view of the active player's clock is meaningless
+  // Re-announce ourselves. A resync is a REQUEST — it makes no sound the others
+  // can hear — so a client coming back from a freeze is, to everybody else, still
+  // a seat that has said nothing since they arrived. Saying so out loud is what
+  // keeps a sleeper's seat from being handed to a bot the moment they wake.
+  try { if (online && window.Usion && Usion.game && Usion.game.realtime) sendPlayerInfo(); } catch (_) {}
   _resyncBaseSeq = lastSeq;
   // Keep trying for ~60s: with the host zombie-socket fix this resolves almost
   // immediately; WITHOUT it, a dead socket only self-heals via Socket.IO's own
@@ -2301,8 +2348,172 @@ if (typeof document !== "undefined" && document.addEventListener) {
 // stay dead for the rest of the round, and hostDeal()/sendMove() both bail while
 // it is set. These two nets close that hole without adding steady traffic:
 // nothing here fires in a healthy game.
+// ── The bot-fill deadline ────────────────────────────────
+// An open table is supposed to deal in under a second, and every mechanism above
+// exists to get the player into a REAL game with REAL people first. Each of them
+// prefers to wait a little longer: the election defers to a table that looks
+// live, the hop defers to a bot seat that is coming free, the stuck check goes
+// off to look at another table. Individually each is right. Together they can
+// loop — three people circling the ladder, each politely waiting for the others,
+// nobody ever dealing — and the player just sees a spinner.
+//
+// So this clock is the one that never yields. It starts when the player first
+// asks for an open table and, unlike openSeekSince, a hop or a fresh search does
+// NOT restart it: it measures the player's wait, not the room's. When it expires
+// we deal here, seating everyone actually present and a bot for every seat
+// nobody took.
+let openWaitSince = 0;
+let openPendingSince = 0;
+function noteOpenWait() { if (!openWaitSince) openWaitSince = Date.now(); }
+// ── Proof of life ────────────────────────────────────────
+// `presentIds` is seeded from the relay's ROSTER, which still lists everybody who
+// ever sat down at this table. Walk into a room somebody abandoned and it hands
+// you four "present" players who are all long gone — and every one of them is
+// then treated as a live peer whose table must not be disturbed. The only thing
+// that actually proves a peer is here is a message we received FROM them.
+//
+// "Ever heard from, in THIS room" — not a recency window. A seated player can be
+// legitimately silent for a long time (it is somebody else's turn, their phone is
+// asleep and a peer is covering for them), and timing that out would hand a real
+// player's seat to a bot while they are still holding cards. What a ghost can
+// never do is answer: every live client broadcasts player_info the moment
+// somebody joins, so anybody who is really here is heard from within a second of
+// our arrival. The set is per-room — resetRoomState() clears it.
+const heardFrom = new Set();
+function noteHeardFrom(id) { if (id != null && id !== myId) heardFrom.add(id); }
+function isLivePeer(id) {
+  if (id == null) return false;
+  return id === myId || heardFrom.has(id);
+}
+// Everybody the room says is here, minus the ones only the roster believes in.
+function livePresentIds() {
+  const out = [];
+  presentIds.forEach(id => { if (isLivePeer(id)) out.push(id); });
+  return out;
+}
+// Is anybody else actually here? `connected_count` is the server's own answer and
+// normally the best one — but a relay that counts room MEMBERSHIP rather than
+// live sockets reports everybody who ever joined as connected, and then a room
+// full of people who closed the app months ago can never be cleared out by
+// anyone. Once the room has had time to answer us, what we have HEARD is the
+// better evidence of the two, so either one saying we are alone is enough.
+function aloneInRoom() {
+  if (roomJoinedAt && Date.now() - roomJoinedAt >= GHOST_SETTLE_MS && livePresentIds().length <= 1) return true;
+  return Number.isFinite(connectedCount) && connectedCount === 1;
+}
+// ── Seats held by people who are not here ────────────────
+// A seat only goes back to a bot when we SEE its player leave (onPlayerLeft →
+// forfeit grace → seat_release). Walk into a table somebody abandoned before we
+// arrived and there is no such event to see: their name, avatar and score sit at
+// the table forever, the turn stops on them every round, and the seat is not
+// available to the next person who wants to play. That is the "he still looks
+// like he is there, but he is offline" report.
+//
+// So: once the room has had time to answer us, any seat held by somebody who
+// never did is handed back to a bot. GHOST_SETTLE_MS is generous next to the
+// sub-second round trip of a player_info answer.
+const GHOST_SETTLE_MS = 5000;    // long enough for a live client to answer our arrival
+// Taking a seat away is the destructive one, so it waits far longer. A player who
+// is merely backgrounded (their WebView frozen, running no javascript at all,
+// indistinguishable from a departed one) re-announces the moment they resume, and
+// this window is many times the round trip that takes.
+const GHOST_SEAT_MS = 45000;
+let roomJoinedAt = 0;
+function sweepGhostSeats(now) {
+  if (!online || !openTable || !gameStarted || pendingAction) return;
+  if (!roomJoinedAt || now - roomJoinedAt < GHOST_SEAT_MS) return;
+  if (authorityRank() !== 0) return;               // exactly one elected writer
+  for (let seat = 0; seat < roomPlayerIds.length; seat++) {
+    const id = roomPlayerIds[seat];
+    if (id == null || id === myId || isLivePeer(id)) continue;
+    if (pendingLeaves.has(id)) continue;           // their grace window is already running
+    presentIds.delete(id);                         // …which is what lets sendSeatRelease act
+    sendSeatRelease(seat);
+    return;                                        // one at a time; the echo re-renders the table
+  }
+}
+// The 4-seat order to deal the table with when the deadline expires: everybody we
+// have heard from, in ROSTER order so every client computes the same seating, and
+// a bot — `null` — for every seat nobody is in. Ghosts are simply not there.
+function liveOpenOrder() {
+  const order = new Array(OPEN_SEATS).fill(null);
+  let n = 0;
+  roomPlayerIds.forEach(id => {
+    if (id != null && presentIds.has(id) && isLivePeer(id) && n < OPEN_SEATS && order.indexOf(id) < 0) order[n++] = id;
+  });
+  if (order.indexOf(myId) < 0 && n < OPEN_SEATS) order[n++] = myId;
+  return order;
+}
+// A table that is genuinely full of people who are really here is not stuck — it
+// simply has no seat for us, and dealing over it would wipe a live game. That is
+// the one case where waiting (and hopping) stays the right answer.
+function openTableIsLiveElsewhere() {
+  if (!Array.isArray(lastSeenOrder)) return false;
+  if (lastSeenOrder.indexOf(null) >= 0) return false;   // a bot holds a seat → one is coming free
+  if (lastSeenOrder.indexOf(myId) >= 0) return false;   // it seats us; we are not queuing at all
+  // Every seat held by somebody we have actually heard from, on a room that is
+  // still moving. Roster presence alone is not enough: a table four people walked
+  // away from names four "present" players and would otherwise look live forever,
+  // kept warm by nothing but our own polling.
+  if (!lastSeenOrder.every(id => presentIds.has(id) && isLivePeer(id))) return false;
+  return Date.now() - lastRoomActivityAt < OPEN_REVIVE_MS;
+}
+// Seconds left on the bot-fill clock, or -1 when it is not running (we are not
+// waiting, or the table we are queuing at is a real live one). Staggered by our
+// position in the order so three clients hitting the deadline together do not
+// each deal a rival table — the first stored deal wins and the rest stand down.
+function openStartCountdown(now) {
+  if (!online || !openTable || gameStarted || dealActive || !openWaitSince) return -1;
+  if (openTableIsLiveElsewhere()) return -1;
+  const rank = liveOpenOrder().indexOf(myId);
+  if (rank < 0) return -1;                              // four other humans got here first
+  const left = OPEN_FORCE_START_MS + rank * DEAL_STAGGER_MS - ((now || Date.now()) - openWaitSince);
+  return left > 0 ? Math.ceil(left / 1000) : 0;
+}
+// Deal the table ourselves, bots in every empty seat. Returns true if it fired.
+function forceOpenStart(now) {
+  if (pendingAction) return false;                      // a deal is already in flight
+  if (openStartCountdown(now) !== 0) return false;
+  // Rate-limited on the same cooldown as every other unsolicited reset deal: the
+  // countdown sits at 0 until a deal actually lands, so without this we would
+  // fire one on every tick of the watchdog.
+  if (Date.now() - lastOpenResetAt < OPEN_RESET_COOLDOWN_MS) return false;
+  lastOpenResetAt = Date.now();
+  stopProbe();
+  stopHop();
+  if (openStartTimer) { clearTimeout(openStartTimer); openStartTimer = null; }
+  const order = liveOpenOrder();
+  // Drop the ghosts from presence too, or reconcileOpenSeats will spend the whole
+  // match trying to seat them into the bot seats we just opened. Anyone really
+  // here re-announces through onPlayerJoined / player_info within a second — the
+  // same reasoning reopenOpenTable() clears presence on.
+  presentIds.forEach(id => { if (!isLivePeer(id)) presentIds.delete(id); });
+  releasedIds.clear(); seatWaitSince.clear(); lastSeatClaimAt = 0;
+  moveLog = []; optimisticMoves = []; optimisticStale = false;
+  roomPlayerIds = order;
+  numPlayers = OPEN_SEATS;
+  isHost = roomPlayerIds[0] === myId;
+  loseAt = OPEN_LOSE_AT;
+  firstDeal = true; lastWinner = -1;
+  hostDeal(true);   // reset: a brand-new match on whoever is actually here
+  return true;
+}
+// Keep the cover honest while that clock runs. A spinner over "waiting for a
+// seat" reads as an open-ended wait; a countdown says a game is coming.
+function renderOpenWaitStatus(now) {
+  const el = document.getElementById("onlineStatus");
+  if (!el || !openTable || gameStarted || dealActive) return;
+  const left = openStartCountdown(now);
+  if (left < 0) return;                                 // a real table owes us a seat — leave the text alone
+  // A healthy open table deals in well under a second, and a countdown flashing
+  // up on it would only make a working game look broken. This is for the wait
+  // that has already gone wrong.
+  if (left > OPEN_COUNTDOWN_AT) return;
+  el.textContent = left > 0 ? t("openStartIn", left) : t("dealing");
+}
 // Everything an open room has to keep an eye on, seated or not.
 function openTableWatchdog(now) {
+  renderOpenWaitStatus(now);
   if (openRoomIsAbandoned()) {
     // An empty room holding nothing but a stale log is ours as soon as the join
     // ack says so; only a room with a match still on screen gets the longer
@@ -2311,12 +2522,38 @@ function openTableWatchdog(now) {
     if (!abandonedSince) abandonedSince = now;
     else if (now - abandonedSince >= settle) { abandonedSince = 0; reopenOpenTable(); }
   } else abandonedSince = 0;
+  // Pre-game, NOTHING else clears a wedged action latch: the net watchdog's own
+  // pending check below is gated on gameStarted, and hostDeal() bails while the
+  // latch is set. So a deal whose echo never came back used to lock the table
+  // shut permanently — the table stays on the cover and every later attempt to
+  // open it returns at the first line. Ask for the state and let go of the latch;
+  // if the deal did land, onDeal seats us, and if two deals race the server
+  // orders them and the second is dropped as mid-round.
+  if (!gameStarted && pendingAction) {
+    if (!openPendingSince) openPendingSince = now;
+    else if (now - openPendingSince >= PENDING_STUCK_MS) {
+      openPendingSince = 0;
+      pendingAction = false;
+      try { if (window.Usion && Usion.game && Usion.game.requestSync) Usion.game.requestSync(0); } catch (_) {}
+      renderLobby();
+    }
+  } else openPendingSince = 0;
+  // The hard deadline. Everything below this line prefers to keep looking for a
+  // seat somebody else owes us; this is the point where we stop asking and just
+  // deal, with bots in whatever seats nobody took.
+  if (forceOpenStart(now)) return;
   // Last resort: we have been hunting for a seat far too long. Something here is
   // not answering — a peer on an older build, a wedged authority, a relay that
   // will not take our claims. Take the room over and deal against bots rather
   // than leave the player on a spinner. Deliberately NOT a local game: staying in
   // a real room is what lets the next person's search find us.
-  if (!gameStarted && openSeekSince && now - openSeekSince >= OPEN_STUCK_MS) {
+  //
+  // Skipped while the bot-fill clock is running (openStartCountdown() >= 0):
+  // hopping to another table restarts the seat hunt there, and three clients all
+  // doing that in step is exactly the merry-go-round that left everybody circling
+  // the ladder for minutes. If we are going to deal here shortly, wait for it.
+  if (!gameStarted && openSeekSince && now - openSeekSince >= OPEN_STUCK_MS
+      && openStartCountdown(now) < 0) {
     stopProbe();
     if (roomPlayerIds.some(id => id != null && id !== myId)) {
       // People are here and simply will not seat us. Their table is not ours to
@@ -2344,8 +2581,10 @@ function openTableWatchdog(now) {
       }
     }
   } else lastRegroupAt = 0;
-  // Seat anyone waiting, and make sure a bot seat that is on turn actually has
-  // somebody driving it (the elected client may have changed mid-turn).
+  // Hand back any seat whose player was gone before we ever got here…
+  sweepGhostSeats(now);
+  // …then seat anyone waiting, and make sure a bot seat that is on turn actually
+  // has somebody driving it (the elected client may have changed mid-turn).
   reconcileOpenSeats();
 }
 
@@ -2487,6 +2726,7 @@ let openSeekSince = 0;          // when we started looking for a seat — surviv
 async function joinOpenRoom(shard, fallbackRoomId) {
   openShard = shard;
   if (!openSeekSince) openSeekSince = Date.now();
+  noteOpenWait();                     // deliberately NOT reset by a hop or a re-search
   if (fallbackRoomId !== undefined) openFallbackRoom = fallbackRoomId;
   resetRoomState();
   onlineOverlay.classList.add("show");
@@ -2715,6 +2955,7 @@ function reconcilePresence(ids, confirmedId) {
 
 function onJoined(data) {
   joiningRoom = false;        // this ack is the new room speaking
+  roomJoinedAt = Date.now();  // …and starts the clock the ghost sweep settles on
   // Seats are locked to the roster the match was DEALT with (only the ready
   // players get seated), so once the game is running the server roster — which
   // also lists spectators who never got a seat — must not renumber us. Mid-game
@@ -2751,6 +2992,7 @@ function onPlayerJoined(data) {
     else if (joinedId != null && !roomPlayerIds.includes(joinedId)) roomPlayerIds.push(joinedId);
   }
   reconcilePresence(data.player_ids, joinedId);
+  noteHeardFrom(joinedId);      // a join event is the strongest proof of life there is
   if (typeof data.connected_count === "number") connectedCount = data.connected_count;
   else if (data.player && data.player.is_connected) connectedCount = Math.min(roomPlayerIds.length, connectedCount + 1);
   isHost = roomPlayerIds[0] === myId;
@@ -2928,7 +3170,7 @@ function targetSeats() {
 function updateOnlineStatus() {
   const s = document.getElementById("onlineStatus");
   if (!s || gameStarted || dealActive) return;
-  if (openTable) { s.textContent = t("openStatus"); return; }
+  if (openTable) { s.textContent = t("openStatus"); renderOpenWaitStatus(); return; }
   const n = targetSeats();
   s.textContent = connectedCount < n
     ? t("waitingPlayers", Math.min(connectedCount, n), n)
@@ -2953,6 +3195,8 @@ function resetRoomState() {
   lastSeq = 0; appliedBaseSeq = 0; appliedSequences = new Set();
   checkpointVersion = 0;
   sawRoomCheckpoint = false; lastRoomActivityAt = 0;
+  heardFrom.clear();            // proof of life belongs to the room we just left
+  roomJoinedAt = 0;
   seatWaitSince.clear(); lastSeatClaimAt = 0; lastOpenResetAt = 0;
   abandonedSince = 0; lastPlayerLeftAt = 0; lastRegroupAt = 0;
   lastSeenOrder = null;
@@ -2979,6 +3223,7 @@ function maybeStart() {
   if (!online || !openTable) { enterLobby(); return; }
   // No invite: no waiting room. Deal against bots and seat arrivals as they come.
   loseAt = OPEN_LOSE_AT;               // an open room runs one fixed road-to-20
+  noteOpenWait();                      // …and under everything, the bot-fill deadline
   enterLobby();
   scheduleOpenStart();
   startSeatPoll();
@@ -3034,9 +3279,15 @@ function enterLobby() {
   renderLobby();
 }
 // present players in roster order (then any extras), so seats are stable for all
+// Who to SHOW in the waiting room. An open table's roster is a public room's
+// whole history — everybody who has ever sat down at it — and listing that as
+// "here" is what put three names on a cover where one player was waiting alone.
+// A chat invite's roster is the invited group, which is exactly who belongs in
+// the list, so only the open table filters on proof of life.
 function lobbyOrder() {
-  const ids = roomPlayerIds.filter(id => presentIds.has(id));
-  presentIds.forEach(id => { if (!ids.includes(id)) ids.push(id); });
+  const here = openTable ? id => presentIds.has(id) && isLivePeer(id) : id => presentIds.has(id);
+  const ids = roomPlayerIds.filter(here);
+  presentIds.forEach(id => { if (here(id) && !ids.includes(id)) ids.push(id); });
   return ids;
 }
 function renderLobby() {
@@ -3057,7 +3308,7 @@ function renderLobby() {
     row.appendChild(makeAvatarEl(nm, avatar, "lobby-avatar", false));
     const nameEl = document.createElement("span");
     nameEl.className = "lobby-name";
-    nameEl.textContent = nm;
+    nameEl.textContent = shortName(nm);
     if (!openTable && id === hostId) {   // an open room has no host to speak of
       const tag = document.createElement("span");
       tag.className = "lobby-tag";
@@ -3083,6 +3334,7 @@ function renderLobby() {
     // for the moment it takes to find a table, so it must not look like a lobby
     // that is waiting on the player to do something.
     if (statusEl && statusEl.textContent !== t("openWaitSeat")) statusEl.textContent = t("openStatus");
+    renderOpenWaitStatus();   // …and once the bot-fill clock is running, it says so instead
     if (readyBtn) readyBtn.style.display = "none";
     if (startBtn) { startBtn.style.display = "none"; startBtn.disabled = true; }
     const limit = document.getElementById("lobbyLimit");
@@ -3149,7 +3401,7 @@ function hostStartGame() {
 // Start a solo offline game vs 3 bots (you + Bot Anh/Bat/Cag = 4 seats).
 function startBotsGame() {
   online = false; openTable = false; gameStarted = false; dealActive = false;
-  openSeekSince = 0;
+  openSeekSince = 0; openWaitSince = 0; openPendingSince = 0;
   myReady = false; presentIds.clear(); lobbyReady = {};
   onlineOverlay.classList.remove("show");
   handOverlay.classList.remove("show");
@@ -3212,7 +3464,8 @@ function startOnlineGame(data) {
   stopSeatPoll();
   stopHop();                           // we have a seat — this is our table now
   stopProbe();
-  openSeekSince = 0; staleCandidate = -1; claimOnArrival = false;
+  openSeekSince = 0; openWaitSince = 0; openPendingSince = 0;
+  staleCandidate = -1; claimOnArrival = false;
   if (openStartTimer) { clearTimeout(openStartTimer); openStartTimer = null; }
   gameStarted = true; online = true;
   statsRecordedThisGame = false;   // new match → allow recording its outcome once
@@ -3319,9 +3572,16 @@ function openTableIsClosed() {
   return players.some(p => p && p.isBot) && !openBotSeats().length;
 }
 // Humans in the room with no seat yet, in a stable order.
+// Who is standing at the table waiting for a seat. Proof of life matters as much
+// here as anywhere: a public room's roster names everybody who ever played here,
+// and without the filter the table spends its time dealing seats to people who
+// left days ago — seating a ghost, sweeping it back out, seating the next one —
+// while the person actually waiting stands there watching it happen.
 function unseatedPresent() {
   const out = [];
-  presentIds.forEach(id => { if (id != null && roomPlayerIds.indexOf(id) < 0) out.push(id); });
+  presentIds.forEach(id => {
+    if (id != null && isLivePeer(id) && roomPlayerIds.indexOf(id) < 0) out.push(id);
+  });
   return out.sort();
 }
 // Hand seat `seat` to a human. The seat's total/out/hand are untouched — that is
@@ -3387,7 +3647,7 @@ function applySeatMove(move, fromId) {
     // next person in the queue be seated on the following tick instead of after
     // another full SEAT_RETRY_MS.
     if (fromId === myId) lastSeatClaimAt = 0;
-    if (!replayingSync && id !== myId) toast(t("openJoined", players[seat].name));
+    if (!replayingSync && id !== myId) toast(t("openJoined", shortName(players[seat].name)));
     moveLog.push(move);
     if (!replayingSync && fromId === myId) writeCheckpoint();
     return true;
@@ -3400,7 +3660,7 @@ function applySeatMove(move, fromId) {
     if (!replayTrusted && (fromId == null || roomPlayerIds.indexOf(fromId) < 0)) return false;
     const gone = players[seat].name;
     seatBot(seat);                      // score stays on the seat; the bot inherits it
-    if (!replayingSync) toast(t("openLeftBot", gone));
+    if (!replayingSync) toast(t("openLeftBot", shortName(gone)));
     moveLog.push(move);
     if (!replayingSync && fromId === myId) writeCheckpoint();
     return true;
@@ -3486,7 +3746,8 @@ function openRoomIsAbandoned() {
   // tell a live opponent from a ghost. The server's connected count can. If the
   // host does not report one we simply never auto-clear — better a stale table
   // than one cleared out from under two people who are really playing.
-  if (!Number.isFinite(connectedCount) || connectedCount < 1 || connectedCount > 1) return false;
+  if (!Number.isFinite(connectedCount) || connectedCount < 1) return false;
+  if (!aloneInRoom()) return false;
   if (pendingLeaves.size) return false;          // somebody's grace is still running
   // Somebody dropped out a moment ago. An ELIMINATED seat gets no forfeit grace
   // of its own (there is nothing left to fold), so without this a peer who is
@@ -3504,7 +3765,7 @@ function reopenOpenTable() {
   // the room is dead, but they reach that from presence and connection counts,
   // and being wrong here means wiping a live game somebody else is playing.
   if (roomPlayerIds.some(id => id != null && id !== myId)) {
-    if (Number.isFinite(connectedCount) && connectedCount > 1) return;
+    if (!aloneInRoom()) return;
   }
   if (Date.now() - lastOpenResetAt < OPEN_RESET_COOLDOWN_MS) return;
   lastOpenResetAt = Date.now();
@@ -3653,7 +3914,7 @@ function sendMove(move, seat, proxy) {
 }
 function proxyAuthorityId(targetSeat) {
   for (let s = 0; s < roomPlayerIds.length; s++) {
-    if (s !== targetSeat && presentIds.has(roomPlayerIds[s])) return roomPlayerIds[s];
+    if (s !== targetSeat && mayActForTable(roomPlayerIds[s])) return roomPlayerIds[s];
   }
   return null;
 }
@@ -3833,6 +4094,7 @@ function onNetAction(data) {
   const sequence = Number(data.sequence);
   lastNetAt = Date.now();       // the table is still audible — see netWatchdog
   noteRoomActivity();           // and it proves a match is already running here
+  if (!replayingSync) noteHeardFrom(data.player_id);   // …and that its sender is here NOW
   if (Number.isFinite(sequence)) lastSeq = Math.max(lastSeq, sequence);
   // Clear our "sending…" state the moment we SEE our own action echoed — BEFORE
   // the dedup return. If a resync already applied this seq, the echo is a dup and
@@ -3871,8 +4133,15 @@ function onNetRealtime(data) {
     if (typeof d.ready === "boolean") lobbyReady[data.player_id] = d.ready;   // waiting-room only
     // A player_info broadcast is live proof the sender is in the room right now —
     // unlike the frozen roster — so it also un-releases somebody who came back.
+    // Answer the first announce from a peer we had not heard from. player_info is
+    // fire-and-forget: whoever's broadcast goes missing would otherwise be a ghost
+    // to the other for the rest of the room's life. One reply each way, and only
+    // on the first sighting, so this cannot ping-pong.
+    const firstSighting = !isLivePeer(data.player_id);
+    noteHeardFrom(data.player_id);
     presentIds.add(data.player_id);
     releasedIds.delete(data.player_id);
+    if (firstSighting) { try { sendPlayerInfo(); } catch (_) {} }
 
     // Adopt the match length only from the host, and only from the offered set —
     // it's the host's setting, and the deal will carry it authoritatively anyway.
@@ -3980,8 +4249,12 @@ function onDeal(d, fromId) {
     // deal from anyone the order seats, as long as it still puts the host at
     // seat 0 while the host is actually here.
     if (fromId == null || !Array.isArray(d.order) || d.order.indexOf(fromId) < 0) return false;
+    // "while the host is actually here" — and a ghost on the roster is not here.
+    // Without isLivePeer() a table abandoned by its host can never be reopened by
+    // anybody: every deal that does not seat the departed host at seat 0 is
+    // rejected, by every client, forever.
     const head = roomPlayerIds[0];
-    if (head != null && presentIds.has(head) && d.order[0] !== head) return false;
+    if (head != null && presentIds.has(head) && isLivePeer(head) && d.order[0] !== head) return false;
   }
   // Not seated in this match (e.g. wasn't ready when the host started) → stay in
   // the room instead of crashing on a -1 seat.

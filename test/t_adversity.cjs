@@ -7,7 +7,7 @@
 // people who were invited — while an OPEN ROOM (openWorld) hands the seat back
 // to a bot so the room keeps running.
 
-const { onlineWorld, openWorld, startMatch, arrive, botSeats, playOut, driveUntil, rejoin, eventually, consistency, dump } = require("./lib/world.cjs");
+const { onlineWorld, openWorld, startMatch, arrive, botSeats, playOut, driveUntil, rejoin, eventually, consistency, sameRoom, dump, PUBLIC_ROOM } = require("./lib/world.cjs");
 const { test, ok, eq, run } = require("./lib/tap.cjs");
 
 const finished = (w) => w.drivers().every(c => c.snap().overlays.winner);
@@ -730,6 +730,176 @@ test("open room: churn — joining and leaving all match long never splits the t
   });
   ok(r.ok, "churn: " + r.reason + "\n" + (r.dump || ""));
   for (const x of live) eq(x.errors.map(e => String(e && e.message || e)), [], x.id + " threw");
+});
+
+// ── The bot-fill deadline ────────────────────────────────
+// Reported from the live app: three people sat on the open-table cover for two
+// minutes, watching a spinner, while the table waited for a fourth who never
+// came. Whatever the room does to them, the deadline has to end it.
+
+/**
+ * Turn a public table into a GHOST: the checkpoint and log of a match seating
+ * four humans who are all gone, exactly what the relay keeps after a table
+ * empties out. Rewrites the ids so nobody who arrives next is in it.
+ */
+function ghostTable(w, roomId) {
+  const room = w.server.room(roomId);
+  let blob = JSON.stringify({ state: room.state, roster: room.roster });
+  ["u1", "u2", "u3", "u4"].forEach((id, i) => { blob = blob.split('"' + id + '"').join('"g' + (i + 1) + '"'); });
+  const ghost = JSON.parse(blob);
+  // Two of the four seats had already gone back to bots when the last human left,
+  // which is the cruel part: every arrival is told a seat is coming free, so it
+  // waits politely instead of moving on. Nobody is left alive to hand it over.
+  ghost.state.order[2] = null; ghost.state.order[3] = null;
+  room.state = ghost.state; room.roster = ghost.roster;
+  room.log = [];                      // compacted away, as a relay is free to do
+  room.members.clear();
+  return room;
+}
+/** Leftovers on every rung of the ladder, so hopping never finds a clean table. */
+function ghostLadder(w) {
+  const proto = ghostTable(w, PUBLIC_ROOM);
+  for (let n = 2; n <= 8; n++) {
+    const r = w.server.room("public-13-" + n);
+    r.state = JSON.parse(JSON.stringify(proto.state));
+    r.roster = proto.roster.slice();
+    r.seq = proto.seq;
+    r.log = [];
+  }
+}
+
+test("open room: three players left on the cover are dealt in with a bot, not left waiting", async () => {
+  // Reported from the live app. The room they walk into is a ghost: a checkpoint
+  // seating four humans who have all left. Nothing in it will ever move, but
+  // every escape hatch is disarmed by the same fact — the OTHER TWO victims are
+  // connected, so no one of them may clear the room out on the grounds that
+  // nobody else is here, and their own seat polling keeps refreshing the room's
+  // "still active" stamp so the opening deal defers forever. That is the spinner
+  // the deadline exists to end.
+  // bareJoinAck: the relay answers a join with the roster but not the checkpoint,
+  // so a client cannot tell from the acknowledgement alone whether the table it
+  // walked into is running. That is what keeps all three in the same room instead
+  // of scattering them, and it is how the live relay behaved when this was
+  // reported.
+  const w = await openWorld(4, { bareJoinAck: true });
+  await startMatch(w);
+  w.clients.slice(0, 4).forEach(c => c.leaveRoom());
+  ghostLadder(w);
+  await w.advance(2000);
+
+  const three = ["uX", "uY", "uZ"].map((id, i) => arrive(w, id, ["Xena", "Yuki", "Zaya"][i]));
+  for (const c of three) await w.advance(50);
+
+  // The cover must say what is about to happen rather than spin silently.
+  await w.advance(15 * 1000);
+  const counting = three.filter(c => /\d/.test(c.snap().status) && !c.snap().dealActive);
+  ok(counting.length === three.length || three.some(c => c.snap().dealActive),
+     "the cover should be counting down, not just spinning: " + three.map(c => c.snap().status).join(" | "));
+
+  // Long enough for the deadline (30s) plus the rank stagger, and nothing like
+  // the two minutes the players actually sat through.
+  const dealt = await eventually(w, () => three.every(c => c.snap().dealActive), 45 * 1000, 250);
+  ok(dealt, "nobody may be left on the cover past the deadline:\n" + dump(w));
+  const order = three[0].snap().order;
+  eq(order.filter(id => id != null).sort(), ["uX", "uY", "uZ"], "all three seated at one table\n" + dump(w));
+  eq(order.filter(id => id == null).length, 1, "and a bot in the seat nobody took");
+  for (const c of three) eq(c.snap().order, order, c.id + " sees the same table");
+  eq(three[0].snap().totals, [0, 0, 0, 0], "on a clean match, not the ghost's leftovers");
+  eq(consistency(w), null, dump(w));
+  await mustFinish(w, "dealt in by the deadline");
+});
+
+test("open room: the deadline never deals over a table that is really being played", async () => {
+  // The other half of the same rule. Four people are genuinely mid-match here, so
+  // the fifth arrival is owed nothing: it must keep looking rather than wipe a
+  // live game just because its own wait ran long.
+  const w = await openWorld(4);
+  await startMatch(w);
+  await driveUntil(w, () => w.clients[0].snap().roundMoveNo >= 2);
+  const before = w.clients[0].snap();
+
+  const late = arrive(w, "uL", "Lkhagva");
+  await w.advance(60 * 1000);
+  const after = w.clients[0].snap();
+  eq(after.order, before.order, "the live table keeps its seats\n" + dump(w));
+  ok(after.dealEpoch >= before.dealEpoch, "and its match was never reset");
+  ok(!after.order.includes("uL"), "the late arrival did not deal itself in");
+  ok(late.snap().dealActive, "…but it did get a game of its own\n" + dump(w));
+});
+
+test("open room: a player who left before we arrived does not keep their seat", async () => {
+  // Reported from the live app: "I went back into the room where that player was,
+  // and he still looks like he is sitting there — but he is offline." A seat only
+  // goes back to a bot when we SEE its player leave. Walk into a table they
+  // abandoned before you arrived and there is no such event to see, so their
+  // name, their score and their turn stay at the table forever.
+  //
+  // lingeringCount: the relay reports room MEMBERSHIP as connected_count, so the
+  // count says two people are here when one of them closed the app long ago —
+  // which is what disarms every check that would otherwise clear the room.
+  const w = await openWorld(2, { bareJoinAck: true, lingeringCount: true });
+  await startMatch(w);
+  const [A, B] = w.clients;
+  await driveUntil(w, () => A.snap().roundMoveNo >= 3, { budget: 2 * 60 * 1000 });
+  eq(A.snap().order.slice(0, 2), ["u1", "u2"], "both were really seated");
+  A.leaveRoom(); B.leaveRoom();          // both close the app inside one grace window
+  await w.advance(8 * 60 * 1000);        // …and the room keeps their checkpoint
+
+  const back = arrive(w, "u2", "Bob");   // B opens the game again
+  const seated = await eventually(w, () => back.snap().dealActive && back.snap().mySeat >= 0, 60 * 1000, 250);
+  ok(seated, "the returning player gets a table:\n" + dump(w));
+  const clean = await eventually(w, () => back.snap().order.indexOf("u1") < 0, 90 * 1000, 250);
+  ok(clean, "and nobody who is gone may still be holding a seat at it:\n" + dump(w));
+  const playing = await eventually(w, () => {
+    const t = back.snap();
+    return t.dealActive && t.mySeat >= 0 && t.order[t.mySeat] === "u2";
+  }, 60 * 1000, 250);
+  ok(playing, "…while the player who IS here is dealt into the table that is left:\n" + dump(w));
+  eq(back.errors.map(e => String(e && e.message || e)), [], "no client threw");
+});
+
+test("open room: the roster's leftovers are not shown as players in the room", async () => {
+  // The cover lists who is here. On a public table the roster is the room's whole
+  // history — everybody who has ever played on it — so listing it unfiltered puts
+  // a crowd of strangers on screen next to one player waiting alone.
+  const w = await openWorld(4, { bareJoinAck: true, lingeringCount: true });
+  await startMatch(w);
+  w.clients.slice(0, 4).forEach(c => c.leaveRoom());
+  ghostLadder(w);
+  await w.advance(2000);
+
+  const [X, Y] = ["uX", "uY"].map((id, i) => arrive(w, id, ["Xena", "Yuki"][i]));
+  await w.advance(50);
+  await eventually(w, () => X.snap().gameStarted || X.doc.querySelectorAll(".lobby-row").length > 0, 20 * 1000, 250);
+  if (!X.snap().gameStarted) {
+    const listed = X.doc.querySelectorAll(".lobby-row").length;
+    ok(listed <= 2, "only the people actually here are listed, not the roster's history (saw " + listed + ")");
+  }
+  const dealt = await eventually(w, () => [X, Y].every(c => c.snap().dealActive), 45 * 1000, 250);
+  ok(dealt, "and the two of them still get a game:\n" + dump(w));
+  eq(X.snap().order.filter(id => id != null).sort(), ["uX", "uY"], "seating exactly the two who are here");
+});
+
+test("open room: a search finds somebody already playing against bots", async () => {
+  // The bot fallback must not become a dead end: the whole point of dealing in a
+  // real public room instead of going local is that the next person's search can
+  // still find you and take a bot's seat.
+  const w = await openWorld(4, { bareJoinAck: true, lingeringCount: true });
+  await startMatch(w);
+  w.clients.slice(0, 4).forEach(c => c.leaveRoom());
+  ghostLadder(w);
+  await w.advance(2000);
+
+  const A = arrive(w, "uA", "Ariunaa");
+  ok(await eventually(w, () => A.snap().dealActive, 40 * 1000, 250), "A falls back to bots:\n" + dump(w));
+  eq(A.snap().order.filter(id => id != null), ["uA"], "alone with three bots");
+  await driveUntil(w, () => A.snap().roundMoveNo >= 2, { budget: 2 * 60 * 1000 });
+
+  const B = arrive(w, "uB", "Bat");
+  const met = await eventually(w, () => B.snap().gameStarted && A.snap().order.indexOf("uB") >= 0, 40 * 1000, 250);
+  ok(met, "and the next search finds them, rather than opening a second table:\n" + dump(w));
+  eq(sameRoom([A, B]), A.sdk.room.id, "at one table");
+  eq(consistency(w), null, dump(w));
 });
 
 if (require.main === module) run("ADVERSITY").then(r => process.exit(r.fails.length ? 1 : 0));

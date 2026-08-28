@@ -143,11 +143,10 @@ body {
 .opp--left  { top: 17%;  left: 2px;  width: 110px; }
 .opp--right { top: 17%;  right: 2px; width: 110px; }
 .opp-name {
-  display: flex; align-items: center; gap: 5px;
+  display: flex; align-items: center; gap: 5px; min-width: 0;
   max-width: 100%; font-size: 11px; font-weight: 700; letter-spacing: .2px;
 }
 .opp-profile-timer { width: 38px; height: 38px; }
-.opp--top .opp-profile-timer { width: 42px; height: 42px; }
 .opp-avatar { width: 100%; height: 100%; }
 /* Per-seat countdown ring. pathLength=100 drives the arc with a 0–100 offset. */
 .seat-timer { position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -162,8 +161,8 @@ body {
 .seat-timer.warn { animation: pulseTime 1s ease-in-out infinite; }
 @keyframes pulseTime { 50% { opacity: .62; } }
 
-.opp-pname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.opp-score { margin-left: 2px; font-family: "Noto Serif", serif; font-weight: 800; color: var(--gold-hi); }
+.opp-pname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opp-score { flex: 0 0 auto; margin-left: 2px; font-family: "Noto Serif", serif; font-weight: 800; color: var(--gold-hi); }
 .opp-fan {
   display: flex; justify-content: center; padding: 4px;
   border: 2px solid transparent; border-radius: 8px;
@@ -193,10 +192,9 @@ body {
    even when there is no height left to lift them into. */
 @media (max-height: 740px) {
   .opp--left, .opp--right { top: 12%; }
-  .opp--left .opp-profile-timer, .opp--right .opp-profile-timer { width: 30px; height: 30px; }
-  .opp--left .mini-back, .opp--right .mini-back {
-    width: 13px; height: 19px; margin-left: -10px;
-  }
+  .opp-profile-timer { width: 30px; height: 30px; }
+  .opp .mini-back { width: 13px; height: 19px; margin-left: -10px; }
+  .opp--left .mini-back, .opp--right .mini-back { margin-left: -10px; }
 }
 .opp-count { font-size: 10px; font-weight: 600; color: var(--text-dim); }
 .opp-action {
@@ -226,6 +224,8 @@ body {
 }
 .turn-line {
   position: relative;
+  max-width: min(86vw, 340px);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-family: "Noto Serif", serif;
   font-size: 16px; font-weight: 800; letter-spacing: .3px;
   color: var(--text);
@@ -233,6 +233,14 @@ body {
   background: var(--panel-2);
   border: 1px solid var(--line);
   min-height: 32px;
+}
+/* With a seat on each side, the line has only the corridor between them: 110px
+   of seat plus its 2px offset on either side. Running past that is what put a
+   long name on top of the neighbour's label. Inside the corridor it can never
+   touch them, at any name length. */
+body.has-side-seats .turn-line {
+  max-width: calc(100vw - 232px);
+  font-size: 14px; padding: 7px 12px;
 }
 .turn-line.mine {
   color: #2a210a;

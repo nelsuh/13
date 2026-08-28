@@ -37,14 +37,24 @@ class Room {
     this.started = false;             // set by tests once seats are frozen
   }
   connectedIds() { return this.roster.filter(id => { const s = this.members.get(id); return s && s.connected; }); }
-  connectedCount() { return this.connectedIds().length; }
+  // `lingeringCount` models a relay whose connected_count counts room MEMBERSHIP
+  // rather than live sockets, so somebody who closed the app days ago is still
+  // reported as connected. A client cannot then use the count to tell a live
+  // opponent from a ghost — which is how a departed player keeps appearing at
+  // the table.
+  connectedCount() { return this.server.opts.lingeringCount ? this.roster.length : this.connectedIds().length; }
   peers(exceptId) { return [...this.members.values()].filter(s => s.id !== exceptId); }
 }
 
 class Server {
   constructor(clock, opts) {
     this.clock = clock;
-    this.opts = Object.assign({ latency: 20, syncModel: "tail" }, opts || {});
+    // bareJoinAck models a relay whose join acknowledgement carries the roster
+    // but NOT the room's checkpoint — the state only ever arrives on requestSync.
+    // A client cannot tell from that ack whether the table it just walked into is
+    // running, which is the condition the live "everybody stuck on the cover"
+    // report was made under.
+    this.opts = Object.assign({ latency: 20, syncModel: "tail", bareJoinAck: false }, opts || {});
     this.rooms = new Map();
     this.reports = [];               // every Usion.game.reportResult payload
     this.dropNext = [];              // [{ to, type }] one-shot delivery drops
@@ -158,7 +168,7 @@ class SDK {
             player_ids: room.roster.slice(),
             connected_count: room.connectedCount(),
             sequence: room.seq,
-            game_state: room.state,
+            game_state: srv.opts.bareJoinAck ? null : room.state,
           };
           srv.push(self, "joined", ack);
           room.peers(self.id).forEach(p => srv.push(p, "playerJoined",
