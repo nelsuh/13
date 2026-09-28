@@ -23,6 +23,12 @@
   --good: #7fe3a6;
   --back-1: #155740;   /* card-back gradient (felt-toned) */
   --back-2: #0a2c1d;
+  /* Usion GameTok is edge to edge: the felt runs under the notch and the home
+     indicator, every control stays inside these insets. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 /* Red-velvet skin — same gold/cream accents over a crimson table */
 body.skin-red {
@@ -39,7 +45,7 @@ body.skin-red {
 
 /* Table-colour toggle (green ↔ red velvet) */
 .skin-toggle {
-  position: fixed; top: 8px; left: 8px; z-index: 70;
+  position: fixed; top: calc(var(--safe-top) + 8px); left: max(28px, calc(var(--safe-left) + 8px)); z-index: 70;
   width: 30px; height: 30px; border-radius: 50%; padding: 0;
   border: 2px solid var(--gold); cursor: pointer;
   background: linear-gradient(135deg, #1a6b46 0 50%, #8a2433 50% 100%);
@@ -79,7 +85,7 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
-  padding: 10px 10px max(10px, env(safe-area-inset-bottom));
+  padding: calc(var(--safe-top) + 10px) max(10px, var(--safe-right)) calc(var(--safe-bottom) + 10px) max(10px, var(--safe-left));
   overflow: hidden;
 }
 
@@ -129,7 +135,7 @@ body {
 }
 
 /* ── Opponents (seated around the table, shown as fanned card backs) ── */
-.opponents { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.opponents { position: absolute; inset: var(--safe-top) 0 0; pointer-events: none; z-index: 3; }
 .opp {
   position: absolute; pointer-events: auto;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
@@ -396,7 +402,7 @@ body.has-side-seats .turn-line {
   position: fixed; inset: 0;
   background: rgba(3, 10, 7, .68);
   display: none; align-items: center; justify-content: center;
-  z-index: 50; padding: 16px;
+  z-index: 50; padding: calc(var(--safe-top) + 16px) 16px calc(var(--safe-bottom) + 16px);
   backdrop-filter: blur(4px);
 }
 .overlay.show { display: flex; }
@@ -412,7 +418,7 @@ body.has-side-seats .turn-line {
   width: 100%; max-width: 380px;
   text-align: center;
   box-shadow: 0 24px 60px rgba(0,0,0,.6), inset 0 0 0 1px rgba(212,175,55,.18);
-  max-height: 94vh; overflow-y: auto;
+  max-height: min(94vh, 100%); overflow-y: auto;
 }
 .setup-head { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-bottom: 16px; }
 .setup-title {
@@ -550,7 +556,7 @@ body.has-side-seats .turn-line {
 
 /* ── Quick chat (emoji reactions + canned phrases) ──────── */
 .chat-toggle {
-  position: fixed; top: 8px; right: 8px; z-index: 70;
+  position: fixed; top: calc(var(--safe-top) + 8px); right: max(8px, var(--safe-right)); z-index: 70;
   width: 34px; height: 34px; border-radius: 50%; padding: 0;
   display: none; align-items: center; justify-content: center;
   font-size: 17px; line-height: 1; cursor: pointer;
@@ -563,7 +569,7 @@ body.has-side-seats .turn-line {
 
 .chat-picker {
   --chat-keyboard-inset: 0px;
-  position: fixed; top: 48px; right: 8px; z-index: 71;
+  position: fixed; top: calc(var(--safe-top) + 48px); right: max(8px, var(--safe-right)); z-index: 71;
   width: min(320px, calc(100vw - 16px));
   background: var(--panel-2);
   border: 1px solid var(--gold-deep); border-radius: 16px;
@@ -618,8 +624,8 @@ body.has-side-seats .turn-line {
 @media (max-width: 760px), (pointer: coarse) {
   .chat-toggle.custom-mode { visibility: hidden; pointer-events: none; }
   .chat-picker.custom-mode {
-    top: auto; right: max(8px, env(safe-area-inset-right));
-    bottom: calc(max(8px, env(safe-area-inset-bottom)) + var(--chat-keyboard-inset));
+    top: auto; right: max(8px, var(--safe-right));
+    bottom: calc(var(--safe-bottom) + 8px + var(--chat-keyboard-inset));
     width: min(440px, calc(100vw - 16px)); padding: 8px; transform-origin: bottom center;
   }
   .chat-picker.custom-mode .chat-emojis,
