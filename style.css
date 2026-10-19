@@ -579,7 +579,7 @@ body.has-side-seats .turn-line {
 }
 .chat-picker.show { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
 .chat-emojis {
-  display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px;
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
   padding-bottom: 10px; margin-bottom: 10px;
   border-bottom: 1px solid var(--line);
 }

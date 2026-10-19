@@ -1575,7 +1575,7 @@ document.getElementById("skinToggle").addEventListener("click", () => applySkin(
 // NB: the emoji/phrase lists live INSIDE buildChatPicker so applyLang() can
 // call it during early module init without tripping a const TDZ.
 function buildChatPicker() {
-  const REACTION_EMOJIS = ["👍", "😂", "🔥", "👏", "🎉", "😎", "😴", "😱"];
+  const REACTION_EMOJIS = ["😂", "😘", "😔", "😡", "😱", "😜", "😎", "🔥", "🎉", "😴", "👏", "👍"];
   const REACTION_PHRASE_KEYS = ["qcHurry", "qcBad",  "qcGotit", "qcNice", "qcWow"];
   const em = document.getElementById("chatEmojis");
   const ph = document.getElementById("chatPhrases");
