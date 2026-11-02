@@ -1652,7 +1652,11 @@ function setCustomChatOpen(open, focusInput) {
   if (custom) custom.setAttribute("aria-expanded", customChatOpen ? "true" : "false");
   if (customChatOpen) {
     updateChatKeyboardInset();
-    if (focusInput && input) requestAnimationFrame(() => input.focus());
+    // Focus inside the tap itself: mobile WebViews only raise the keyboard for a
+    // focus() that runs in the user gesture, and a rAF callback is outside it.
+    if (focusInput && input) {
+      try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); }
+    }
   } else {
     setChatKeyboardInset(picker, "0px");
     if (input && document.activeElement === input) input.blur();
