@@ -627,6 +627,18 @@ const passBtn = document.getElementById("passBtn");
 const setupOverlay = document.getElementById("setupOverlay");
 const onlineOverlay = document.getElementById("onlineOverlay");
 const menuOverlay = document.getElementById("menuOverlay");
+// First paint: the menu is the HTML's initial screen. A chat-invite launch is
+// already known from the launch params, so put up the waiting hall cover now
+// rather than flashing the menu until Usion.init fires.
+(function firstScreen() {
+  try {
+    const lp = window.Usion && typeof Usion.getLaunchParams === "function" ? (Usion.getLaunchParams() || {}) : {};
+    if (lp.mode === "multiplayer") {
+      menuOverlay.classList.remove("show");
+      onlineOverlay.classList.add("show");
+    }
+  } catch (_) {}
+})();
 const handOverlay = document.getElementById("handOverlay");
 const toastEl = document.getElementById("toast");
 
@@ -2255,6 +2267,7 @@ if (window.Usion && Usion.init) {
         // Chat invite → straight into the private room the invite created.
         openTable = false;
         online = true;
+        hideMenu();
         onlineOverlay.classList.add("show");
         await setupMultiplayer(config.roomId);
       } else {
@@ -3476,6 +3489,7 @@ function startBotsGame() {
   online = false; openTable = false; gameStarted = false; dealActive = false;
   openSeekSince = 0; openWaitSince = 0; openPendingSince = 0;
   myReady = false; presentIds.clear(); lobbyReady = {};
+  hideMenu();
   onlineOverlay.classList.remove("show");
   handOverlay.classList.remove("show");
   setupOverlay.classList.remove("show");

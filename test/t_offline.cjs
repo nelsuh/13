@@ -32,7 +32,11 @@ async function bootSetup(id, players, loseAt) {
   // No Usion.init callback fired: the game sits on its setup overlay, exactly
   // like the standalone/no-SDK preview.
   await w.advance(50);
-  ok(c.el("setupOverlay").classList.contains("show"), "setup overlay should be up");
+  // First paint is the 3-button menu, never the long rules/setup card.
+  ok(c.el("menuOverlay").classList.contains("show"), "menu is the first screen");
+  ok(!c.el("setupOverlay").classList.contains("show"), "the setup card must not flash on load");
+  // The setup card is still reachable (hand-over → New game); open it to test its options.
+  c.run('hideMenu(); setupOverlay.classList.add("show")');
   c.doc.querySelectorAll("#countRow .count-btn").find(b => b.getAttribute("data-count") === String(players)).dispatch("click");
   c.doc.querySelectorAll("#loseRow .count-btn").find(b => b.getAttribute("data-lose") === String(loseAt)).dispatch("click");
   c.el("nameInput").value = "Alice";

@@ -25,6 +25,22 @@ test("a no-invite launch stops on the menu: nothing dealt, nothing joined", asyn
   ok(!shown(c, "onlineOverlay") && !shown(c, "setupOverlay"), "no other overlay on top");
 });
 
+test("first paint, before Usion.init: the menu — not the rules card, not the hall", async () => {
+  const w = new World();
+  const c = w.add("m0", "Alice", { mode: "single", roomId: "standalone_m0", pick: "none" });
+  ok(shown(c, "menuOverlay"), "menu up from the very first frame");
+  ok(!shown(c, "setupOverlay"), "no rules/setup card flash");
+  ok(!shown(c, "onlineOverlay"), "no waiting-hall flash");
+});
+
+test("first paint of a chat invite: the waiting hall, never the menu", async () => {
+  const w = new World();
+  const c = w.add("m00", "Alice", { mode: "multiplayer", roomId: w.roomId });
+  ok(!shown(c, "menuOverlay"), "no menu flash for an invite");
+  ok(!shown(c, "setupOverlay"), "no rules/setup card flash");
+  ok(shown(c, "onlineOverlay"), "hall cover from the very first frame");
+});
+
 test("a chat invite skips the menu and goes straight to the waiting hall", async () => {
   const w = new World();
   const c = w.add("m2", "Alice", { mode: "multiplayer", roomId: w.roomId });
