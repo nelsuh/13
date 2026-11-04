@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600;700;800&family=Noto+Sans:wght@400;500;600;700;800&family=Noto+Serif:wght@700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=57">
+<link rel="stylesheet" href="style.css?v=59">
 </head>
 
 <body>
@@ -82,6 +82,28 @@
   </div>
 </div>
 
+<!-- Start menu: a no-invite launch picks how to play -->
+<div id="menuOverlay" class="overlay">
+  <div class="overlay-card menu-card">
+    <div class="setup-head">
+      <span class="title-ace" aria-hidden="true"><b>A</b><i>♠</i></span>
+      <h1 class="setup-title" id="menuTitle">МОНГОЛ ПОКЕР</h1>
+    </div>
+    <button class="menu-btn primary" id="menuOnlineBtn" type="button">
+      <span class="menu-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.6 3.9 5.6 3.9 9s-1.3 6.4-3.9 9c-2.6-2.6-3.9-5.6-3.9-9S9.4 5.6 12 3z"/></svg></span>
+      <span class="menu-label" id="menuOnlineLabel">Онлайн</span>
+    </button>
+    <button class="menu-btn" id="menuBotsBtn" type="button">
+      <span class="menu-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M9 13.5h.01M15 13.5h.01M9.5 17h5"/><circle cx="12" cy="3.5" r="1"/></svg></span>
+      <span class="menu-label" id="menuBotsLabel">Боттой тоглох</span>
+    </button>
+    <button class="menu-btn" id="menuInviteBtn" type="button">
+      <span class="menu-ico" aria-hidden="true"><svg viewBox="0 0 24 24" class="fill"><circle cx="9" cy="8" r="3.5"/><circle cx="17" cy="9" r="2.8"/><path d="M2.5 20c0-4 2.9-6.5 6.5-6.5s6.5 2.5 6.5 6.5z"/><path d="M14.5 14.2c.8-.4 1.6-.6 2.5-.6 2.8 0 4.5 2.1 4.5 5.4V20h-5"/></svg></span>
+      <span class="menu-label" id="menuInviteLabel">Найзаа урих</span>
+    </button>
+  </div>
+</div>
+
 <!-- Online cover: the chat-invite waiting room, and the brief connect screen an open room shows before it deals itself -->
 <div id="onlineOverlay" class="overlay">
   <div class="overlay-card lobby-card">
@@ -151,7 +173,7 @@
 <button id="skinToggle" class="skin-toggle" aria-label="Ширээний өнгө солих"></button>
 
 <script src="https://usions.com/usion-sdk.js"></script>
-<script src="script.js?v=73"></script>
+<script src="script.js?v=74"></script>
 
 </body>
 </html>

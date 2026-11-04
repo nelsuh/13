@@ -147,6 +147,10 @@ const STR = {
     dealing: "Хөзөр тарааж байна…",
     startGame: "ТОГЛООМ ЭХЛҮҮЛЭХ",
     playBots: "БОТТОЙ ТОГЛОХ",
+    menuOnline: "Онлайн",
+    menuBots: "Боттой тоглох",
+    menuInvite: "Найзаа урих",
+    inviteFail: "Урилга нээж чадсангүй",
     disconnectedPaused: "Холболт тасарлаа — түр зогссон…",
     dealFail: "Тараалт илгээж чадсангүй",
     moveFail: "Нүүдэл илгээж чадсангүй",
@@ -234,6 +238,10 @@ const STR = {
     dealing: "Dealing…",
     startGame: "START GAME",
     playBots: "PLAY VS BOTS",
+    menuOnline: "Online",
+    menuBots: "Play vs bots",
+    menuInvite: "Invite a friend",
+    inviteFail: "Couldn't open the invite",
     disconnectedPaused: "Connection lost — paused…",
     dealFail: "Couldn't send the deal",
     moveFail: "Couldn't send the move",
@@ -618,6 +626,7 @@ const playBtn = document.getElementById("playBtn");
 const passBtn = document.getElementById("passBtn");
 const setupOverlay = document.getElementById("setupOverlay");
 const onlineOverlay = document.getElementById("onlineOverlay");
+const menuOverlay = document.getElementById("menuOverlay");
 const handOverlay = document.getElementById("handOverlay");
 const toastEl = document.getElementById("toast");
 
@@ -643,7 +652,10 @@ function applyLang(lang) {
   set("setupTitle", "title"); set("setupSub", "setupSub");
   set("playersLabel", "playersLabel"); set("loseLabel", "loseLabel"); set("nameLabelText", "nameLabel");
   set("startBtn", "startGame"); set("setupFoot", "setupFoot");
-  set("lobbyTitle", "lobbyTitleInvite");   // enterLobby() swaps it for an open room set("startGameBtn", "startGame"); set("lobbyBotsBtn", "playBots");
+  set("lobbyTitle", "lobbyTitleInvite");   // enterLobby() swaps it for an open room
+  set("startGameBtn", "startGame"); set("lobbyBotsBtn", "playBots");
+  set("menuTitle", "title"); set("menuOnlineLabel", "menuOnline");
+  set("menuBotsLabel", "menuBots"); set("menuInviteLabel", "menuInvite");
   set("lobbyLoseLabel", "loseLabel");
   set("winnerLabel", "winnerLabel"); set("playAgainBtn", "playAgain");
   set("passBtn", "pass"); set("playBtn", "play");
@@ -2238,18 +2250,18 @@ if (window.Usion && Usion.init) {
       //     in mid-round by taking over the weakest bot.
       // Without a roomId at all (self-hosted preview) there is nothing to join,
       // so fall back to a purely local table.
-      if (config.roomId) {
-        openTable = launchedSolo(config);
+      setupOverlay.classList.remove("show");
+      if (config.roomId && !launchedSolo(config)) {
+        // Chat invite → straight into the private room the invite created.
+        openTable = false;
         online = true;
-        setupOverlay.classList.remove("show");
         onlineOverlay.classList.add("show");
-        // Invite → the private room the invite created. No invite → a SHARED
-        // public table, because the room the platform handed us is private to
-        // this player and nobody else could ever walk into it.
-        if (openTable) await joinOpenRoom(0, config.roomId);
-        else await setupMultiplayer(config.roomId);
+        await setupMultiplayer(config.roomId);
       } else {
-        startBotsGame();   // no room to join → zero-tap you + 3 bots, road to 20
+        // No invite → the player picks: Online (shared public table), vs bots
+        // (private, you + 3 bots), or Invite a friend (picker → waiting room).
+        launchRoomId = config.roomId || null;
+        showMenu();
       }
     });
   } catch (e) { /* standalone preview */ }
@@ -2887,6 +2899,61 @@ async function setupMultiplayer(roomId) {
   }
 }
 
+// ── Start menu (no-invite launch) ────────────────────────
+// Online       → the shared public-table ladder (tables fill 4 | 4 | 4 …)
+// Play vs bots → a private local table: you + 3 bots, no relay at all
+// Invite       → the host's friend picker; the promoted room opens the waiting hall
+let launchRoomId = null;      // the platform's own room — fallback if the ladder refuses us
+let inviting = false;
+function showMenu() {
+  online = false; openTable = false;
+  onlineOverlay.classList.remove("show");
+  setupOverlay.classList.remove("show");
+  if (menuOverlay) menuOverlay.classList.add("show");
+}
+function hideMenu() { if (menuOverlay) menuOverlay.classList.remove("show"); }
+function menuPlayOnline() {
+  if (!(window.Usion && Usion.game)) { hideMenu(); startBotsGame(); return; }
+  hideMenu();
+  openTable = true;
+  online = true;
+  onlineOverlay.classList.add("show");
+  joinOpenRoom(0, launchRoomId || undefined);
+}
+function menuPlayBots() {
+  hideMenu();
+  startBotsGame();
+}
+async function menuInvite() {
+  if (inviting) return;
+  if (!(window.Usion && Usion.game && typeof Usion.game.invite === "function")) { toast(t("inviteFail")); return; }
+  inviting = true;
+  const btn = document.getElementById("menuInviteBtn");
+  if (btn) btn.disabled = true;
+  try {
+    const res = await Usion.game.invite();
+    // Picked somebody → the host has made us a room (onRoomAssigned may have
+    // already fired); make sure the waiting hall is up either way. Closing the
+    // picker without picking anyone leaves us on the menu.
+    if (res && res.success) {
+      hideMenu();
+      if (!(online && !openTable)) onRoomPromoted();
+    }
+  } catch (err) {
+    console.error("Invite failed:", err);
+    toast(t("inviteFail"));
+  } finally {
+    inviting = false;
+    if (btn) btn.disabled = false;
+  }
+}
+(function wireMenu() {
+  const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("click", fn); };
+  on("menuOnlineBtn", menuPlayOnline);
+  on("menuBotsBtn", menuPlayBots);
+  on("menuInviteBtn", menuInvite);
+})();
+
 // Solo → host promotion (SDK ≥ 2.20): the user tapped the host's top-bar Share
 // button mid-solo and invited someone. The SDK has ALREADY updated
 // getLaunchParams().roomId and is connect()+join()ing us as playerIds[0] — our
@@ -2903,6 +2970,8 @@ function onRoomPromoted() {
   openFallbackRoom = null;
   online = true;
   myReady = false; lobbyReady = {};
+  stopLocalRound();
+  hideMenu();
   setupOverlay.classList.remove("show");
   handOverlay.classList.remove("show");
   document.getElementById("winnerOverlay").classList.remove("show");

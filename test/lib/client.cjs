@@ -149,6 +149,16 @@ class Client {
   start(config) {
     this.initPromise = Promise.resolve()
       .then(() => this.sdk.initCb && this.sdk.initCb(config))
+      .then(() => {
+        // A no-invite launch lands on the start menu. Tap what the scenario
+        // asked for: launch.pick = "online" | "bots" | "invite" | "none".
+        // Default: Online when the platform handed us a room, bots without one.
+        const menu = this.el("menuOverlay");
+        if (!menu || !menu.classList.contains("show")) return;
+        const pick = (this.sdk.launch && this.sdk.launch.pick) || (config && config.roomId ? "online" : "bots");
+        const ids = { online: "menuOnlineBtn", bots: "menuBotsBtn", invite: "menuInviteBtn" };
+        if (ids[pick]) this.click(ids[pick]);
+      })
       .catch(e => { this.errors.push(e); });
     return this.initPromise;
   }

@@ -239,6 +239,21 @@ class SDK {
         onReconnect: (cb) => { self.handlers.reconnect = cb; },
         onRematchRequest: (cb) => { self.handlers.rematch = cb; },
         onRoomAssigned: (cb) => { self.handlers.roomAssigned = cb; },
+        // The host's friend picker. launch.inviteRoom = the room the host makes
+        // when somebody is picked; launch.inviteCancel = the player closes it.
+        // Like the real host: set roomId, fire onRoomAssigned, join us, resolve.
+        invite() {
+          const game = this;
+          self.calls.invite = (self.calls.invite || 0) + 1;
+          return later(() => {
+            if (self.launch.inviteCancel || !self.launch.inviteRoom) return { success: false, invited: [] };
+            const rid = self.launch.inviteRoom;
+            self.launch.roomId = rid;
+            self.fire("roomAssigned", { roomId: rid });
+            game.join(rid).catch(() => {});
+            return { success: true, roomId: rid, invited: [] };
+          });
+        },
       },
     };
   }
