@@ -741,6 +741,7 @@ function renderMyPlayer() {
   paintAvatar(meAvatarEl, p.name, p.avatar, p.isBot);
 }
 function render() {
+  syncVoiceButton();
   // Unseated (waiting for a seat at a full open table): there is no hand, no
   // opponents and no seat of our own to draw — only the chat button's state.
   if (mySeat < 0 || !players[mySeat]) { updateChatButton(); return; }
@@ -1799,6 +1800,126 @@ document.getElementById("startBtn").addEventListener("click", () => {
 });
 
 // ── Online (Usion) ───────────────────────────────────────
+// Native voice, matching Muushig: opt in with a tap; every table has its own channel.
+let voiceRoomId = null, voiceJoined = false;
+let voiceOn = false, voiceBusy = false, voiceWanted = null, voiceLastChannel = null;
+let voiceSeq = 0, voiceApiBound = null, voicePeers = [];
+let voicePending = false;
+let voiceClosing = null;
+function nativeVoiceApi() {
+  const v = window.Usion && Usion.call;
+  try { return v && typeof v.isAvailable === "function" && v.isAvailable() ? v : null; }
+  catch (_) { return null; }
+}
+function voiceChannelFor(id) {
+  // Preserve a readable prefix and hash the full id so long room names don't collide.
+  let h = 2166136261;
+  const text = String(id);
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return "13-" + text.toLowerCase().replace(/[^a-z0-9_-]/g, "-").slice(0, 30) + "-" + (h >>> 0).toString(36);
+}
+function syncVoiceButton() {
+  const b = document.getElementById("voiceToggle");
+  if (!b) return;
+  b.hidden = !nativeVoiceApi() || ((!online || !voiceJoined || !voiceRoomId) && !voiceOn && !voiceBusy);
+  b.classList.toggle("on", voiceOn);
+  b.classList.toggle("busy", voiceBusy);
+  b.setAttribute("aria-pressed", String(voiceOn));
+  b.setAttribute("aria-busy", String(voiceBusy));
+  const label = LANG === "en" ? (voiceClosing ? "Turning microphone off" : voiceBusy ? "Cancel voice connection" : voiceOn ? "Turn microphone off" : "Turn microphone on")
+    : voiceClosing ? "Микрофон унтарч байна" : voiceBusy ? "Дуут холболтыг цуцлах" : voiceOn ? "Микрофон унтраах" : "Микрофон асаах";
+  b.setAttribute("aria-label", label); b.title = label;
+  const count = document.getElementById("voiceCount");
+  if (count) { count.hidden = !voiceOn || !voicePeers.length; count.textContent = voicePeers.length; }
+}
+function voiceStateChanged(st) {
+  if (!st) return;
+  const matches = voiceWanted && st.channel === voiceWanted.channel && st.scope === voiceWanted.scope;
+  // A permission prompt may complete after cancellation or after a room switch.
+  if (st.on && !matches && st.channel === voiceLastChannel) {
+    const v = nativeVoiceApi();
+    if (v) closeNativeVoice(v);
+  }
+  voiceOn = !!(st.on && (matches || st.channel === voiceLastChannel));
+  if (matches) voiceBusy = !!voiceClosing || st.status === "connecting" || st.status === "reconnecting";
+  voicePeers = matches && Array.isArray(st.peers) ? st.peers : [];
+  if (!st.on && st.status === "idle" && !voicePending) voiceWanted = null;
+  syncVoiceButton();
+}
+function initNativeVoice() {
+  const v = nativeVoiceApi();
+  if (v && v !== voiceApiBound) {
+    voiceApiBound = v;
+    v.onChange(voiceStateChanged);
+  }
+  syncVoiceButton();
+}
+function closeNativeVoice(v) {
+  if (voiceClosing) return voiceClosing;
+  // Keep the close request in flight until its native acknowledgement arrives.
+  // Otherwise a slow old micOff could close the next micOn session.
+  voiceBusy = true;
+  voiceClosing = Promise.resolve().then(() => v.micOff()).then(() => {
+    voiceOn = false;
+  }).catch(() => {
+    toast(LANG === "en" ? "Microphone shutdown was not confirmed. Tap to retry."
+      : "Микрофон унтарсныг баталгаажуулж чадсангүй. Дахин дарна уу");
+  }).finally(() => {
+    voiceClosing = null; voiceBusy = voicePending; syncVoiceButton();
+  });
+  syncVoiceButton();
+  return voiceClosing;
+}
+function stopVoice() {
+  const hadVoice = voiceWanted || voiceOn || voiceBusy;
+  ++voiceSeq; voiceWanted = null; voiceBusy = voicePending || !!voiceClosing; voicePeers = [];
+  const v = nativeVoiceApi();
+  if (v && hadVoice) closeNativeVoice(v);
+  syncVoiceButton();
+}
+async function toggleVoice() {
+  const v = nativeVoiceApi();
+  if (!v) return;
+  initNativeVoice();
+  if (voiceClosing) return;
+  if (voiceWanted || voiceOn || voiceBusy) { stopVoice(); return; }
+  if (!online || !voiceJoined || !voiceRoomId) return;
+  if (voicePending) return;
+  const seq = ++voiceSeq;
+  const opts = { channel: voiceChannelFor(voiceRoomId), scope: openTable ? "game" : "room" };
+  voiceWanted = opts; voiceLastChannel = opts.channel; voiceBusy = voicePending = true; syncVoiceButton();
+  try {
+    const st = await v.micOn(opts);
+    if (seq !== voiceSeq) {
+      // Serialize new attempts until the old micOn has returned, so a late result
+      // cannot turn a cancelled microphone back on.
+      if (!voiceWanted) await closeNativeVoice(v);
+      return;
+    }
+    if (st) voiceStateChanged(st);
+  } catch (e) {
+    if (seq !== voiceSeq) return;
+    stopVoice();
+    const denied = e && (e.code === "VOICE_MIC_DENIED" || e.code === "VOICE_DECLINED");
+    toast(LANG === "en" ? (denied ? "Microphone permission was denied" : "Voice could not connect. Try again.")
+      : denied ? "Микрофоны зөвшөөрөл өгсөнгүй" : "Дуу холбогдсонгүй. Дахин оролдоно уу");
+  } finally {
+    voicePending = false;
+    if (seq === voiceSeq || !voiceWanted) voiceBusy = !!voiceClosing;
+    syncVoiceButton();
+  }
+}
+const voiceToggleEl = document.getElementById("voiceToggle");
+if (voiceToggleEl) voiceToggleEl.addEventListener("click", toggleVoice);
+window.addEventListener("pagehide", stopVoice);
+// Keep the game fixed under browser pinch and keyboard zoom gestures.
+window.addEventListener("gesturestart", e => e.preventDefault(), { passive: false });
+window.addEventListener("wheel", e => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+window.addEventListener("touchmove", e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+window.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && ["+", "-", "=", "0"].includes(e.key)) e.preventDefault();
+});
+
 let online = false;
 // false → chat-invite room (waiting room, READY/Start, frozen roster)
 // true  → no-invite open room (self-dealing, bots fill empty seats, drop-in)
@@ -2243,6 +2364,7 @@ if (window.Usion && Usion.init) {
     Usion.init(async function (config) {
       applyLang(detectLang());   // the platform's language setting is known now
       myId = config.userId;
+      initNativeVoice();
       if (config.userName) myName = config.userName;
       if (config.userAvatar) myAvatar = normalizeAvatar(config.userAvatar);
       if (config.playerIds) roomPlayerIds = config.playerIds.slice();   // platform-provided roster (playerIds[0] = host)
@@ -2697,6 +2819,7 @@ function registerNetHandlers() {
   // auto-passed while offline) and tell the player. onTurnTimeout/startTurnTimer
   // both honor netPaused, so the clock sits frozen until we're back.
   if (Usion.game.onDisconnect) Usion.game.onDisconnect(() => {
+    stopVoice();
     netPaused = true;
     pausedAt = Date.now();
     turnTrusted = false;   // we're about to miss whatever happens next
@@ -2774,6 +2897,7 @@ async function joinOpenRoom(shard, fallbackRoomId) {
   }
   try {
     joiningRoom = true;
+    voiceRoomId = publicRoomId(shard);
     await Usion.game.join(publicRoomId(shard));
     armProbe();               // the join ack decides whether we stay here
     return true;
@@ -2783,7 +2907,7 @@ async function joinOpenRoom(shard, fallbackRoomId) {
     // back to the room the platform gave us: a private table against bots is
     // still a game, it just isn't a shared one.
     if (openFallbackRoom) {
-      try { await Usion.game.join(openFallbackRoom); return true; } catch (_) { /* fall through */ }
+      try { voiceRoomId = openFallbackRoom; await Usion.game.join(openFallbackRoom); return true; } catch (_) { /* fall through */ }
     }
     return giveUp(err);
   }
@@ -2900,6 +3024,7 @@ async function setupMultiplayer(roomId) {
   try {
     await Usion.game.connect();
     registerNetHandlers();
+    voiceRoomId = roomId;
     await Usion.game.join(roomId);
   } catch (err) {
     console.error("Multiplayer failed:", err);
@@ -2980,6 +3105,7 @@ function onRoomPromoted() {
   // start over or we would judge the new room's log against the old one's.
   resetRoomState();
   openTable = false;
+  try { voiceRoomId = Usion.getLaunchParams().roomId || Usion.config.roomId || null; } catch (_) {}
   openFallbackRoom = null;
   online = true;
   myReady = false; lobbyReady = {};
@@ -3040,6 +3166,10 @@ function reconcilePresence(ids, confirmedId) {
 }
 
 function onJoined(data) {
+  const joinedVoiceRoom = data.room_id || voiceRoomId;
+  if (voiceRoomId && joinedVoiceRoom !== voiceRoomId) stopVoice();
+  voiceRoomId = joinedVoiceRoom; voiceJoined = true;
+  initNativeVoice();
   joiningRoom = false;        // this ack is the new room speaking
   roomJoinedAt = Date.now();  // …and starts the clock the ghost sweep settles on
   // Seats are locked to the roster the match was DEALT with (only the ready
@@ -3267,6 +3397,7 @@ function updateOnlineStatus() {
 // the sequence numbers, roster, checkpoint and presence of the OLD room would all
 // be judged against the new one's log otherwise.
 function resetRoomState() {
+  stopVoice(); voiceJoined = false; voiceRoomId = null; syncVoiceButton();
   stopSeatPoll();
   stopHop();
   if (openStartTimer) { clearTimeout(openStartTimer); openStartTimer = null; }
@@ -3377,6 +3508,7 @@ function lobbyOrder() {
   return ids;
 }
 function renderLobby() {
+  syncVoiceButton();
   const list = document.getElementById("lobbyList");
   if (!list || gameStarted || dealActive) return;
   const ids = lobbyOrder();
@@ -3486,6 +3618,7 @@ function hostStartGame() {
 }
 // Start a solo offline game vs 3 bots (you + Bot Anh/Bat/Cag = 4 seats).
 function startBotsGame() {
+  stopVoice(); voiceJoined = false; voiceRoomId = null;
   online = false; openTable = false; gameStarted = false; dealActive = false;
   openSeekSince = 0; openWaitSince = 0; openPendingSince = 0;
   myReady = false; presentIds.clear(); lobbyReady = {};

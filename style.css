@@ -600,6 +600,28 @@ body.has-side-seats .turn-line {
 .chat-toggle.show-btn { display: flex; }
 .chat-toggle:active { transform: scale(.94); }
 
+/* Same native Usion voice channel as Muushig; accessible in lobby and results. */
+.voice-toggle {
+  position: fixed; top: calc(var(--safe-top) + 8px);
+  right: calc(max(8px, var(--safe-right)) + 44px); z-index: 72;
+  width: 34px; height: 34px; border-radius: 50%; padding: 6px;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid var(--gold); background: var(--panel-2); color: var(--gold-hi);
+  cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.5);
+}
+.voice-toggle[hidden] { display: none; }
+.voice-toggle svg { width: 20px; height: 20px; }
+.voice-toggle.on { background: #2f8f5b; color: #fff; }
+.voice-toggle.on .voice-slash { display: none; }
+.voice-toggle.busy { opacity: .65; }
+.voice-toggle:active { transform: scale(.94); }
+.voice-toggle:focus-visible { outline: 2px solid var(--cream); outline-offset: 3px; }
+.voice-count {
+  position: absolute; top: -5px; right: -5px; min-width: 16px; padding: 0 3px;
+  border-radius: 9px; background: var(--gold-hi); color: var(--ink);
+  font-size: 10px; font-weight: 800; line-height: 16px; pointer-events: none;
+}
+
 .chat-picker {
   --chat-keyboard-inset: 0px;
   position: fixed; top: calc(var(--safe-top) + 48px); right: max(8px, var(--safe-right)); z-index: 71;
