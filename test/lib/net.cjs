@@ -56,6 +56,7 @@ class Server {
     // report was made under.
     this.opts = Object.assign({ latency: 20, syncModel: "tail", bareJoinAck: false }, opts || {});
     this.rooms = new Map();
+    this.sharedKV = new Map();
     this.reports = [];               // every Usion.game.reportResult payload
     this.dropNext = [];              // [{ to, type }] one-shot delivery drops
     this.log = [];                   // transport trace, for debugging a failure
@@ -148,7 +149,11 @@ class SDK {
       init(cb) { self.initCb = cb; },
       getLanguage: () => "mn",
       getLaunchParams: () => Object.assign({}, self.launch),
-      cloud: { get: () => Promise.resolve(null), set: () => Promise.resolve({}), shared: { incr: () => Promise.resolve({}) } },
+      cloud: { get: () => Promise.resolve(null), set: () => Promise.resolve({}), shared: {
+        incr: () => Promise.resolve({}),
+        get: key => Promise.resolve(srv.sharedKV.has(key) ? JSON.parse(JSON.stringify(srv.sharedKV.get(key))) : null),
+        set: (key, value) => { srv.sharedKV.set(key, JSON.parse(JSON.stringify(value))); return Promise.resolve({success:true}); }
+      } },
       leaderboard: { submit: (v) => { self.calls.leaderboard.push(v); return Promise.resolve({ success: true }); } },
       game: {
         // `failConnect` simulates a relay we cannot reach at all, so the game has

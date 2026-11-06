@@ -117,6 +117,21 @@ body {
 }
 .player-avatar.bot-avatar { background: linear-gradient(145deg, #725d25, #2d260f); }
 
+/* Voice activity belongs to the portrait; the turn countdown stays independent. */
+.player-avatar.is-speaking {
+  border-color: #83efb3;
+  outline: 2px solid #6ce5a1;
+  outline-offset: 2px;
+  animation: voice-profile-pulse .85s ease-in-out infinite;
+}
+@keyframes voice-profile-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(87,227,151,.12), 0 0 8px rgba(87,227,151,.25); }
+  50% { box-shadow: 0 0 0 6px rgba(87,227,151,.04), 0 0 14px rgba(87,227,151,.5); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .player-avatar.is-speaking { animation: none; box-shadow: 0 0 8px rgba(87,227,151,.3); }
+}
+
 /* The countdown is the avatar border: a full yellow ring at rest which drains
    clockwise during that player's turn. */
 .profile-timer {

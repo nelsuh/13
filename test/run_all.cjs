@@ -2,7 +2,7 @@
 //   node 13/test/run_all.cjs
 // Each suite also runs standalone: node 13/test/t_adversity.cjs
 
-const SUITES = ["./t_rules.cjs", "./t_offline.cjs", "./t_online.cjs", "./t_adversity.cjs", "./t_findings.cjs", "./t_menu.cjs", "./t_voice.cjs"];
+const SUITES = ["./t_rules.cjs", "./t_offline.cjs", "./t_online.cjs", "./t_adversity.cjs", "./t_findings.cjs", "./t_menu.cjs", "./t_voice.cjs", "./t_matchmaking.cjs"];
 
 (async () => {
   const results = [];

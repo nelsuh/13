@@ -1,11 +1,12 @@
-const { World } = require('./lib/world.cjs');
+const { World, startMatch } = require('./lib/world.cjs');
 const { test, ok, eq, run } = require('./lib/tap.cjs');
 function native(c) {
   c.run(`
-    var voiceCalls = [], voiceListener = null, voiceDeferred = null, voiceError = null, voiceOffDeferred = false, voiceOffResolve = null;
+    var voiceCalls = [], voiceListener = null, voiceSpeaking = null, voiceDeferred = null, voiceError = null, voiceOffDeferred = false, voiceOffResolve = null;
     Usion.call = {
       isAvailable: () => true,
       onChange: fn => { voiceListener = fn; },
+      onSpeaking: fn => { voiceSpeaking = fn; },
       micOn: opts => {
         voiceCalls.push(['on', opts]);
         if (voiceError) return Promise.reject({code: voiceError});
@@ -104,6 +105,30 @@ test('failed shutdown stays visible and can be retried after leaving for bots', 
   c.run("Usion.call.micOff = () => { voiceListener({on:false,status:'idle'}); return Promise.resolve(); }");
   c.click('voiceToggle'); await w.advance(1);
   eq(c.read('voiceOn'), false); eq(c.el('voiceToggle').hidden, true);
+});
+test('speaking highlights the correct lobby/table portrait and survives a redraw', async () => {
+  const {w,c} = await room();
+  const guest = w.add('voice-b', 'Bob', {mode:'multiplayer', roomId:w.roomId});
+  guest.start({userId:'voice-b', userName:'Bob', roomId:w.roomId, playerIds:[]});
+  await w.advance(2000);
+  eq(w.errors(), [], 'both participants initialize');
+  c.click('voiceToggle'); await w.advance(1);
+  c.run("voiceSpeaking(['voice-b'])");
+  eq(c.read('Array.from(voiceSpeakers)'), ['voice-b']);
+  eq(c.read("Array.from(document.querySelectorAll('.lobby-avatar')).map(el => el.dataset.voiceId)"), ['voice-a','voice-b']);
+  const highlighted = () => c.read("Array.from(new Set(Array.from(document.querySelectorAll('.player-avatar')).filter(el => el.classList.contains('is-speaking')).map(el => el.dataset.voiceId)))");
+  eq(highlighted(), ['voice-b'], 'only the speaking guest in the waiting room');
+  await startMatch(w);
+  c.run('render()');
+  eq(highlighted(), ['voice-b'], 'speaker is preserved when seated and redrawn');
+  ok(c.read("Array.from(document.querySelectorAll('.opp-avatar')).some(el => el.dataset.voiceId === 'voice-b' && el.classList.contains('is-speaking'))"));
+  c.run("voiceSpeaking(['voice-a'])");
+  eq(c.el('meAvatar').classList.contains('is-speaking'), true);
+  c.run('voiceSpeaking([])');
+  eq(highlighted(), [], 'silence removes the ring immediately');
+  c.run("voiceSpeaking(['voice-a','voice-b'])");
+  c.click('voiceToggle'); await w.advance(1);
+  eq(highlighted(), [], 'leaving voice clears every ring');
 });
 module.exports.run = () => run('VOICE');
 if (require.main === module) module.exports.run().then(r => process.exit(r.fails.length ? 1 : 0));

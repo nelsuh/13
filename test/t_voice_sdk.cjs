@@ -25,7 +25,7 @@ async function main() {
       requests.push({ type, payload });
       if (type === 'CALL_VOICE_ON') return { state: { on: true, micOn: true,
         status: 'connected', channel: payload.channel, scope: payload.scope,
-        peers: [{ userId: 'actual-sdk', isMe: true, micOn: true }, { userId: 'peer', micOn: true }] } };
+        peers: [{ userId: 'actual-sdk', isMe: true, micOn: true, speaking: true }, { userId: 'peer', micOn: true }] } };
       if (type === 'CALL_VOICE_OFF') return { state: { on: false, status: 'idle', peers: [] } };
       throw new Error('Unexpected host request ' + type);
     };
@@ -35,12 +35,14 @@ async function main() {
     c.click('voiceToggle'); await w.advance(1);
     assert.equal(c.read('voiceOn'), true);
     assert.equal(c.el('voiceCount').textContent, '2');
+    assert.equal(c.read("voiceSpeakers.has('actual-sdk')"), true, 'real SDK speaking state reaches the profile effect');
     assert.equal(requests[0].type, 'CALL_VOICE_ON');
     assert.equal(requests[0].payload.scope, isPublic ? 'game' : 'room');
     assert.equal(requests[0].payload.listen, false, 'microphone rather than listen-only');
     assert.match(requests[0].payload.channel, /^[a-z0-9][a-z0-9_-]{0,47}$/);
     c.click('voiceToggle'); await w.advance(1);
     assert.equal(c.read('voiceOn || voiceBusy'), false);
+    assert.equal(c.read('voiceSpeakers.size'), 0);
     assert.equal(requests[1].type, 'CALL_VOICE_OFF');
     assert.deepEqual(w.errors(), []);
   }

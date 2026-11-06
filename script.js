@@ -739,9 +739,11 @@ function renderMyPlayer() {
   if (!p) return;
   meNameEl.textContent = shortName(p.name);
   paintAvatar(meAvatarEl, p.name, p.avatar, p.isBot);
+  markVoiceAvatar(meAvatarEl, online ? roomPlayerIds[mySeat] : null, p.isBot);
 }
 function render() {
   syncVoiceButton();
+  publishOpenTable();
   // Unseated (waiting for a seat at a full open table): there is no hand, no
   // opponents and no seat of our own to draw — only the chat button's state.
   if (mySeat < 0 || !players[mySeat]) { updateChatButton(); return; }
@@ -888,7 +890,9 @@ function renderOpponents() {
     div.dataset.seat = seat;
     const profileTimer = document.createElement("span");
     profileTimer.className = "profile-timer opp-profile-timer";
-    profileTimer.appendChild(makeAvatarEl(p.name, p.avatar, "opp-avatar", p.isBot));
+    const avatarEl = makeAvatarEl(p.name, p.avatar, "opp-avatar", p.isBot);
+    markVoiceAvatar(avatarEl, online ? roomPlayerIds[seat] : null, p.isBot);
+    profileTimer.appendChild(avatarEl);
     const timer = document.createElement("span");
     timer.className = "opp-timer seat-timer" + (live ? " live" : "");
     timer.innerHTML = ringSVG();
@@ -1806,6 +1810,19 @@ let voiceOn = false, voiceBusy = false, voiceWanted = null, voiceLastChannel = n
 let voiceSeq = 0, voiceApiBound = null, voicePeers = [];
 let voicePending = false;
 let voiceClosing = null;
+let voiceSpeakers = new Set();
+function markVoiceAvatar(el, id, isBot) {
+  if (!el) return;
+  el.dataset.voiceId = !isBot && id != null ? String(id) : "";
+  el.classList.toggle("is-speaking", !!el.dataset.voiceId && voiceSpeakers.has(el.dataset.voiceId));
+}
+function setVoiceSpeakers(ids) {
+  voiceSpeakers = new Set(voiceOn && voiceWanted && !voiceClosing
+    ? (ids || []).filter(id => typeof id === "string") : []);
+  document.querySelectorAll(".player-avatar").forEach(el => {
+    el.classList.toggle("is-speaking", !!el.dataset.voiceId && voiceSpeakers.has(el.dataset.voiceId));
+  });
+}
 function nativeVoiceApi() {
   const v = window.Usion && Usion.call;
   try { return v && typeof v.isAvailable === "function" && v.isAvailable() ? v : null; }
@@ -1843,6 +1860,7 @@ function voiceStateChanged(st) {
   voiceOn = !!(st.on && (matches || st.channel === voiceLastChannel));
   if (matches) voiceBusy = !!voiceClosing || st.status === "connecting" || st.status === "reconnecting";
   voicePeers = matches && Array.isArray(st.peers) ? st.peers : [];
+  setVoiceSpeakers(voicePeers.filter(p => p.speaking && p.micOn !== false).map(p => p.userId));
   if (!st.on && st.status === "idle" && !voicePending) voiceWanted = null;
   syncVoiceButton();
 }
@@ -1851,6 +1869,7 @@ function initNativeVoice() {
   if (v && v !== voiceApiBound) {
     voiceApiBound = v;
     v.onChange(voiceStateChanged);
+    if (typeof v.onSpeaking === "function") v.onSpeaking(setVoiceSpeakers);
   }
   syncVoiceButton();
 }
@@ -1867,12 +1886,14 @@ function closeNativeVoice(v) {
   }).finally(() => {
     voiceClosing = null; voiceBusy = voicePending; syncVoiceButton();
   });
+  setVoiceSpeakers([]);
   syncVoiceButton();
   return voiceClosing;
 }
 function stopVoice() {
   const hadVoice = voiceWanted || voiceOn || voiceBusy;
   ++voiceSeq; voiceWanted = null; voiceBusy = voicePending || !!voiceClosing; voicePeers = [];
+  setVoiceSpeakers([]);
   const v = nativeVoiceApi();
   if (v && hadVoice) closeNativeVoice(v);
   syncVoiceButton();
@@ -2664,6 +2685,7 @@ function renderOpenWaitStatus(now) {
 }
 // Everything an open room has to keep an eye on, seated or not.
 function openTableWatchdog(now) {
+  publishOpenTable();
   renderOpenWaitStatus(now);
   if (openRoomIsAbandoned()) {
     // An empty room holding nothing but a stale log is ours as soon as the join
@@ -2875,6 +2897,65 @@ let lastSeenOrder = null;
 function publicRoomId(n) { return OPEN_ROOM_PREFIX + ((n % OPEN_ROOM_SHARDS) + 1); }
 
 let openSeekSince = 0;          // when we started looking for a seat — survives hops
+// Publish occupancy without joining other tables and accidentally taking seats.
+const TABLE_DIRECTORY_PREFIX = "public13.table.v1.";
+const TABLE_DIRECTORY_TTL = 45000;
+let directoryLastKey = null, directoryLastSignature = null, directoryLastAt = 0;
+let directoryWriting = false, openSearchSeq = 0;
+let preferredOpenShards = [];
+function publishOpenTable() {
+  const shared = window.Usion && Usion.cloud && Usion.cloud.shared;
+  if (!shared || typeof shared.set !== "function" || !online || !openTable || !gameStarted || netPaused || joiningRoom) return;
+  if (authorityRank() !== 0) return;
+  const roomId = publicRoomId(openShard);
+  const shard = openShard;
+  if (voiceRoomId && voiceRoomId !== roomId) return;
+  const humans = roomPlayerIds.filter(id => id != null && presentIds.has(id) && isLivePeer(id)).length;
+  const freeSeats = openBotSeats().length;
+  const signature = humans + ":" + freeSeats;
+  const now = Date.now();
+  const sameRoom = directoryLastKey === roomId;
+  if (directoryWriting || (sameRoom && now - directoryLastAt < 5000) ||
+      (sameRoom && signature === directoryLastSignature && now - directoryLastAt < 15000)) return;
+  directoryWriting = true;
+  directoryLastKey = roomId; directoryLastSignature = signature; directoryLastAt = now;
+  Promise.resolve().then(() => shared.set(TABLE_DIRECTORY_PREFIX + shard,
+    { version: 1, humans, freeSeats, updatedAt: now })).catch(() => {
+      directoryLastSignature = null;
+  }).finally(() => { directoryWriting = false; });
+}
+async function fullestOpenShard(fallback, candidates) {
+  const shared = window.Usion && Usion.cloud && Usion.cloud.shared;
+  if (!shared || typeof shared.get !== "function") return fallback;
+  let timer;
+  try {
+    const entries = await Promise.race([
+      Promise.all(Array.from({ length: OPEN_ROOM_SHARDS }, (_, shard) =>
+        Promise.resolve().then(() => shared.get(TABLE_DIRECTORY_PREFIX + shard)).catch(() => null))),
+      new Promise(resolve => { timer = setTimeout(() => resolve([]), 1500); })
+    ]);
+    const eligible = [];
+    entries.forEach((entry, shard) => {
+      if (!entry || entry.version !== 1 || !Number.isInteger(entry.humans) ||
+          entry.humans <= 0 || entry.humans >= OPEN_SEATS ||
+          !Number.isInteger(entry.freeSeats) || entry.freeSeats <= 0 || entry.freeSeats > OPEN_SEATS ||
+          !Number.isFinite(entry.updatedAt) || Date.now() - entry.updatedAt > TABLE_DIRECTORY_TTL ||
+          entry.updatedAt > Date.now() + 5000) return;
+      eligible.push({ shard, humans: entry.humans });
+    });
+    eligible.sort((a,b) => b.humans - a.humans || a.shard - b.shard);
+    if (candidates) candidates.push(...eligible);
+    return eligible.length ? eligible[0].shard : fallback;
+  } finally { if (timer) clearTimeout(timer); }
+}
+async function findOpenTable(fallbackShard, fallbackRoomId) {
+  const seq = ++openSearchSeq;
+  const candidates = [];
+  const shard = await fullestOpenShard(fallbackShard, candidates);
+  if (seq !== openSearchSeq || !online || !openTable) return;
+  preferredOpenShards = candidates.map(entry => entry.shard).filter(candidate => candidate !== shard);
+  joinOpenRoom(shard, fallbackRoomId);
+}
 async function joinOpenRoom(shard, fallbackRoomId) {
   openShard = shard;
   if (!openSeekSince) openSeekSince = Date.now();
@@ -2943,6 +3024,7 @@ function probeRoom(data) {
   // at all we come back and set up there, which keeps tables bunched at the front
   // of the ladder where the next person's search reaches them soonest.
   if (!others && staleCandidate < 0) staleCandidate = openShard;
+  if (!others && preferredOpenShards.length) return probeNextRung();
   // Never used at all. Tables are only ever opened on the lowest empty rung, so
   // an untouched one means nothing beyond it has ever existed either — there is
   // nobody further along to find, and the search is over.
@@ -2951,6 +3033,12 @@ function probeRoom(data) {
 }
 function probeNextRung() {
   if (!online || !openTable || probeSettled || gameStarted) return true;
+  if (preferredOpenShards.length) {
+    const next = preferredOpenShards.shift();
+    try { if (window.Usion && Usion.game && Usion.game.leave) Usion.game.leave(); } catch (_) {}
+    joinOpenRoom(next);
+    return false;
+  }
   if (openShard + 1 >= OPEN_ROOM_SHARDS) return settleOnEmptyRung();
   try { if (window.Usion && Usion.game && Usion.game.leave) Usion.game.leave(); } catch (_) {}
   joinOpenRoom(openShard + 1);
@@ -2991,7 +3079,7 @@ function searchAgainFrom(shard) {
   openSeekSince = 0;
   probeSettled = false;          // search again, properly, from here
   try { if (window.Usion && Usion.game && Usion.game.leave) Usion.game.leave(); } catch (_) {}
-  joinOpenRoom(shard);
+  findOpenTable(shard);
 }
 function regroupToFront() {
   if (openShard > 0) searchAgainFrom(0);
@@ -3056,7 +3144,7 @@ function menuPlayOnline() {
   openTable = true;
   online = true;
   onlineOverlay.classList.add("show");
-  joinOpenRoom(0, launchRoomId || undefined);
+  findOpenTable(0, launchRoomId || undefined);
 }
 function menuPlayBots() {
   hideMenu();
@@ -3104,6 +3192,7 @@ function onRoomPromoted() {
   // room from whatever we were in, so every piece of per-room bookkeeping has to
   // start over or we would judge the new room's log against the old one's.
   resetRoomState();
+  ++openSearchSeq;
   openTable = false;
   try { voiceRoomId = Usion.getLaunchParams().roomId || Usion.config.roomId || null; } catch (_) {}
   openFallbackRoom = null;
@@ -3359,6 +3448,9 @@ function onPlayerLeft(data) {
   if (data && data.player_id != null) presentIds.delete(data.player_id);
   const seat = (data && data.player_id != null) ? roomPlayerIds.indexOf(data.player_id) : -1;
   if (seat < 0 || !players[seat] || players[seat].out) {
+    // Room rosters retain past visitors. A visitor who probed a full table and
+    // left must not be revived and seated when somebody else later frees a seat.
+    if (data && data.player_id != null) releasedIds.add(data.player_id);
     // Nothing to fold (spectator, or an already-eliminated player — including the
     // eliminated HOST walking away). But if the table is waiting on a deal, the
     // client that owed it may be the one that just left: re-rank and cover it.
@@ -3523,7 +3615,9 @@ function renderLobby() {
     const avatar = meta.avatar || (id === myId ? myAvatar : null);
     const row = document.createElement("div");
     row.className = "lobby-row" + (id === myId ? " me" : "");
-    row.appendChild(makeAvatarEl(nm, avatar, "lobby-avatar", false));
+    const avatarEl = makeAvatarEl(nm, avatar, "lobby-avatar", false);
+    markVoiceAvatar(avatarEl, id, false);
+    row.appendChild(avatarEl);
     const nameEl = document.createElement("span");
     nameEl.className = "lobby-name";
     nameEl.textContent = shortName(nm);
@@ -3618,6 +3712,7 @@ function hostStartGame() {
 }
 // Start a solo offline game vs 3 bots (you + Bot Anh/Bat/Cag = 4 seats).
 function startBotsGame() {
+  ++openSearchSeq;
   stopVoice(); voiceJoined = false; voiceRoomId = null;
   online = false; openTable = false; gameStarted = false; dealActive = false;
   openSeekSince = 0; openWaitSince = 0; openPendingSince = 0;

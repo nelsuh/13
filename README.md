@@ -67,8 +67,18 @@ not happen by itself. Tables spread over the ladder, people leave gaps in it, an
 a client that only ever looked at table 1 would open a brand-new table right next
 to somebody playing alone with bots two rungs along. Neither would ever know.
 
-So we walk the ladder, spending at most `OPEN_PROBE_MS` on each rung, and the join
-acknowledgement decides what happens:
+Before joining, read the eight public tables' occupancy records in
+`Usion.cloud.shared` and choose the **most populated table with a playable bot
+seat**, like Muushig. Equal counts prefer the lower table number. One elected
+seated client publishes each table's human count and available seats, refreshing
+quiet tables every 15 seconds and coalescing changes over 5 seconds. Records
+older than 45 seconds, full tables and invalid records are ignored. These are
+occupancy hints, not seat reservations: the existing live join and seat-action
+validation still decides whether the newcomer can actually sit down.
+
+If shared storage is unavailable, takes over 1.5 seconds, or has no eligible
+record, fall back to walking the ladder. The join acknowledgement decides what
+happens:
 
 | what the rung looks like | what we do |
 |---|---|
