@@ -814,6 +814,7 @@ function resumeTurnTimer() {
 // only ever come from the one client that is asleep). After a further grace window
 // the elected lowest-ranked live client will act FOR them.
 const PROXY_GRACE_MS = 10000;
+const PROXY_STAGGER_MS = 8000;   // each further seat in line waits this much longer
 function onTurnTimeout() {
   if (!dealActive || netPaused) return;   // never resolve a timeout while our link is down
   if (!online) {
@@ -834,9 +835,12 @@ function proxyRank(seat) {
 function scheduleProxyMove(seat) {
   if (proxyTimer) { clearTimeout(proxyTimer); proxyTimer = null; }
   const rank = proxyRank(seat);
-  // A single deterministic authority covers the stalled seat. Letting every peer
-  // send a staggered `auto:true` move makes another player's seat forgeable.
-  if (rank !== 0) return;                            // not elected / not in the room → not our job
+  // The lowest present seat covers first; the others follow one stagger apart.
+  // A single elected cover froze the table whenever that one phone was locked —
+  // a locked phone never leaves presentIds. Duplicates collapse on `ti`, and the
+  // content of a cover is fixed by the engine (see applyRemoteMove), so letting
+  // the next seat in line send it changes nothing but who wakes the table up.
+  if (rank < 0) return;                              // not in the room → not our job
   // If we didn't watch this turn start our clock is meaningless, so we hang back a
   // whole extra turn and let the clients that DID see it go first. We still act
   // eventually: if every client rebuilt during this turn, somebody has to, or the
@@ -850,7 +854,7 @@ function scheduleProxyMove(seat) {
     if (!online || !dealActive || netPaused) return;
     if (epoch !== dealEpoch || moveNo !== roundMoveNo || turn !== seat) return;
     autoMove(seat, true);
-  }, extra + PROXY_GRACE_MS);
+  }, extra + PROXY_GRACE_MS + rank * PROXY_STAGGER_MS);
 }
 // `proxy` = we are acting on behalf of a seat that isn't ours. Every client holds
 // every hand (same seed → same deal), so the forced move is identical whoever
@@ -1285,19 +1289,28 @@ function botDecision(seat) {
 // room. Bot seats hold `null` in roomPlayerIds and are never in presentIds, so
 // they can never elect themselves.
 function botAuthorityId(seat) { return proxyAuthorityId(seat); }
+// Our place in line to drive a bot seat: 0 = the elected relay, -1 = not at all.
+// Everyone else in line follows one stagger later, so one locked phone (which
+// never leaves presentIds) cannot freeze every bot at the table. A duplicate
+// collapses on `ti`, and a bot move must equal the engine's own choice.
+const BOT_STAGGER_MS = 5000;
+function botRank(seat) {
+  return roomPlayerIds.filter((id, s) => s !== seat && id != null && mayActForTable(id)).indexOf(myId);
+}
 function scheduleBotMove(seat) {
   if (botTimer) { clearTimeout(botTimer); botTimer = null; }
   if (!online || !dealActive || netPaused) return;
   if (!players[seat] || !players[seat].isBot || players[seat].out) return;
   if (turn !== seat) return;
-  if (botAuthorityId(seat) !== myId) return;              // not our bot to play
+  const rank = botRank(seat);
+  if (rank < 0) return;                                   // not seated here → not our bot to play
   const epoch = dealEpoch, moveNo = roundMoveNo;
   botTimer = setTimeout(function () {
     botTimer = null;
     if (!online || !dealActive || netPaused) return;
     if (epoch !== dealEpoch || moveNo !== roundMoveNo || turn !== seat) return;
     if (!players[seat] || !players[seat].isBot || players[seat].out) return;
-    if (botAuthorityId(seat) !== myId) return;
+    if (botRank(seat) < 0) return;
     // Our own move is still awaiting its echo — sendMove would drop this on the
     // floor, so come back once the latch clears rather than stalling the seat.
     if (pendingAction) { scheduleBotMove(seat); return; }
@@ -1306,7 +1319,7 @@ function scheduleBotMove(seat) {
     const mv = d.kind === "pass" ? { kind: "pass" } : { kind: "play", cards: d.combo.cards.map(cardWire) };
     mv.bot = true;
     sendMove(mv, seat, true);
-  }, BOT_MOVE_MS);
+  }, BOT_MOVE_MS + rank * BOT_STAGGER_MS);
 }
 // Nudge a bot seat that is on turn but has nobody driving it — after a replay,
 // after a seat change, or after the elected authority disappeared. Idempotent.
@@ -2285,6 +2298,29 @@ function applyCheckpoint(state) {
   applyNames(state.names);                              // host-supplied identities before seating
   applyAvatars(state.avatars);
   if (!gameStarted && !startOnlineGame({ order: state.order })) return false;
+  // An open room's roster moves while we are away, so the seats' identities have
+  // to follow the snapshot's order, not just the order itself. Keeping a stale
+  // isBot/name made this client disagree with everyone else about which seat a
+  // newcomer takes (takeoverSeat reads isBot) and split the table. Somebody the
+  // snapshot no longer seats has left: drop them from presence too, exactly as
+  // seatBot() would have if we had seen the seat_release live.
+  if (gameStarted && openTable) {
+    const prev = roomPlayerIds.slice();
+    state.order.forEach((id, s) => {
+      if (!players[s]) return;
+      if (id == null) {
+        if (!players[s].isBot) { players[s].isBot = true; players[s].name = botSeatName(s); players[s].avatar = null; }
+      } else if (players[s].isBot || prev[s] !== id) {
+        players[s].isBot = false;
+        const meta = playerMeta[id] || {};
+        players[s].name = meta.name || (id === myId ? (myName || t("you")) : t("playerN", s + 1));
+        players[s].avatar = normalizeAvatar(meta.avatar) || (id === myId ? myAvatar : null);
+      }
+    });
+    prev.forEach(id => {
+      if (id != null && id !== myId && state.order.indexOf(id) < 0) { presentIds.delete(id); releasedIds.add(id); clearForfeitGrace(id); }
+    });
+  }
   roomPlayerIds = state.order.slice();
   numPlayers = roomPlayerIds.length;
   mySeat = roomPlayerIds.indexOf(myId);
@@ -4138,19 +4174,41 @@ function buildOpenOrder() {
 
 // Deal a round. Callers decide WHO may call it: the opening deal comes from the
 // staggered open-table election, later rounds go through scheduleNextDeal.
+// The seed of every round after the first is a hash of the round before it, so
+// whoever deals cannot choose it. A free dealer-picked seed let a modified client
+// search thousands of seeds for one that deals itself a dragon and win the match
+// in a single deal. onDeal() rejects a mid-match deal whose seed is not this.
+function nextRoundSeed(prevSeed, log) {
+  let s = String(prevSeed) + ";";
+  (log || []).forEach(m => { if (m && (m.kind === "play" || m.kind === "pass")) s += moveKey(m) + ";"; });
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0) & 0x7fffffff;
+}
+function chainedDeal(reset) { return gameStarted && !reset; }
 function hostDeal(reset) {
   if (pendingAction) return;
-  curSeed = randomSeed();
+  // Do not overwrite curSeed here: our own echo verifies the seed against it.
+  const seed = chainedDeal(reset) ? nextRoundSeed(curSeed, moveLog) : randomSeed();
   // carry the starter context so every client picks the SAME leader: firstDeal →
   // lowest-card holder leads; otherwise the previous round's winner leads. Without
   // this, a client with stale firstDeal/lastWinner computes a different starter.
   // reset:true = a REMATCH deal — every client zeroes its match state (totals,
   // eliminations) in onDeal before dealing, so the whole table restarts as one.
-  const d = { seed: curSeed, order: roomPlayerIds, names: nameMap(), avatars: avatarMap(),
+  const d = { seed: seed, order: roomPlayerIds, names: nameMap(), avatars: avatarMap(),
               firstDeal: reset ? true : firstDeal, lastWinner: reset ? -1 : lastWinner,
               loseAt: loseAt,     // host owns the elimination threshold → every client adopts it
               open: openTable };  // and the room's mode travels with it
   if (reset) d.reset = true;
+  // A chat-invite rematch keeps the frozen roster, so somebody who walked out of
+  // the last match would be dealt straight back in — 13 cards nobody plays, and a
+  // 100 s proxy cover on every one of their turns. Name the seats that stay
+  // folded: folded now and gone from the room.
+  if (reset && gameStarted && !openTable) {
+    const keep = roomPlayerIds.map((id, s) => s).filter(s =>
+      players[s] && players[s].out && roomPlayerIds[s] !== myId && !presentIds.has(roomPlayerIds[s]));
+    if (keep.length && roomPlayerIds.length - keep.length >= 2) d.keepOut = keep;
+  }
   pendingAction = true;
   renderLobby();
   Usion.game.action("deal", d)
@@ -4212,10 +4270,12 @@ function sendMove(move, seat, proxy) {
   // own choice; only a cover for a HUMAN seat is an `auto` forced move.
   if (proxy && move.bot !== true) move.auto = true;
   if (!proxy) { pendingAction = true; renderControls(); }
-  // A move we OWN — our own play/pass, or a bot seat we are the elected relay for
-  // — goes onto our board immediately. A cover for another human's stalled seat
-  // does not: that one really is a guess about somebody else, so it waits.
-  const ours = (!proxy && move.seat === mySeat) || move.bot === true;
+  // Only our OWN play/pass goes onto our board immediately. A bot move or a cover
+  // for somebody else waits for its echo and is validated in sequence order like
+  // anyone's: a bot move applied early could land on a seat that a seat_take,
+  // sequenced just ahead of it, had already handed to a human — the relay's board
+  // then ran ahead of everyone else's and its checkpoints spread the split.
+  const ours = !proxy && move.seat === mySeat;
   const failed = () => {
     pendingAction = false;
     if (!proxy) toast(t("moveFail"));
@@ -4328,7 +4388,10 @@ function applyRemoteMove(move, fromId) {
       // get to choose the cards, the engine does.
       if (seat === senderSeat) return false;
     } else if (move.auto === true) {
-      if (seat === senderSeat || fromId !== proxyAuthorityId(seat)) return false;
+      // Any seated client but the target may cover — the same rule as a bot
+      // move, and for the same reasons: the covers are staggered by seat, and
+      // presence is not replayable. What a cover may contain is fixed below.
+      if (seat === senderSeat) return false;
     } else if (seat !== senderSeat) {
       return false;
     }
@@ -4472,9 +4535,17 @@ function onNetRealtime(data) {
     // Cosmetic quick-chat: pop the sender's bubble over their seat.
     const seat = roomPlayerIds.indexOf(data.player_id);
     const value = normalizeReaction(d.kind, d.value);
-    if (seat >= 0 && value) showReaction(seat, d.kind, value);
+    // Throttled on receipt too: the sender's 700 ms limit is only a courtesy, and
+    // a modified client could otherwise bury the table in hundreds of bubbles.
+    const now = Date.now();
+    if (seat >= 0 && value && now - (reactionHeardAt[data.player_id] || 0) >= REACTION_RX_MS) {
+      reactionHeardAt[data.player_id] = now;
+      showReaction(seat, d.kind, value);
+    }
   }
 }
+const REACTION_RX_MS = 600;
+const reactionHeardAt = {};
 // Catch-up replay (from requestSync). Each "deal" resets state, so replaying
 // the whole log from sequence 0 deterministically rebuilds the current round.
 function onNetSync(data) {
@@ -4536,6 +4607,7 @@ function onDeal(d, fromId) {
   // raced before seeing each other's echo: the first stored deal wins and the
   // second cannot redeal everybody in the middle of the fresh hand.
   if (dealActive) return false;
+  const wasStarted = gameStarted;
   if (gameStarted) {
     // ANY SEATED PLAYER may deal the next round — that is exactly the staggered
     // election scheduleNextDeal() runs, so the acceptance here has to match it.
@@ -4554,6 +4626,15 @@ function onDeal(d, fromId) {
     // the room, and `if (dealActive) return false` above still collapses a deal
     // race to the first stored deal.
     if (fromId == null || !Array.isArray(roomPlayerIds) || roomPlayerIds.indexOf(fromId) < 0) return false;
+    // …but not on its own terms. A reset zeroes every score, so mid-match it is
+    // only legal on an open table (which resets to seat a newcomer); a chat-invite
+    // reset is the rematch, after the match is over.
+    if (d.reset && !openTable && activeSeats().length > 1) return false;
+    // The dealer does not get to pick the cards: a later round's seed is chained
+    // from the previous one (see nextRoundSeed). Every client holds the same
+    // previous round, so every client reaches the same verdict; a stale one
+    // rejects, asks for a catch-up and is healed by the checkpoint.
+    if (!d.reset && Number(d.seed) !== nextRoundSeed(curSeed, moveLog)) return false;
   } else if (!replayingSync && !(d.open === true || (d.open === undefined && openTable))) {
     const expected = roomPlayerIds[0];   // chat invite: the host owns the opening deal
     if (fromId == null || fromId !== expected || d.order[0] !== expected) return false;
@@ -4583,7 +4664,12 @@ function onDeal(d, fromId) {
   // every client restarts on the same baseline (replay-safe: a reset deal in
   // the action log re-zeroes deterministically).
   if (d.reset) {
-    players.forEach(p => { p.total = 0; p.out = false; });
+    // keepOut may only keep a seat that every client already has folded, so it
+    // reads replayable state alone and cannot fold somebody still in the match.
+    const keepOut = (wasStarted && !openTable && Array.isArray(d.keepOut)) ? d.keepOut.filter(s =>
+      Number.isInteger(s) && players[s] && players[s].out && s !== d.order.indexOf(fromId)) : [];
+    const stillIn = players.length - keepOut.length;
+    players.forEach((p, s) => { p.total = 0; p.out = stillIn >= 2 && keepOut.indexOf(s) >= 0; });
     statsRecordedThisGame = false;
     resultReportedThisGame = false;
   }
@@ -4591,9 +4677,15 @@ function onDeal(d, fromId) {
   const rs = document.getElementById("rematchStatus");
   if (rs) rs.textContent = "";
   // authoritative starter context from the host → identical leader on every client
+  // Range-checked: an out-of-range lastWinner used to throw inside startDeal on
+  // every client, leaving the whole table stuck with dealActive set. The
+  // threshold is fixed once the match is under way; only a fresh match (or the
+  // opening deal) may set it, and only to a value the game offers.
   if (typeof d.firstDeal === "boolean") firstDeal = d.firstDeal;
-  if (typeof d.lastWinner === "number") lastWinner = d.lastWinner;
-  if (typeof d.loseAt === "number") loseAt = d.loseAt;   // adopt host's elimination threshold
+  if (Number.isInteger(d.lastWinner) && d.lastWinner >= -1 && d.lastWinner < d.order.length) lastWinner = d.lastWinner;
+  else if (lastWinner >= d.order.length) lastWinner = -1;
+  const loseOk = LOSE_OPTIONS.indexOf(d.loseAt) >= 0 || d.loseAt === OPEN_LOSE_AT;
+  if (loseOk && (!wasStarted || d.reset)) loseAt = d.loseAt;
   if (typeof d.open === "boolean") openTable = d.open;   // …and which mode the room runs
   curSeed = d.seed; moveLog = [];
   handOverlay.classList.remove("show");

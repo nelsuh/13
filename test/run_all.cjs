@@ -2,7 +2,9 @@
 //   node 13/test/run_all.cjs
 // Each suite also runs standalone: node 13/test/t_adversity.cjs
 
-const SUITES = ["./t_rules.cjs", "./t_offline.cjs", "./t_online.cjs", "./t_adversity.cjs", "./t_findings.cjs", "./t_menu.cjs", "./t_voice.cjs", "./t_matchmaking.cjs"];
+const SUITES = ["./t_rules.cjs", "./t_offline.cjs", "./t_online.cjs", "./t_adversity.cjs", "./t_findings.cjs", "./t_menu.cjs", "./t_voice.cjs", "./t_matchmaking.cjs",
+  "./t_audit_sleeping_writer.cjs", "./t_audit_forged_deal.cjs", "./t_audit_stale_isbot.cjs", "./t_audit_seat_race.cjs",
+  "./t_audit_seat_race_natural.cjs", "./t_audit_rematch_ghost.cjs", "./t_audit_chat_spam.cjs"];
 
 (async () => {
   const results = [];
