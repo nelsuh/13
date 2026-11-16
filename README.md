@@ -164,6 +164,95 @@ Rather than turn the newcomer away, the table deals a **fresh match**
 back in play and the newcomer straight into one. The match that gets reset was
 nearly over anyway; a room two people can close is worse.
 
+## Тэмцээн (Tournament)
+
+Цэсний **Тэмцээн** товчоор орно. Муушигийн өдөр тутмын тэмцээнтэй ижил дүрэмтэй:
+
+- Өдөр бүр Улаанбаатарын **21:00**-д эхэлнэ. Бүртгэл **20:50**-д хаагдаж, ширээ
+  хуваарилагдана; тоглогчид ширээндээ орж хүлээнэ, 21:00 хүртэл хөзөр тарахгүй.
+- Бүртгүүлсэн бүх хүнийг санамсаргүйгээр **2–4 хүнтэй** ширээнд аль болох тэнцүү
+  хуваарилна (5 → 3+2, 7 → 4+3, 9 → 3+3+3). Ширээ бүр **20 оноо** хүртэл тоглоно.
+- Ширээ бүрээс нэг ялагч гарна. Бүх ширээ дуусахаас өмнө дараагийн шат эхлэхгүй;
+  шат хооронд 30 секунд. Ганц ширээ үлдвэл тэр нь финал, ялагч нь аварга.
+- Эхлэх цагаас **1 минутын** дотор ширээндээ ороогүй хүн хасагдана, бот нөхөхгүй.
+  Ганцаараа ирсэн бол шууд шалгарна. Тоглолтын дундаас гарсан хүн fold болно.
+- 2-оос цөөн хүн бүртгүүлбэл цуцлагдана.
+
+**How it works without a server.** 13 has no backend of its own, so unlike
+Muushig the tournament is not run by one. These records live in
+`Usion.cloud.shared`:
+
+```
+t13.v1.<startsAt>.reg        {v, list:[{id, n, a}]}           registrations
+t13.v1.<startsAt>.s<N>        {v, t:{<table>: {w, at}}}        each table's winner in stage N
+t13.v1.<startsAt>.l<N>        {v, t:{<table>: {s, o, r, at}}}  live scores in stage N
+t13.v1.fame                   {v, events, list, latest}        champions: wins + the latest
+```
+
+Everything else — every stage's seating, who plays whom, when the next stage
+starts — is *derived* (`tourDerive()`) from those records plus a seed made from the
+event id, so every client computes the identical bracket. Each table is a private
+relay room `t13-<startsAt>-s<N>-t<K>` running the normal frozen-roster match; its
+opening deal is accepted only from somebody on that table's list, seating only
+people on it (`tourOpeningDealOk()`). Every client at the table files the winner
+(read-modify-write, then re-read; a write lost in a race is re-filed on the next
+poll). A table nobody reports for 50 minutes closes without a winner so a stage
+can never hang.
+
+- **Capacity.** Built for up to ~200 entrants: one 64 KB record of `{id, n, a}`
+  rows (avatar urls over 200 chars are dropped) holds them, 50 tables of four.
+- **Polling.** Usion allows 60 shared-storage ops a minute per user. The screen
+  refreshes every 10 s and reads only what can still change: registrations until
+  20 s after the draw, unfinished stages, and the live scores of the stage in
+  play. At a table it polls every 30 s, only to re-file a lost result. Tests hold
+  both cases to ≤ 30 ops a minute.
+- **Coming back.** Opening the app with a live table (or a drawn table you have
+  not reached yet) goes straight to it (`tourResumeOnLaunch()`), and the tournament
+  screen auto-enters it (`tourMaybeAutoEnter()`) — except a table you left on
+  purpose or have already finished.
+- **Watching.** The table's lead client publishes totals after each round (at most
+  every 4 s); the bracket shows each live table's points out of 20, who is out,
+  and the round. Card-by-card spectating is not built: it would mean letting an
+  unseated client into the seat/authority logic.
+- **Champions.** Any client that sees an event finish counts it once in
+  `t13.v1.fame` (the champion's own client adds their avatar). The tournament
+  screen lists the top 10 and shows 🏆 counts next to registered players.
+
+Limits to know about: `shared.*` is writable by every user of the app, so a
+modified client could forge a registration or a result — same trust model as the
+rest of 13; real stakes would need a server. The bucket's 200-key cap is why
+events older than three days are pruned.
+
+**Daily reminder (20:40).** The game itself cannot notify anyone at 20:40:
+`Usion.notify` reaches only the current user and only while the app runs. Usion's
+platform daily reminder does it with no server of ours:
+
+1. *Once, by the owner:* add [daily-reminder.json](daily-reminder.json) to the 13
+   service (`PUT /services/<service-id>` with the creator token, never from game
+   code). 12:40 UTC = 20:40 Ulaanbaatar; tapping it opens `/tournament`.
+2. *Each player:* after registering, the tournament screen offers «Өдөр бүр
+   20:40-д тэмцээний сануулга авах уу? Асаах / Дараа». «Асаах» asks Usion's
+   notification permission on that tap and subscribes only if granted
+   (`PUT {apiUrl}/services/{serviceId}/reminders/daily {enabled:true}` with the
+   live iframe token); «Дараа» saves `enabled:false`. Afterwards a one-line switch
+   turns it off or on again. The card stays hidden until the service is
+   configured (`configured:false`).
+
+The reminder repeats every day until the player turns it off, so it reaches
+yesterday's registrants too — its text is neutral («Өдрийн тэмцээн 21:00-д
+эхэлнэ!»). The service must be published and public.
+
+**The prize is recognition.** The champion gets a 1200×630 banner drawn on a
+canvas (`tourChampionBanner()`) and a «Мэдээнд хуваалцах» button that calls
+`Usion.shareToFeed` with the banner as the card image and a link back to
+`/tournament/<startsAt>`. It posts to the champion's own feed, and the host asks
+them to confirm every time; the button only appears when `Usion.canShareToFeed()`.
+Everybody else sees the latest champion on the menu (from `t13.v1.fame`, shown
+for three days).
+
+QA: `?tourStart=<ISO or epoch ms>` moves today's event, e.g. a few minutes ahead.
+Screens: [output/tournament-shots/overview.png](output/tournament-shots/overview.png).
+
 ## Game rules (short)
 
 - 13 cards each. First to empty their hand wins the round; everyone else gains
@@ -373,7 +462,7 @@ Note: the platform injects `https://usions.com/usion-sdk.js`; the script tag in
 node 13/test/run_all.cjs
 ```
 
-135 headless scenario tests covering both modes, no dependencies and no browser:
+191 headless scenario tests covering both modes and the tournament, no dependencies and no browser:
 every simulated player is the real `script.js` in its own `vm` realm on a virtual
 clock. See [test/README.md](test/README.md).
 

@@ -721,3 +721,140 @@ body.has-side-seats .turn-line {
   border: 1px solid var(--gold-deep);
   box-shadow: 0 4px 12px rgba(0,0,0,.4);
 }
+
+/* ── Tournament ─────────────────────────────────────────────
+   Inherits the felt card, gold accents and Noto type. Only the menu tile
+   gets the bright amber, so the daily event stands out from the other modes. */
+.menu-btn.tour {
+  color: #352000; font-weight: 800;
+  background: linear-gradient(180deg, #ffd45e, #ffc83d);
+  border-color: #ffe08a;
+  box-shadow: 0 8px 22px rgba(255,200,61,.3);
+}
+.menu-btn.tour .menu-ico { background: linear-gradient(180deg, #4a3300, #2b1d00); border-color: rgba(53,32,0,.6); }
+.menu-btn.tour .menu-ico svg { stroke: #ffc83d; }
+
+.tour-card { max-width: 420px; text-align: left; padding: 14px 18px 22px; }
+.tour-top { display: flex; align-items: center; min-height: 36px; }
+.tour-back {
+  background: none; border: 0; color: var(--gold-hi); cursor: pointer;
+  font-size: 15px; font-weight: 700; padding: 6px 8px 6px 0; min-height: 36px;
+}
+.tour-hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; margin: 2px 0 14px; }
+.tour-cup {
+  display: grid; place-items: center; width: 54px; height: 54px; border-radius: 16px;
+  background: linear-gradient(180deg, #4a3300, #2b1d00); border: 1px solid #ffc83d;
+  box-shadow: 0 6px 16px rgba(0,0,0,.4), 0 0 18px rgba(255,200,61,.22);
+}
+.tour-cup svg { width: 30px; height: 30px; fill: none; stroke: #ffc83d; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.tour-title { font-family: "Noto Serif", serif; font-size: 25px; font-weight: 900; color: var(--gold-hi); margin-top: 6px; }
+.tour-when { font-size: 15px; font-weight: 700; color: var(--text); }
+.tour-countdown { font-family: "Noto Serif", serif; font-size: 19px; font-weight: 800; color: #ffc83d; font-variant-numeric: tabular-nums; min-height: 0; }
+.tour-countdown:empty { display: none; }
+.tour-meta { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.tour-count { font-size: 13px; font-weight: 700; color: var(--text-dim); }
+.tour-pill {
+  font-size: 11px; font-weight: 800; letter-spacing: .4px; padding: 4px 11px; border-radius: 999px;
+  background: rgba(255,255,255,.08); color: var(--text-dim);
+}
+.tour-pill.st-registered, .tour-pill.st-waiting, .tour-pill.st-qualified { background: rgba(127,227,166,.18); color: var(--good); }
+.tour-pill.st-playing { background: rgba(255,200,61,.2); color: #ffc83d; }
+.tour-pill.st-champion { background: linear-gradient(180deg, #ffd45e, #ffc83d); color: #352000; }
+.tour-pill.st-eliminated, .tour-pill.st-cancelled { background: rgba(255,138,148,.14); color: var(--danger); }
+.tour-note { font-size: 13px; line-height: 1.5; color: var(--text); text-align: center; margin: 0 0 14px; }
+.tour-note:empty { display: none; }
+.tour-primary { display: block; }
+.tour-primary:disabled { filter: saturate(.4) brightness(.8); cursor: default; }
+.tour-secondary {
+  display: block; margin: 10px auto 0; background: none; border: 0; cursor: pointer;
+  color: var(--text-dim); font-size: 13px; font-weight: 700; text-decoration: underline; padding: 8px;
+}
+.tour-champion {
+  display: flex; align-items: center; gap: 12px; margin: 0 0 14px; padding: 12px 14px;
+  border-radius: 14px; border: 1px solid #ffc83d;
+  background: linear-gradient(180deg, rgba(255,200,61,.18), rgba(255,200,61,.06));
+}
+.tour-champ-cup { font-size: 26px; }
+.tour-champ-label { font-size: 10px; font-weight: 800; letter-spacing: 2px; color: #ffc83d; }
+.tour-champ-name { font-family: "Noto Serif", serif; font-size: 19px; font-weight: 800; color: var(--gold-hi); }
+.tour-body { margin-top: 18px; display: flex; flex-direction: column; gap: 8px; }
+.tour-section {
+  font-size: 11px; font-weight: 800; letter-spacing: 2px; color: var(--gold);
+  margin: 10px 0 2px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+}
+.tour-section:first-child { margin-top: 0; }
+.tour-stage-count { font-size: 11px; letter-spacing: .3px; font-weight: 700; color: var(--text-dim); }
+.tour-empty { font-size: 13px; color: var(--text-dim); line-height: 1.5; }
+.tour-row, .tour-seat { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tour-row {
+  background: rgba(0,0,0,.28); border: 1px solid rgba(255,255,255,.06); border-radius: 11px; padding: 8px 12px;
+}
+.tour-row.me { border-color: var(--line); }
+.tour-avatar { width: 32px; height: 32px; font-size: 12px; flex: 0 0 auto; }
+.tour-avatar.sm { width: 26px; height: 26px; font-size: 11px; }
+.tour-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tour-tag { font-size: 10px; font-weight: 800; letter-spacing: .5px; color: #352000; background: #ffc83d; border-radius: 999px; padding: 2px 8px; }
+.tour-table {
+  background: rgba(0,0,0,.28); border: 1px solid rgba(255,255,255,.06); border-radius: 12px;
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 7px;
+}
+.tour-table.mine { border-color: #ffc83d; box-shadow: inset 0 0 0 1px rgba(255,200,61,.25); }
+.tour-table-head { display: flex; justify-content: space-between; align-items: center; }
+.tour-table-no { font-size: 12px; font-weight: 800; color: var(--text-dim); letter-spacing: .4px; }
+.tour-seat.lost { opacity: .45; }
+.tour-seat.won .tour-name { color: var(--good); }
+.tour-win { color: var(--good); font-weight: 900; font-size: 15px; }
+.tour-rules { margin-top: 10px; border-top: 1px solid rgba(255,255,255,.08); padding-top: 10px; }
+.tour-rules summary { cursor: pointer; font-size: 11px; font-weight: 800; letter-spacing: 2px; color: var(--gold); padding: 6px 0; }
+.tour-rules ul { margin: 6px 0 0 18px; display: flex; flex-direction: column; gap: 6px; }
+.tour-rules li { font-size: 12.5px; line-height: 1.5; color: var(--text-dim); }
+/* The tournament screen is a full card: the corner skin toggle would sit on its back button. */
+body.tour-open .skin-toggle, body.tour-open .chat-toggle, body.tour-open .voice-toggle { display: none !important; }
+.tour-stage-head > span:first-child { font-size: 13px; letter-spacing: .4px; color: var(--gold-hi); }
+
+/* Latest champion strip on the menu, and the champion's banner + share */
+.champ-strip {
+  display: flex; align-items: center; gap: 10px; width: 100%; margin: -6px 0 16px; padding: 9px 14px;
+  border-radius: 14px; border: 1px solid rgba(255,200,61,.55); cursor: pointer; text-align: left;
+  background: linear-gradient(90deg, rgba(255,200,61,.22), rgba(255,200,61,.06)); color: var(--text);
+}
+.champ-strip[hidden] { display: none; }
+.champ-strip-cup { font-size: 20px; }
+.champ-strip-avatar { width: 30px; height: 30px; font-size: 12px; flex: 0 0 auto; }
+.champ-strip-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+.champ-strip-label { font-size: 9.5px; font-weight: 800; letter-spacing: 1.5px; color: #ffc83d; }
+.champ-strip-name { font-family: "Noto Serif", serif; font-size: 16px; font-weight: 800; color: var(--gold-hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.champ-strip-date { font-size: 11px; color: var(--text-dim); font-weight: 600; }
+.tour-prize { margin: 0 0 16px; }
+.tour-banner { display: block; width: 100%; aspect-ratio: 1200 / 630; border-radius: 12px; margin: 6px 0 12px;
+  background: rgba(0,0,0,.3); box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+.btn-confirm.tour-share { background: linear-gradient(180deg, #ffd45e, #ffc83d); border-color: #ffe08a; color: #352000; margin-bottom: 10px; }
+.btn-confirm.tour-share:disabled { filter: saturate(.5) brightness(.85); cursor: default; }
+.tour-share-hint { font-size: 12px; color: var(--text-dim); text-align: center; }
+.tour-share-hint:empty { display: none; }
+/* Champions leaderboard, trophies on entrants, live table scores */
+.tour-trophies { font-size: 12px; font-weight: 800; color: #ffc83d; white-space: nowrap; }
+.tour-rank { width: 22px; text-align: center; font-family: "Noto Serif", serif; font-weight: 900; font-size: 15px; color: var(--text-dim); flex: 0 0 auto; }
+.tour-rank.top1 { color: #ffd45e; } .tour-rank.top2 { color: #d9dde3; } .tour-rank.top3 { color: #e0a36b; }
+.tour-live { font-size: 10px; font-weight: 800; letter-spacing: .4px; color: #ff8a94; margin-left: auto; margin-right: 8px; }
+.tour-score { font-size: 13px; font-weight: 800; color: var(--gold-hi); font-variant-numeric: tabular-nums; }
+.tour-score.out { color: var(--danger); font-weight: 700; font-size: 12px; }
+
+/* Daily reminder: an offer card after registering, then a one-line switch */
+.tour-remind {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 12px 0 0; padding: 10px 12px;
+  border-radius: 12px; border: 1px solid var(--line); background: rgba(0,0,0,.25);
+}
+.tour-remind.offer { border-color: #ffc83d; background: linear-gradient(180deg, rgba(255,200,61,.16), rgba(255,200,61,.05)); padding: 12px 14px; }
+.tour-remind-ico { font-size: 18px; }
+.tour-remind-text { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.4; color: var(--text); }
+.tour-remind.offer .tour-remind-text { font-weight: 700; }
+.tour-remind.blocked .tour-remind-text { color: var(--danger); }
+.tour-remind-actions { display: flex; gap: 8px; width: 100%; }
+.tour-remind-actions .tour-remind-btn { flex: 1; }
+.tour-remind-btn {
+  min-height: 36px; padding: 0 14px; border-radius: 10px; cursor: pointer;
+  font-size: 13px; font-weight: 800; color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
+}
+.tour-remind-btn.primary { color: #352000; background: linear-gradient(180deg, #ffd45e, #ffc83d); border-color: #ffe08a; }
+.tour-remind-btn:disabled { opacity: .6; cursor: default; }

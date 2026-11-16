@@ -176,6 +176,103 @@ const STR = {
     qcGotit: "Чи болчихжээ",
     qcNice: "Юм авцаан",
     qcWow: "Аймар аймар",
+    // ── Tournament ──
+    tourMenu: "Тэмцээн",
+    tourTitle: "Тэмцээн",
+    tourBack: "Буцах",
+    tourToday: hm => "Өнөөдөр " + hm,
+    tourTomorrow: hm => "Маргааш " + hm,
+    tourStartsIn: s => "Эхлэхэд " + s,
+    tourRegistered: n => n + " бүртгүүлсэн",
+    tourRegister: "БҮРТГҮҮЛЭХ",
+    tourWithdraw: "Бүртгэлээ цуцлах",
+    tourEnter: "ШИРЭЭНДЭЭ ОРОХ",
+    tourToMenu: "ЦЭС РҮҮ",
+    tourStGuest: "Бүртгүүлээгүй",
+    tourStRegistered: "Бүртгүүлсэн",
+    tourStWaiting: "Ширээ бэлэн",
+    tourStPlaying: "Тоглож байна",
+    tourStQualified: "Шалгарсан",
+    tourStEliminated: "Хасагдсан",
+    tourStChampion: "Аварга",
+    tourStCancelled: "Цуцлагдсан",
+    tourNoteReg: hm => "Бүртгэл " + hm + "-д хаагдаж, ширээ хуваарилагдана.",
+    tourNoteRegDone: hm => "Та бүртгэгдсэн. " + hm + "-д ширээ тань нээгдэнэ.",
+    tourNoteClosed: "Бүртгэл хаагдсан. Дараагийн тэмцээн маргааш 21:00.",
+    tourNoteWaiting: "Ширээ тань нээгдлээ. Эхлэх цагт хөзөр тарна.",
+    tourNotePlaying: "Таны ширээ эхэлсэн — одоо орно уу.",
+    tourNoteQualified: (a, b) => "Дараагийн шатыг хүлээж байна: " + a + "/" + b + " ширээ дууссан.",
+    tourNoteNextIn: s => "Дараагийн шат " + s + "-ын дараа эхэлнэ.",
+    tourNoteEliminated: "Энэ удаа хасагдлаа. Маргааш 21:00-д дахин оролцоорой.",
+    tourNoteChampion: "Та тэмцээнд түрүүллээ!",
+    tourNoteFew: "Бүртгүүлсэн тоглогч 2 хүрээгүй тул тэмцээн цуцлагдлаа.",
+    tourNoteEmpty: "Бүх ширээ ялагчгүй дууссан тул тэмцээн дууслаа.",
+    tourNoteLive: "Тэмцээн явагдаж байна. Дараагийнх нь маргааш 21:00.",
+    tourEntrants: "БҮРТГҮҮЛСЭН ТОГЛОГЧИД",
+    tourNoEntrants: "Одоогоор хэн ч бүртгүүлээгүй байна. Хамгийн түрүүнд бүртгүүлээрэй!",
+    tourStage: n => n + "-р шат",
+    tourFinal: "Финал",
+    tourStageDone: (a, b) => a + "/" + b + " ширээ дууссан",
+    tourTable: k => "Ширээ " + k,
+    tourYours: "ТАНЫ",
+    tourChampion: "АВАРГА",
+    tourRules: "ДҮРЭМ",
+    tourRulesList: [
+      "Өдөр бүр 21:00-д эхэлнэ. Бүртгэл 20:50-д хаагдаж, ширээ хуваарилагдана.",
+      "Бүртгүүлсэн бүх хүнийг санамсаргүйгээр 2–4 хүнтэй ширээнд аль болох тэнцүү хуваарилна.",
+      "Ширээ бүр 20 оноо хүртэл тоглож, ганц ялагч нь дараагийн шатанд гарна.",
+      "Бүх ширээ дуусахаас өмнө дараагийн шат эхлэхгүй; шат хооронд 30 секунд. Ганц ширээ үлдвэл тэр нь финал.",
+      "Эхлэх цагаас 1 минутын дотор ширээндээ ороогүй хүн хасагдана. Бот нөхөхгүй.",
+      "2-оос цөөн хүн бүртгүүлбэл тэмцээн цуцлагдана."
+    ],
+    tourLobbyTitle: (st, k) => st + " · Ширээ " + k,
+    tourLobbyStartsIn: s => "Эхлэхэд " + s,
+    tourLobbyWaiting: (a, b) => a + "/" + b + " ирсэн",
+    tourLobbyGrace: s => "Ирээгүй хүнийг " + s + "-ын дараа хасна",
+    tourLobbyAll: "Бүгд ирлээ — эхэлж байна…",
+    tourLobbyRule: "Эхлэх цагаас 1 минутын дотор ирээгүй хүн хасагдана.",
+    tourLobbyStarting: "Эхэлж байна…",
+    tourHere: "ИРСЭН",
+    tourAway: "ХҮЛЭЭЖ БАЙНА",
+    tourBackToTour: "ТЭМЦЭЭН РҮҮ",
+    tourWalkover: "Өөр хүн ирээгүй — та шалгарлаа!",
+    tourQualifiedMsg: "Та дараагийн шатанд шалгарлаа!",
+    tourChampionMsg: "Та тэмцээнд түрүүллээ! 🏆",
+    tourEliminatedMsg: "Та тэмцээнээс хасагдлаа.",
+    tourRegFail: "Бүртгэж чадсангүй. Дахин оролдоно уу.",
+    tourNoCloud: "Тэмцээн зөвхөн Usion апп дотор ажиллана.",
+    tourLate: "Таны ширээ эхэлчихсэн тул энэ шатанд оролцох боломжгүй.",
+    tourRemindOffer: hm => "Өдөр бүр " + hm + "-д тэмцээний сануулга авах уу?",
+    tourRemindOn: hm => "Сануулга асаалттай · өдөр бүр " + hm,
+    tourRemindOff: "Тэмцээний сануулга унтраалттай",
+    tourRemindBlocked: "Сануулга ирэхгүй байна — Usion-д энэ аппын мэдэгдлийг асаана уу",
+    tourRemindYes: "Асаах",
+    tourRemindLater: "Дараа",
+    tourRemindTurnOff: "Унтраах",
+    tourRemindTurnOn: "Асаах",
+    tourRemindReason: "Өдөр бүр тэмцээн эхлэхээс өмнө сануулга илгээхийн тулд",
+    tourRemindDenied: "Мэдэгдлийн зөвшөөрөл өгөөгүй тул сануулга асаасангүй.",
+    tourRemindOnToast: "Сануулга асаалаа!",
+    tourRemindFail: "Сануулгыг тохируулж чадсангүй.",
+    tourLastChamp: "СҮҮЛИЙН АВАРГА",
+    tourFameTitle: "АВАРГУУД",
+    tourLive: r => "● ШУУД · " + r + "-р тойрог",
+    tourPts: (a, b) => a + "/" + b,
+    tourOut: "хасагдсан",
+    tourBannerTitle: "ӨДРИЙН ТЭМЦЭЭНИЙ АВАРГА",
+    tourBannerStats: (n, s) => n + " тоглогч · " + s + " шат",
+    tourBannerPlayers: n => n + " тоглогч",
+    tourBannerStages: n => n + " шат",
+    tourBannerGame: "♠  13 · МОНГОЛ ПОКЕР  ♥",
+    tourPrizeTitle: "ТАНЫ АВАРГЫН БАННЕР",
+    tourShareText: "Монгол Покерын өдрийн тэмцээнд түрүүллээ! 🏆",
+    tourShareCardTitle: n => n + " — Тэмцээний аварга",
+    tourShareBtn: "МЭДЭЭНД ХУВААЛЦАХ",
+    tourSharedBtn: "✓ ХУВААЛЦСАН",
+    tourShared: "Мэдээнд хуваалцлаа!",
+    tourShareLater: "Түр хүлээгээд дахин оролдоорой.",
+    tourShareFail: "Хуваалцаж чадсангүй.",
+    tourShareNoHost: "Мэдээнд хуваалцах нь Usion аппын шинэ хувилбарт ажиллана.",
   },
   en: {
     you: "You",
@@ -267,6 +364,102 @@ const STR = {
     qcGotit: "You got it!",
     qcNice: "Nice one!",
     qcWow: "Wow wow!",
+    tourMenu: "Tournament",
+    tourTitle: "Tournament",
+    tourBack: "Back",
+    tourToday: hm => "Today " + hm,
+    tourTomorrow: hm => "Tomorrow " + hm,
+    tourStartsIn: s => "Starts in " + s,
+    tourRegistered: n => n + " registered",
+    tourRegister: "REGISTER",
+    tourWithdraw: "Withdraw",
+    tourEnter: "GO TO MY TABLE",
+    tourToMenu: "MENU",
+    tourStGuest: "Not registered",
+    tourStRegistered: "Registered",
+    tourStWaiting: "Table ready",
+    tourStPlaying: "Playing",
+    tourStQualified: "Qualified",
+    tourStEliminated: "Eliminated",
+    tourStChampion: "Champion",
+    tourStCancelled: "Cancelled",
+    tourNoteReg: hm => "Registration closes and tables are drawn at " + hm + ".",
+    tourNoteRegDone: hm => "You're in. Your table opens at " + hm + ".",
+    tourNoteClosed: "Registration is closed. Next tournament: tomorrow 21:00.",
+    tourNoteWaiting: "Your table is open. Cards are dealt at the start time.",
+    tourNotePlaying: "Your table has started — join now.",
+    tourNoteQualified: (a, b) => "Waiting for the next stage: " + a + "/" + b + " tables finished.",
+    tourNoteNextIn: s => "Next stage starts in " + s + ".",
+    tourNoteEliminated: "You're out this time. Try again tomorrow at 21:00.",
+    tourNoteChampion: "You won the tournament!",
+    tourNoteFew: "Fewer than 2 players registered, so the tournament was cancelled.",
+    tourNoteEmpty: "Every table ended without a winner.",
+    tourNoteLive: "A tournament is under way. The next one is tomorrow at 21:00.",
+    tourEntrants: "REGISTERED PLAYERS",
+    tourNoEntrants: "Nobody has registered yet. Be the first!",
+    tourStage: n => "Stage " + n,
+    tourFinal: "Final",
+    tourStageDone: (a, b) => a + "/" + b + " tables finished",
+    tourTable: k => "Table " + k,
+    tourYours: "YOURS",
+    tourChampion: "CHAMPION",
+    tourRules: "RULES",
+    tourRulesList: [
+      "Starts every day at 21:00. Registration closes and tables are drawn at 20:50.",
+      "Everyone registered is seated at random at tables of 2–4, as evenly as possible.",
+      "Each table plays to 20 points; its single winner moves on.",
+      "The next stage waits for every table; 30 s break between stages. One table left is the final.",
+      "Not at your table within 1 minute of the start = out. No bots fill in.",
+      "Fewer than 2 registrations cancels the tournament."
+    ],
+    tourLobbyTitle: (st, k) => st + " · Table " + k,
+    tourLobbyStartsIn: s => "Starts in " + s,
+    tourLobbyWaiting: (a, b) => a + "/" + b + " here",
+    tourLobbyGrace: s => "No-shows are removed in " + s,
+    tourLobbyAll: "Everyone is here — starting…",
+    tourLobbyRule: "Anyone not here within 1 minute of the start is out.",
+    tourLobbyStarting: "Starting…",
+    tourHere: "HERE",
+    tourAway: "WAITING",
+    tourBackToTour: "BACK TO TOURNAMENT",
+    tourWalkover: "Nobody else showed up — you go through!",
+    tourQualifiedMsg: "You're through to the next stage!",
+    tourChampionMsg: "You won the tournament! 🏆",
+    tourEliminatedMsg: "You're out of the tournament.",
+    tourRegFail: "Couldn't register. Please try again.",
+    tourNoCloud: "Tournaments only work inside the Usion app.",
+    tourLate: "Your table already started, so you can't play this stage.",
+    tourRemindOffer: hm => "Get a tournament reminder every day at " + hm + "?",
+    tourRemindOn: hm => "Reminder on · daily at " + hm,
+    tourRemindOff: "Tournament reminder is off",
+    tourRemindBlocked: "Reminders can't reach you — allow notifications for this app in Usion",
+    tourRemindYes: "Turn on",
+    tourRemindLater: "Later",
+    tourRemindTurnOff: "Turn off",
+    tourRemindTurnOn: "Turn on",
+    tourRemindReason: "To remind you before the tournament starts each day",
+    tourRemindDenied: "Notifications weren't allowed, so the reminder is off.",
+    tourRemindOnToast: "Reminder on!",
+    tourRemindFail: "Couldn't change the reminder.",
+    tourLastChamp: "LATEST CHAMPION",
+    tourFameTitle: "CHAMPIONS",
+    tourLive: r => "● LIVE · round " + r,
+    tourPts: (a, b) => a + "/" + b,
+    tourOut: "out",
+    tourBannerTitle: "DAILY TOURNAMENT CHAMPION",
+    tourBannerStats: (n, s) => n + " players · " + s + (s === 1 ? " stage" : " stages"),
+    tourBannerPlayers: n => n + " players",
+    tourBannerStages: n => n + (n === 1 ? " stage" : " stages"),
+    tourBannerGame: "♠  13 · MONGOL POKER  ♥",
+    tourPrizeTitle: "YOUR CHAMPION BANNER",
+    tourShareText: "I won today's Mongol Poker tournament! 🏆",
+    tourShareCardTitle: n => n + " — Tournament champion",
+    tourShareBtn: "SHARE TO NEWS FEED",
+    tourSharedBtn: "✓ SHARED",
+    tourShared: "Shared to your News Feed!",
+    tourShareLater: "Please try again in a moment.",
+    tourShareFail: "Couldn't share.",
+    tourShareNoHost: "Sharing to the News Feed needs a newer Usion app.",
   },
 };
 let LANG = "mn";
@@ -667,7 +860,7 @@ function applyLang(lang) {
   set("lobbyTitle", "lobbyTitleInvite");   // enterLobby() swaps it for an open room
   set("startGameBtn", "startGame"); set("lobbyBotsBtn", "playBots");
   set("menuTitle", "title"); set("menuOnlineLabel", "menuOnline");
-  set("menuBotsLabel", "menuBots"); set("menuInviteLabel", "menuInvite");
+  set("menuBotsLabel", "menuBots"); set("menuInviteLabel", "menuInvite"); set("menuTourLabel", "tourMenu"); set("tourPrizeTitle", "tourPrizeTitle"); set("tourBackLabel", "tourBack"); set("tourTitle", "tourTitle"); set("lobbyTourBtn", "tourBackToTour");
   set("lobbyLoseLabel", "loseLabel");
   set("winnerLabel", "winnerLabel"); set("playAgainBtn", "playAgain");
   set("passBtn", "pass"); set("playBtn", "play");
@@ -1561,6 +1754,7 @@ function showGameOver() {
     sb.appendChild(row);
   });
   document.getElementById("winnerOverlay").classList.add("show");
+  if (tourCtx) { tourMatchOver(champ); return; }
   scheduleOpenRestart();
 }
 // An open table does not really end: the champion screen sits for a few seconds
@@ -1587,6 +1781,7 @@ function scheduleOpenRestart() {
 // non-host asks for one via Usion.game.requestRematch() (a pure broadcast: the
 // other players' onRematchRequest fires, so the host sees who wants a rematch).
 document.getElementById("playAgainBtn").addEventListener("click", () => {
+  if (tourCtx) { tourBackToScreen(); return; }
   if (online) {
     if (isPrimaryAuthority()) { hostDeal(true); return; }   // reset deal → every client restarts
     try { if (window.Usion && Usion.game && Usion.game.requestRematch) Usion.game.requestRematch(); } catch (_) {}
@@ -2454,6 +2649,11 @@ if (window.Usion && Usion.init) {
         // (private, you + 3 bots), or Invite a friend (picker → waiting room).
         launchRoomId = config.roomId || null;
         showMenu();
+        // A tap on a champion's News Feed post lands here.
+        try {
+          const lp = (Usion.getLaunchParams && Usion.getLaunchParams()) || {};
+          tourResumeOnLaunch(/^\/tournament(\/|$)/.test(String(lp.path || "")));
+        } catch (_) {}
       }
     });
   } catch (e) { /* standalone preview */ }
@@ -3172,6 +3372,7 @@ function showMenu() {
   onlineOverlay.classList.remove("show");
   setupOverlay.classList.remove("show");
   if (menuOverlay) menuOverlay.classList.add("show");
+  tourLoadFame();   // who won lately → the strip under the title
 }
 function hideMenu() { if (menuOverlay) menuOverlay.classList.remove("show"); }
 function menuPlayOnline() {
@@ -3639,6 +3840,7 @@ function renderLobby() {
   syncVoiceButton();
   const list = document.getElementById("lobbyList");
   if (!list || gameStarted || dealActive) return;
+  if (tourCtx) { renderTourLobby(); return; }
   const ids = lobbyOrder();
   const hostId = roomPlayerIds[0];
   const spinner = document.getElementById("lobbySpinner");
@@ -4630,11 +4832,15 @@ function onDeal(d, fromId) {
     // only legal on an open table (which resets to seat a newcomer); a chat-invite
     // reset is the rematch, after the match is over.
     if (d.reset && !openTable && activeSeats().length > 1) return false;
+    if (d.reset && tourCtx) return false;   // a tournament table plays exactly one match
     // The dealer does not get to pick the cards: a later round's seed is chained
     // from the previous one (see nextRoundSeed). Every client holds the same
     // previous round, so every client reaches the same verdict; a stale one
     // rejects, asks for a catch-up and is healed by the checkpoint.
     if (!d.reset && Number(d.seed) !== nextRoundSeed(curSeed, moveLog)) return false;
+  } else if (!replayingSync && tourCtx) {
+    // Tournament table: the opening deal is judged against the drawn table list.
+    if (!tourOpeningDealOk(d, fromId)) return false;
   } else if (!replayingSync && !(d.open === true || (d.open === undefined && openTable))) {
     const expected = roomPlayerIds[0];   // chat invite: the host owns the opening deal
     if (fromId == null || fromId !== expected || d.order[0] !== expected) return false;
@@ -4703,4 +4909,1182 @@ function refreshNames() {
     players[i].avatar = normalizeAvatar(playerMeta[id].avatar);
   });
   renderMyPlayer();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// ── Tournament ──────────────────────────────────────────────────────────
+// Same shape as Muushig's daily tournament, without a server of our own:
+//
+//   registration ─(20:50)→ tables drawn ─(21:00)→ stage 1 ─→ … ─→ final ─→ champion
+//
+// * Every day at 21:00 Asia/Ulaanbaatar. Registration closes and tables are
+//   drawn TOUR_OPEN_MS (10 min) before; players can sit down and wait, but
+//   nothing is dealt before the start time.
+// * Tables of 2–4, as even as possible (tourTableSizes). One winner per table
+//   moves on. A stage never starts before every table of the previous one is
+//   finished; TOUR_BREAK_MS between stages; one table left is the final.
+// * Not at your table within TOUR_GRACE_MS of the start = out. No bots fill in.
+//   Alone at the table when the grace runs out = walkover. Somebody who walks
+//   out mid-match folds (the chat-invite rules every table runs on).
+// * Fewer than two registrations cancels it.
+//
+// Where the state lives: Usion.cloud.shared, two kinds of record per event —
+//   t13.v1.<startsAt>.reg   {v, list:[{id, n, a}]}       who registered
+//   t13.v1.<startsAt>.s<N>  {v, t:{<table>: {w, at}}}    who won each table
+// Everything else — the seating of every stage, who plays whom, when the next
+// stage starts — is DERIVED (tourDerive) from those two records plus a seed made
+// from the event id, so every client computes the same bracket with nobody
+// handing it out. The tables themselves are private relay rooms named after
+// (event, stage, table) running the normal frozen-roster match.
+//
+// shared.* is writable by every user of the app, so like the rest of 13 this is
+// a trust-the-clients design (see the README's Tournament section).
+const TOUR_PREFIX = "t13.v1.";
+const TOUR_UTC_HOUR = 13;                 // 21:00 Asia/Ulaanbaatar (UTC+8, no DST)
+const TOUR_OPEN_MS = 10 * 60 * 1000;      // registration closes / tables drawn at 20:50
+const TOUR_BREAK_MS = 30 * 1000;          // between stages
+const TOUR_GRACE_MS = 60 * 1000;          // no-show cut-off after a table's start
+const TOUR_STALL_MS = 50 * 60 * 1000;     // a table nobody ever reports is closed without a winner
+const TOUR_TABLE_MAX = 4;
+const TOUR_LOSE_AT = 20;
+const TOUR_POLL_MS = 10000;               // Usion allows 60 shared-storage ops/min per user
+const TOUR_REG_SETTLE_MS = 20 * 1000;     // after the draw + this, the roster can no longer change
+const TOUR_LIVE_MS = 4000;                // a table publishes its scores at most this often
+const TOUR_KEEP_MS = 3 * 24 * 3600 * 1000;
+const TOUR_REG_GUARD_MS = 10 * 1000;      // no (de)registration in the last seconds before the draw
+
+// QA: ?tourStart=<ISO or epoch ms> (or window.T13_TOUR_START_AT) moves today's event.
+function tourOverrideStart() {
+  let v = null;
+  try { if (window.T13_TOUR_START_AT) v = window.T13_TOUR_START_AT; } catch (_) {}
+  try {
+    if (v == null && typeof location !== "undefined" && typeof URLSearchParams !== "undefined")
+      v = new URLSearchParams(location.search).get("tourStart");
+  } catch (_) {}
+  if (v == null || v === "") return null;
+  const n = /^\d+$/.test(String(v)) ? Number(v) : Date.parse(String(v));
+  return Number.isFinite(n) ? n : null;
+}
+// The event that is "today's": the next 21:00, or tonight's for a few hours
+// after it started, while it may still be running (tourDerive tells which).
+function tourCurrentStart(now) {
+  const o = tourOverrideStart();
+  if (o != null) return o;
+  const d = new Date(now);
+  d.setUTCHours(TOUR_UTC_HOUR, 0, 0, 0);
+  let start = d.getTime();
+  if (start <= now - 6 * 3600 * 1000) start += 24 * 3600 * 1000;   // long finished → tomorrow's
+  return start;
+}
+function tourTableSizes(count) {
+  if (count < 2) return count ? [count] : [];
+  const tables = Math.ceil(count / TOUR_TABLE_MAX), base = Math.floor(count / tables), extra = count % tables;
+  return Array.from({ length: tables }, (_, i) => base + (i < extra ? 1 : 0));
+}
+function tourHash(s) {
+  let h = 2166136261;
+  for (const ch of String(s)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function tourShuffle(ids, seed) {
+  const list = ids.slice().sort(), rnd = mulberry32(seed);
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    const x = list[i]; list[i] = list[j]; list[j] = x;
+  }
+  return list;
+}
+// roster: [{id, n, a}] · results: {stageNo: {tableNo: {w, at}}} → the whole event.
+function tourDerive(startsAt, roster, results, now) {
+  const seen = new Set();
+  const people = (roster || []).filter(p => p && typeof p.id === "string" && !seen.has(p.id) && seen.add(p.id))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const tt = { startsAt, closesAt: startsAt - TOUR_OPEN_MS, phase: "registration", people,
+               stages: [], championId: null, reason: null, nextStageAt: null };
+  if (now < tt.closesAt) return tt;
+  let ids = people.map(p => p.id);
+  if (ids.length < 2) { tt.phase = "cancelled"; tt.reason = "few"; return tt; }
+  let stageStart = startsAt;
+  for (let n = 1; n <= 12; n++) {
+    const order = tourShuffle(ids, tourHash(startsAt + ":" + n));
+    const res = (results && results[n]) || {};
+    let off = 0;
+    const matches = tourTableSizes(ids.length).map((size, i) => {
+      const playerIds = order.slice(off, off += size);
+      const r = res[i + 1];
+      const valid = !!r && (r.w === null || playerIds.indexOf(r.w) >= 0);
+      const m = { number: i + 1, playerIds, done: valid, winnerId: valid ? r.w : null,
+                  at: valid ? Number(r.at) || stageStart : 0 };
+      if (!m.done && now >= stageStart + TOUR_STALL_MS) { m.done = true; m.at = stageStart + TOUR_STALL_MS; }
+      return m;
+    });
+    const stage = { number: n, startAt: stageStart, isFinal: matches.length === 1, matches };
+    tt.stages.push(stage);
+    if (!matches.every(m => m.done)) {
+      tt.phase = now < stageStart ? (n === 1 ? "waiting" : "between") : "playing";
+      if (tt.phase === "between") tt.nextStageAt = stageStart;
+      return tt;
+    }
+    const winners = matches.map(m => m.winnerId).filter(Boolean);
+    if (!winners.length) { tt.phase = "cancelled"; tt.reason = "empty"; return tt; }
+    if (winners.length === 1) { tt.phase = "complete"; tt.championId = winners[0]; return tt; }
+    ids = winners;
+    stageStart = Math.max.apply(null, matches.map(m => m.at)) + TOUR_BREAK_MS;
+  }
+  return tt;
+}
+// Where do I stand? guest | registered | waiting | playing | qualified | eliminated | champion
+function tourMyStatus(tt, id) {
+  if (!tt.people.some(p => p.id === id)) return "guest";
+  if (tt.championId === id) return "champion";
+  if (tt.phase === "registration") return "registered";
+  if (tt.phase === "cancelled") return "eliminated";
+  const stage = tt.stages[tt.stages.length - 1];
+  const m = stage && stage.matches.find(x => x.playerIds.indexOf(id) >= 0);
+  if (!m) return "eliminated";
+  if (!m.done) return tt.phase === "waiting" || tt.phase === "between" ? "waiting" : "playing";
+  return m.winnerId === id ? "qualified" : "eliminated";
+}
+
+// ── Shared storage ──
+const tour = { startsAt: 0, roster: [], results: {}, live: {}, loaded: false, busy: false, pollTimer: null, tickTimer: null,
+               rosterFinal: false, stageFinal: {}, pollN: 0,
+               reported: {} };   // results we still owe the board: key#table → {stage, table, w}
+function tourShared() {
+  const s = window.Usion && Usion.cloud && Usion.cloud.shared;
+  return s && typeof s.get === "function" && typeof s.set === "function" ? s : null;
+}
+// One record: ~200 rows of {id, n, a} (avatar url capped) fit its 64 KB.
+function tourRegKey(startsAt) { return TOUR_PREFIX + startsAt + ".reg"; }
+function tourStageKey(startsAt, n) { return TOUR_PREFIX + startsAt + ".s" + n; }
+function tourLiveKey(startsAt, n) { return TOUR_PREFIX + startsAt + ".l" + n; }
+function tourListOf(rec) { return rec && Array.isArray(rec.list) ? rec.list.filter(x => x && typeof x.id === "string") : []; }
+// Reads only what can still change: the registrations until shortly after the
+// draw, the stages not yet finished, and the live scores of the stage in play.
+async function tourLoad() {
+  const shared = tourShared();
+  const now = Date.now();
+  const startsAt = tourCurrentStart(now);
+  if (startsAt !== tour.startsAt) {
+    tour.startsAt = startsAt; tour.roster = []; tour.results = {}; tour.live = {};
+    tour.rosterFinal = false; tour.stageFinal = {}; tour.loaded = false;
+  }
+  if (!shared) { tour.loaded = true; return; }
+  try {
+    if (!tour.rosterFinal) {
+      tour.roster = tourListOf(await shared.get(tourRegKey(startsAt)));
+      if (now >= startsAt - TOUR_OPEN_MS + TOUR_REG_SETTLE_MS) tour.rosterFinal = true;
+    }
+    for (let n = 1; n <= 12; n++) {
+      const d = tourDerive(startsAt, tour.roster, tour.results, Date.now());
+      if (d.stages.length < n) break;
+      if (tour.stageFinal[n]) continue;
+      const rec = await shared.get(tourStageKey(startsAt, n));
+      tour.results[n] = rec && rec.t && typeof rec.t === "object" ? rec.t : {};
+      const after = tourDerive(startsAt, tour.roster, tour.results, Date.now()).stages[n - 1];
+      if (after && after.matches.every(m => m.done)) tour.stageFinal[n] = true;
+    }
+    const d = tourDerive(startsAt, tour.roster, tour.results, Date.now());
+    const stage = d.stages[d.stages.length - 1];
+    if (d.phase === "playing" && stage) {
+      const live = await shared.get(tourLiveKey(startsAt, stage.number)).catch(() => null);
+      tour.live[stage.number] = live && live.t && typeof live.t === "object" ? live.t : {};
+    }
+    tour.loaded = true;
+    tourReassert();
+    if (d.phase === "complete") tourRecordChampion(d);
+  } catch (e) { console.warn("tournament load failed", e); }
+}
+// Read-modify-write with a check afterwards. Two writers landing together can
+// drop one entry; whoever was dropped notices on the re-read and writes again.
+async function tourUpdate(key, mutate, isDone) {
+  const shared = tourShared();
+  if (!shared) throw new Error("no shared storage");
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const cur = await shared.get(key);
+    const next = mutate(cur);
+    if (next) await shared.set(key, next);
+    await new Promise(r => setTimeout(r, 900 + attempt * 500));
+    const check = await shared.get(key);
+    if (isDone(check)) return check;
+  }
+  throw new Error("could not update " + key);
+}
+function tourMe() {
+  const a = myAvatar && String(myAvatar).length <= 200 ? myAvatar : null;
+  return { id: myId, n: String(myName || t("you")).slice(0, 24), a };
+}
+async function tourRegister() {
+  if (!tourShared() || !myId) { toast(t("tourNoCloud")); return; }
+  if (Date.now() >= tour.startsAt - TOUR_OPEN_MS - TOUR_REG_GUARD_MS) { tourRender(); return; }
+  tour.busy = true; tourRender();
+  try {
+    const has = rec => !!rec && Array.isArray(rec.list) && rec.list.some(p => p && p.id === myId);
+    await tourUpdate(tourRegKey(tour.startsAt), cur => {
+      if (has(cur)) return null;
+      const list = tourListOf(cur);
+      list.push(tourMe());
+      return { v: 1, list };
+    }, has);
+    tour.roster = tour.roster.filter(x => x.id !== myId).concat([tourMe()]);
+    await tourLoad();   // and everybody else who registered meanwhile
+    tourRemindLoad(true);   // → the reminder offer, unless they already decided
+    tourCleanup();
+  } catch (e) { console.warn(e); toast(t("tourRegFail")); }
+  tour.busy = false; tourRender();
+}
+async function tourWithdraw() {
+  if (Date.now() >= tour.startsAt - TOUR_OPEN_MS - TOUR_REG_GUARD_MS) { tourRender(); return; }
+  tour.busy = true; tourRender();
+  try {
+    const gone = rec => !rec || !Array.isArray(rec.list) || !rec.list.some(p => p && p.id === myId);
+    await tourUpdate(tourRegKey(tour.startsAt), cur => {
+      if (gone(cur)) return null;
+      return { v: 1, list: tourListOf(cur).filter(x => x.id !== myId) };
+    }, gone);
+    tour.roster = tour.roster.filter(x => x.id !== myId);
+    await tourLoad();
+  } catch (e) { console.warn(e); toast(t("tourRegFail")); }
+  tour.busy = false; tourRender();
+}
+// File a table's winner (null = nobody). The first result filed stands; we keep
+// owing ours until the board shows one, so a write lost in a race comes back.
+function tourReport(startsAt, stage, table, winnerId) {
+  const key = tourStageKey(startsAt, stage);
+  const id = key + "#" + table;
+  if (tour.reported[id] && tour.reported[id].inFlight) return;
+  const entry = { stage, table, w: winnerId, inFlight: true };
+  tour.reported[id] = entry;
+  const at = Date.now();
+  const filed = rec => !!rec && !!rec.t && rec.t[table] !== undefined;
+  tourUpdate(key, cur => {
+    if (filed(cur)) return null;
+    const tt = Object.assign({}, cur && cur.t);
+    tt[table] = { w: winnerId, at };
+    return { v: 1, t: tt };
+  }, filed).then(rec => {
+    delete tour.reported[id];
+    if (startsAt === tour.startsAt) tour.results[stage] = rec.t;
+    tourRender();
+    tourRenderShareButtons();
+  }).catch(e => { entry.inFlight = false; console.warn("tournament report failed", e); });
+}
+function tourReassert() {
+  Object.keys(tour.reported).forEach(k => {
+    const e = tour.reported[k];
+    if (e.inFlight) return;
+    const res = tour.results[e.stage];
+    if (res && res[e.table] !== undefined) { delete tour.reported[k]; return; }
+    tourReport(tour.startsAt, e.stage, e.table, e.w);
+  });
+}
+// The shared bucket holds 200 keys: drop events older than a few days.
+function tourCleanup() {
+  const shared = tourShared();
+  if (!shared || typeof shared.keys !== "function" || typeof shared.remove !== "function") return;
+  Promise.resolve().then(() => shared.keys()).then(keys => {
+    (keys || []).forEach(k => {
+      const m = /^t13\.v1\.(\d+)\./.exec(k);
+      if (m && Number(m[1]) < Date.now() - TOUR_KEEP_MS) Promise.resolve(shared.remove(k)).catch(() => {});
+    });
+  }).catch(() => {});
+}
+
+// ── Screen ──
+var tourCtx = null;   // while at a tournament table: {startsAt, stage, table, roster, startAt, isFinal, walkover}
+function tourFmtClock(ms) {
+  const d = new Date(ms);
+  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+function tourFmtLeft(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return h ? h + ":" + String(m).padStart(2, "0") + ":" + String(sec).padStart(2, "0")
+           : m + ":" + String(sec).padStart(2, "0");
+}
+function tourWhen(ms, now) {
+  const a = new Date(ms), b = new Date(now);
+  const same = a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  return same ? t("tourToday", tourFmtClock(ms)) : t("tourTomorrow", tourFmtClock(ms));
+}
+function tourPerson(id) {
+  const p = tour.roster.find(x => x && x.id === id);
+  return p ? { id, name: p.n || "?", avatar: p.a || null } : { id, name: "?", avatar: null };
+}
+function openTournament() {
+  hideMenu();
+  const ov = document.getElementById("tourOverlay");
+  if (ov) ov.classList.add("show");
+  document.body.classList.add("tour-open");
+  if (!tour.startsAt) tour.startsAt = tourCurrentStart(Date.now());
+  tourRender();
+  tourLoad().then(tourRender);
+  tourRemindLoad();
+  tourCleanup();
+  if (!tour.pollTimer) tour.pollTimer = setInterval(() => {
+    const visible = ov && ov.classList.contains("show");
+    tour.pollN++;
+    // On the screen: every 10 s. At a table: every 30 s, only to re-file a lost result.
+    if (visible || (tourCtx && tour.pollN % 3 === 0)) tourLoad().then(tourRender);
+  }, TOUR_POLL_MS);
+  if (!tour.tickTimer) tour.tickTimer = setInterval(() => {
+    if (ov && ov.classList.contains("show")) tourRender();
+    if (tourCtx) tourTableTick();
+  }, 1000);
+}
+function closeTournament() {
+  const ov = document.getElementById("tourOverlay");
+  if (ov) ov.classList.remove("show");
+  document.body.classList.remove("tour-open");
+  showMenu();
+}
+function tourEl(tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text != null) el.textContent = text;
+  return el;
+}
+function tourRender() {
+  const ov = document.getElementById("tourOverlay");
+  if (!ov || !ov.classList.contains("show")) return;
+  const now = Date.now();
+  const tt = tourDerive(tour.startsAt || tourCurrentStart(now), tour.roster, tour.results, now);
+  const st = tourMyStatus(tt, myId);
+  const stLabel = { guest: "tourStGuest", registered: "tourStRegistered", waiting: "tourStWaiting", playing: "tourStPlaying",
+                    qualified: "tourStQualified", eliminated: "tourStEliminated", champion: "tourStChampion" };
+  const set = (id, txt) => { const e = document.getElementById(id); if (e) e.textContent = txt; };
+  set("tourWhen", tourWhen(tt.startsAt, now));
+  set("tourCountdown", now < tt.startsAt ? t("tourStartsIn", tourFmtLeft(tt.startsAt - now)) : "");
+  set("tourCount", t("tourRegistered", tt.people.length));
+  const pill = document.getElementById("tourStatus");
+  const cancelled = tt.phase === "cancelled" && st !== "champion";
+  if (pill) {
+    pill.textContent = t(cancelled ? "tourStCancelled" : stLabel[st]);
+    pill.className = "tour-pill st-" + (cancelled ? "cancelled" : st);
+  }
+
+  // The one next thing to do.
+  const primary = document.getElementById("tourPrimary");
+  const secondary = document.getElementById("tourSecondary");
+  let note = "", act = null, sec = null;
+  const regOpen = now < tt.closesAt - TOUR_REG_GUARD_MS;
+  const stage = tt.stages[tt.stages.length - 1];
+  if (tt.phase === "registration") {
+    if (st === "guest") { act = regOpen ? "register" : null; note = regOpen ? t("tourNoteReg", tourFmtClock(tt.closesAt)) : t("tourNoteClosed"); }
+    else { note = t("tourNoteRegDone", tourFmtClock(tt.closesAt)); sec = regOpen ? "withdraw" : null; }
+  } else if (tt.phase === "cancelled") {
+    note = tt.reason === "few" ? t("tourNoteFew") : t("tourNoteEmpty"); act = "menu";
+  } else if (st === "guest") { note = tt.phase === "complete" ? "" : t("tourNoteLive"); act = "menu"; }
+  else if (st === "waiting") {
+    note = tt.phase === "between" ? t("tourNoteNextIn", tourFmtLeft(tt.nextStageAt - now)) : t("tourNoteWaiting");
+    act = "enter";
+  } else if (st === "playing") { note = t("tourNotePlaying"); act = "enter"; }
+  else if (st === "qualified") {
+    note = t("tourNoteQualified", stage.matches.filter(m => m.done).length, stage.matches.length);
+  } else if (st === "eliminated") { note = t("tourNoteEliminated"); act = "menu"; }
+  else if (st === "champion") { note = t("tourNoteChampion"); act = null; }   // the share button is their next step
+  set("tourNote", note);
+  if (primary) {
+    primary.style.display = act ? "block" : "none";
+    primary.dataset.act = act || "";
+    primary.disabled = tour.busy || !tour.loaded;
+    primary.textContent = act === "register" ? t("tourRegister") : act === "enter" ? t("tourEnter") : t("tourToMenu");
+  }
+  if (secondary) {
+    secondary.style.display = sec ? "block" : "none";
+    secondary.disabled = tour.busy;
+    secondary.textContent = t("tourWithdraw");
+  }
+
+  // Champion banner
+  const champ = document.getElementById("tourChampion");
+  if (champ) {
+    champ.innerHTML = "";
+    champ.style.display = tt.championId ? "flex" : "none";
+    if (tt.championId) {
+      const p = tourPerson(tt.championId);
+      champ.appendChild(tourEl("span", "tour-champ-cup", "🏆"));
+      champ.appendChild(makeAvatarEl(p.name, p.avatar, "tour-avatar", false));
+      const txt = tourEl("div", "tour-champ-text");
+      txt.appendChild(tourEl("div", "tour-champ-label", t("tourChampion")));
+      txt.appendChild(tourEl("div", "tour-champ-name", p.id === myId ? t("you") : p.name));
+      champ.appendChild(txt);
+    }
+  }
+
+  tourRenderPrize(tt);
+  tourRenderRemind();
+  tourMaybeAutoEnter(tt, st);
+
+  // Entrants while registration is open, the bracket after the draw.
+  const body = document.getElementById("tourBody");
+  if (!body) return;
+  body.innerHTML = "";
+  if (tt.phase === "registration" || (tt.phase === "cancelled" && tt.reason === "few")) {
+    body.appendChild(tourEl("div", "tour-section", t("tourEntrants")));
+    if (!tt.people.length) body.appendChild(tourEl("p", "tour-empty", t("tourNoEntrants")));
+    tt.people.forEach(p => {
+      const row = tourEl("div", "tour-row" + (p.id === myId ? " me" : ""));
+      row.appendChild(makeAvatarEl(p.n, p.a, "tour-avatar", false));
+      row.appendChild(tourEl("span", "tour-name", shortName(p.n)));
+      const wins = tourWinsOf(p.id);
+      if (wins) row.appendChild(tourEl("span", "tour-trophies", "🏆 " + wins));
+      if (p.id === myId) row.appendChild(tourEl("span", "tour-tag", t("you")));
+      body.appendChild(row);
+    });
+  }
+  tt.stages.slice().reverse().forEach(s => {
+    const done = s.matches.filter(m => m.done).length;
+    const head = tourEl("div", "tour-section tour-stage-head");
+    head.appendChild(tourEl("span", null, s.isFinal ? t("tourFinal") : t("tourStage", s.number)));
+    head.appendChild(tourEl("span", "tour-stage-count", t("tourStageDone", done, s.matches.length)));
+    body.appendChild(head);
+    s.matches.forEach(m => {
+      const mine = m.playerIds.indexOf(myId) >= 0;
+      const card = tourEl("div", "tour-table" + (mine ? " mine" : "") + (m.done ? " done" : ""));
+      const live = !m.done && s === tt.stages[tt.stages.length - 1] && tt.phase === "playing"
+        ? (tour.live[s.number] || {})[m.number] : null;
+      const top = tourEl("div", "tour-table-head");
+      top.appendChild(tourEl("span", "tour-table-no", t("tourTable", m.number)));
+      if (live) top.appendChild(tourEl("span", "tour-live", t("tourLive", live.r || 1)));
+      if (mine) top.appendChild(tourEl("span", "tour-tag", t("tourYours")));
+      card.appendChild(top);
+      const outs = live && Array.isArray(live.o) ? live.o : [];
+      m.playerIds.forEach(id => {
+        const p = tourPerson(id);
+        const won = m.done && m.winnerId === id, lost = (m.done && m.winnerId !== id) || outs.indexOf(id) >= 0;
+        const row = tourEl("div", "tour-seat" + (won ? " won" : "") + (lost ? " lost" : ""));
+        row.appendChild(makeAvatarEl(p.name, p.avatar, "tour-avatar sm", false));
+        row.appendChild(tourEl("span", "tour-name", id === myId ? t("you") : shortName(p.name)));
+        if (won) row.appendChild(tourEl("span", "tour-win", "✓"));
+        else if (live && live.s && Number.isFinite(Number(live.s[id]))) {
+          row.appendChild(tourEl("span", "tour-score" + (outs.indexOf(id) >= 0 ? " out" : ""),
+            outs.indexOf(id) >= 0 ? t("tourOut") : t("tourPts", Number(live.s[id]), TOUR_LOSE_AT)));
+        }
+        card.appendChild(row);
+      });
+      body.appendChild(card);
+    });
+  });
+  tourRenderFame(body);
+  const rules = tourEl("details", "tour-rules");
+  rules.appendChild(tourEl("summary", null, t("tourRules")));
+  const ul = tourEl("ul");
+  t("tourRulesList").forEach(line => ul.appendChild(tourEl("li", null, line)));
+  rules.appendChild(ul);
+  body.appendChild(rules);
+}
+
+// ── At the table ──
+function tourEnterTable() {
+  const now = Date.now();
+  const tt = tourDerive(tour.startsAt, tour.roster, tour.results, now);
+  const stage = tt.stages[tt.stages.length - 1];
+  const m = stage && stage.matches.find(x => x.playerIds.indexOf(myId) >= 0 && !x.done);
+  if (!m) { tourRender(); return; }
+  if (tourCtx && tourCtx.startsAt === tt.startsAt && tourCtx.stage === stage.number && tourCtx.table === m.number) return;
+  if (!(window.Usion && Usion.game)) { toast(t("tourNoCloud")); return; }
+  tourCtx = { startsAt: tt.startsAt, stage: stage.number, table: m.number, roster: m.playerIds.slice(),
+              startAt: stage.startAt, isFinal: stage.isFinal, walkover: false };
+  const roomId = "t13-" + tt.startsAt + "-s" + stage.number + "-t" + m.number;
+  document.getElementById("tourOverlay").classList.remove("show");
+  document.body.classList.remove("tour-open");
+  hideMenu();
+  resetRoomState();
+  openTable = false; online = true;
+  myReady = true; lobbyReady = {};
+  loseAt = TOUR_LOSE_AT;
+  document.getElementById("winnerOverlay").classList.remove("show");
+  onlineOverlay.classList.add("show");
+  renderLobby();
+  setupMultiplayer(roomId).then(() => {
+    if (tourCtx && !online) { tourSkip[tourTableKey(tourCtx.stage, tourCtx.table)] = true; tourBackToScreen(); }
+  });
+}
+// Opening deal of a tournament table: anybody on this table's list may deal,
+// seat 0 being the dealer, and only to people on the list. Judged on the deal
+// alone (no presence), so every client and every replay agrees.
+function tourOpeningDealOk(d, fromId) {
+  if (!tourCtx || !d || !Array.isArray(d.order)) return false;
+  const r = tourCtx.roster;
+  if (fromId == null || d.order[0] !== fromId || r.indexOf(fromId) < 0) return false;
+  if (d.order.length < 2 || new Set(d.order).size !== d.order.length) return false;
+  if (!d.order.every(id => r.indexOf(id) >= 0)) return false;
+  return d.open === false && d.loseAt === TOUR_LOSE_AT && !d.reset;
+}
+var tourDealAt = 0;
+function tourTableTick() {
+  if (!tourCtx || !online) return;
+  if (gameStarted) { tourPublishLive(); return; }
+  if (dealActive) return;
+  renderLobby();
+  const now = Date.now();
+  const present = tourCtx.roster.filter(id => presentIds.has(id));
+  if (present.indexOf(myId) < 0 || pendingAction) return;
+  const all = present.length === tourCtx.roster.length;
+  const trigger = all ? tourCtx.startAt : tourCtx.startAt + TOUR_GRACE_MS;
+  if (now < trigger) return;
+  if (present.length < 2) {
+    if (!tourCtx.walkover && !roomAlreadyRunning()) {
+      tourCtx.walkover = true;
+      tourSkip[tourTableKey(tourCtx.stage, tourCtx.table)] = true;
+      tourReport(tourCtx.startsAt, tourCtx.stage, tourCtx.table, myId);
+      const s = document.getElementById("onlineStatus");
+      if (s) s.textContent = t("tourWalkover");
+      const h = document.getElementById("lobbyHint");
+      if (h) h.textContent = "";
+    }
+    return;
+  }
+  // Staggered by position on the list, so a sleeping first player can't hold the table.
+  const rank = present.indexOf(myId);
+  if (now < trigger + rank * DEAL_STAGGER_MS || now - tourDealAt < SEAT_RETRY_MS) return;
+  if (roomAlreadyRunning() && now - lastRoomActivityAt < OPEN_REVIVE_MS) return;
+  tourDealAt = now;
+  roomPlayerIds = present;
+  numPlayers = present.length;
+  isHost = present[0] === myId;
+  loseAt = TOUR_LOSE_AT;
+  firstDeal = true; lastWinner = -1;
+  hostDeal();
+}
+function tourShowLobbyBack(on) {
+  const b = document.getElementById("lobbyTourBtn");
+  if (b) b.style.display = on ? "block" : "none";
+}
+function renderTourLobby() {
+  const list = document.getElementById("lobbyList");
+  const now = Date.now();
+  const title = document.getElementById("lobbyTitle");
+  if (title) title.textContent = t("tourLobbyTitle", tourCtx.isFinal ? t("tourFinal") : t("tourStage", tourCtx.stage), tourCtx.table);
+  const spinner = document.getElementById("lobbySpinner");
+  if (spinner) spinner.style.display = "none";
+  ["readyBtn", "startGameBtn", "lobbyBotsBtn"].forEach(id => { const e = document.getElementById(id); if (e) e.style.display = "none"; });
+  const limit = document.getElementById("lobbyLimit");
+  if (limit) limit.style.display = "none";
+  tourShowLobbyBack(true);
+  if (list) {
+    list.innerHTML = "";
+    tourCtx.roster.forEach(id => {
+      const here = presentIds.has(id);
+      const meta = playerMeta[id] || {};
+      const p = tourPerson(id);
+      const nm = id === myId ? (myName || t("you")) : (meta.name || p.name);
+      const row = document.createElement("div");
+      row.className = "lobby-row" + (id === myId ? " me" : "");
+      row.appendChild(makeAvatarEl(nm, meta.avatar || p.avatar, "lobby-avatar", false));
+      row.appendChild(tourEl("span", "lobby-name", shortName(nm)));
+      row.appendChild(tourEl("span", "lobby-badge " + (here ? "ready" : "wait"), here ? t("tourHere") : t("tourAway")));
+      list.appendChild(row);
+    });
+  }
+  if (tourCtx.walkover) return;
+  const present = tourCtx.roster.filter(id => presentIds.has(id)).length;
+  const total = tourCtx.roster.length;
+  const statusEl = document.getElementById("onlineStatus");
+  const hint = document.getElementById("lobbyHint");
+  if (statusEl) statusEl.textContent = now < tourCtx.startAt ? t("tourLobbyStartsIn", tourFmtLeft(tourCtx.startAt - now))
+    : present === total ? t("tourLobbyAll") : t("tourLobbyWaiting", present, total);
+  if (hint) hint.textContent = now >= tourCtx.startAt && present < total
+    ? t("tourLobbyGrace", tourFmtLeft(tourCtx.startAt + TOUR_GRACE_MS - now))
+    : now < tourCtx.startAt ? t("tourLobbyWaiting", present, total) + " · " + t("tourLobbyRule") : "";
+}
+// Match over: every client at the table computes the same champion and files
+// it (the first write stands, the rest are no-ops).
+function tourMatchOver(champSeat) {
+  if (!tourCtx) return;
+  const champId = roomPlayerIds[champSeat];
+  if (champId == null) return;
+  // This table is finished for us, even before its result reaches the board.
+  tourSkip[tourTableKey(tourCtx.stage, tourCtx.table)] = true;
+  tourReport(tourCtx.startsAt, tourCtx.stage, tourCtx.table, champId);
+  const iWon = champId === myId;
+  const rs = document.getElementById("rematchStatus");
+  if (rs) rs.textContent = iWon ? (tourCtx.isFinal ? t("tourChampionMsg") : t("tourQualifiedMsg")) : t("tourEliminatedMsg");
+  const btn = document.getElementById("playAgainBtn");
+  if (btn) btn.textContent = t("tourBackToTour");
+  tourRenderShareButtons();
+}
+function tourBackToScreen() {
+  try { if (window.Usion && Usion.game && Usion.game.leave) Usion.game.leave(); } catch (_) {}
+  resetRoomState();
+  online = false; openTable = false;
+  tourCtx = null; tourDealAt = 0;
+  onlineOverlay.classList.remove("show");
+  handOverlay.classList.remove("show");
+  setupOverlay.classList.remove("show");
+  document.getElementById("winnerOverlay").classList.remove("show");
+  const btn = document.getElementById("playAgainBtn");
+  if (btn) btn.textContent = t("playAgain");
+  tourShowLobbyBack(false);
+  const wsb = document.getElementById("winnerShareBtn");
+  if (wsb) wsb.style.display = "none";
+  const lb = document.getElementById("lobbyBotsBtn");
+  if (lb) lb.style.display = "";
+  openTournament();
+}
+(function wireTournament() {
+  const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("click", fn); };
+  on("menuTourBtn", openTournament);
+  on("tourBackBtn", closeTournament);
+  on("tourSecondary", tourWithdraw);
+  on("lobbyTourBtn", function () {
+    // Leaving the lobby on purpose: don't pull them straight back in.
+    if (tourCtx) tourSkip[tourTableKey(tourCtx.stage, tourCtx.table)] = true;
+    tourBackToScreen();
+  });
+  on("tourPrimary", function () {
+    const act = document.getElementById("tourPrimary").dataset.act;
+    if (act === "register") tourRegister();
+    else if (act === "enter") tourEnterTable();
+    else closeTournament();
+  });
+})();
+
+// ── Champion: banner, News Feed post, "latest champion" strip ──
+// The prize is recognition, no server needed:
+//  * the champion gets a banner drawn on a canvas and a "Share to feed" button
+//    (Usion.shareToFeed posts to THEIR OWN feed; the host asks them to confirm
+//    every time, so nothing is ever posted without them);
+//  * everybody sees the latest champion on the menu and the tournament screen,
+//    from one shared record (t13.v1.champ) that any client seeing a finished
+//    event writes.
+const TOUR_FAME_KEY = TOUR_PREFIX + "fame";
+const TOUR_CHAMP_SHOW_MS = 3 * 24 * 3600 * 1000;
+// {v, events:[startsAt…], list:[{id, n, a, w, last}], latest:{startsAt, id, n, a, players, stages}}
+let tourFame = null, tourFameAt = 0;
+const tourFameDone = {};
+const tourBannerCache = {};        // startsAt → data URL
+function tourFameValid(f) { return !!f && Array.isArray(f.events) && Array.isArray(f.list); }
+function tourWinsOf(id) {
+  const e = tourFame && tourFame.list.find(x => x && x.id === id);
+  return e ? e.w | 0 : 0;
+}
+function tourMyAvatar() { return myAvatar && String(myAvatar).length <= 400 ? myAvatar : null; }
+function tourChampRecord(tt) {
+  if (!tt || tt.phase !== "complete" || !tt.championId) return null;
+  const p = tt.people.find(x => x.id === tt.championId) || {};
+  const fameA = tourFame && (tourFame.list.find(x => x && x.id === tt.championId) || {}).a;
+  return { v: 1, startsAt: tt.startsAt, id: tt.championId, n: p.n || "?",
+           a: (tt.championId === myId ? tourMyAvatar() : null) || p.a || fameA || null,
+           players: tt.people.length, stages: tt.stages.length };
+}
+async function tourLoadFame(force) {
+  const shared = tourShared();
+  if (!shared || (!force && Date.now() - tourFameAt < 60000)) { tourRenderChampStrip(); return; }
+  tourFameAt = Date.now();
+  try { const f = await shared.get(TOUR_FAME_KEY); if (tourFameValid(f)) tourFame = f; } catch (_) {}
+  tourRenderChampStrip();
+  tourRender();
+}
+// Count a finished event once. Any client that sees it finish may file it; the
+// champion's own client also adds their avatar, which nobody else has.
+async function tourRecordChampion(tt) {
+  const rec = tourChampRecord(tt);
+  if (!rec || tourFameDone[rec.startsAt]) return;
+  tourFameDone[rec.startsAt] = true;
+  const mineA = rec.id === myId ? tourMyAvatar() : null;
+  const counted = f => tourFameValid(f) && f.events.indexOf(rec.startsAt) >= 0 &&
+    (!mineA || ((f.list.find(x => x && x.id === rec.id) || {}).a === mineA));
+  try {
+    tourFame = await tourUpdate(TOUR_FAME_KEY, cur => {
+      if (counted(cur)) return null;
+      const f = tourFameValid(cur) ? JSON.parse(JSON.stringify(cur)) : { v: 1, events: [], list: [], latest: null };
+      let e = f.list.find(x => x && x.id === rec.id);
+      if (!e) { e = { id: rec.id, n: rec.n, a: null, w: 0, last: 0 }; f.list.push(e); }
+      if (f.events.indexOf(rec.startsAt) < 0) {
+        f.events.push(rec.startsAt); f.events = f.events.slice(-60);
+        e.w = (e.w | 0) + 1; e.n = rec.n; e.last = Math.max(e.last || 0, rec.startsAt);
+        if (!f.latest || !(Number(f.latest.startsAt) >= rec.startsAt)) f.latest = Object.assign({}, rec, { a: null });
+      }
+      if (mineA) { e.a = mineA; if (f.latest && f.latest.id === rec.id) f.latest.a = mineA; }
+      f.list.sort((x, y) => (y.w | 0) - (x.w | 0) || (y.last || 0) - (x.last || 0));
+      f.list = f.list.slice(0, 100);
+      return f;
+    }, counted);
+    tourFameAt = Date.now();
+  } catch (_) { tourFameDone[rec.startsAt] = false; }
+  tourRenderChampStrip();
+  tourRender();
+}
+function tourRenderFame(body) {
+  const list = tourFame ? tourFame.list.filter(e => e && e.w > 0).slice(0, 10) : [];
+  if (!list.length) return;
+  body.appendChild(tourEl("div", "tour-section", t("tourFameTitle")));
+  list.forEach((e, i) => {
+    const row = tourEl("div", "tour-row tour-fame-row" + (e.id === myId ? " me" : ""));
+    row.appendChild(tourEl("span", "tour-rank" + (i < 3 ? " top" + (i + 1) : ""), String(i + 1)));
+    row.appendChild(makeAvatarEl(e.n, e.a, "tour-avatar", false));
+    row.appendChild(tourEl("span", "tour-name", e.id === myId ? t("you") : shortName(e.n)));
+    row.appendChild(tourEl("span", "tour-trophies", "🏆 " + e.w));
+    body.appendChild(row);
+  });
+}
+// ── Live scores: the table's lead client publishes totals after each round ──
+let tourLiveSig = "", tourLiveAt = 0, tourLiveRound = 0;
+function tourPublishLive() {
+  const shared = tourShared();
+  if (!shared || !tourCtx || !gameStarted || replayingSync || !isPrimaryAuthority()) return;
+  const sig = JSON.stringify(players.map(p => [p.total, !!p.out]));
+  const now = Date.now();
+  if (sig === tourLiveSig || now - tourLiveAt < TOUR_LIVE_MS) return;
+  tourLiveSig = sig; tourLiveAt = now; tourLiveRound++;
+  const entry = { s: {}, o: [], r: tourLiveRound, at: now };
+  roomPlayerIds.forEach((id, i) => {
+    if (id == null || !players[i]) return;
+    entry.s[id] = players[i].total;
+    if (players[i].out) entry.o.push(id);
+  });
+  const key = tourLiveKey(tourCtx.startsAt, tourCtx.stage), table = tourCtx.table;
+  // Cosmetic: a write lost in a race is simply replaced by the next round's.
+  Promise.resolve().then(() => shared.get(key)).then(cur => {
+    const tt = Object.assign({}, cur && cur.t);
+    tt[table] = entry;
+    return shared.set(key, { v: 1, t: tt });
+  }).catch(() => { tourLiveSig = ""; });
+}
+// ── Coming back: straight to your table ──
+const tourSkip = {};   // tables the player deliberately left: no auto-entry
+function tourTableKey(stage, table) { return tour.startsAt + ":" + stage + ":" + table; }
+let tourAutoAt = 0;
+function tourMaybeAutoEnter(tt, st) {
+  if (tourCtx || tour.busy || !tour.loaded || (st !== "playing" && st !== "waiting")) return;
+  const stage = tt.stages[tt.stages.length - 1];
+  const m = stage && stage.matches.find(x => x.playerIds.indexOf(myId) >= 0 && !x.done);
+  if (!m || tourSkip[tourTableKey(stage.number, m.number)] || Date.now() - tourAutoAt < 3000) return;
+  tourAutoAt = Date.now();
+  setTimeout(() => { if (!tourCtx) tourEnterTable(); }, 0);
+}
+// On launch: someone with a live table (app closed mid-match, a phone that
+// restarted) lands back on it without tapping through the menu.
+async function tourResumeOnLaunch(forceScreen) {
+  await tourLoad();
+  const tt = tourDerive(tour.startsAt, tour.roster, tour.results, Date.now());
+  const st = tourMyStatus(tt, myId);
+  const menuUp = menuOverlay && menuOverlay.classList.contains("show");
+  if (!menuUp || online) return;
+  if (forceScreen || st === "playing" || st === "waiting") openTournament();
+}
+function tourDateLabel(ms) {
+  const d = new Date(ms);
+  return d.getFullYear() + "." + String(d.getMonth() + 1).padStart(2, "0") + "." + String(d.getDate()).padStart(2, "0");
+}
+function tourRenderChampStrip() {
+  const el = document.getElementById("menuChampStrip");
+  if (!el) return;
+  const c = tourFame && tourFame.latest;
+  const show = !!c && Date.now() - Number(c.startsAt) < TOUR_CHAMP_SHOW_MS;
+  el.hidden = !show;
+  if (!show) return;
+  el.innerHTML = "";
+  el.appendChild(tourEl("span", "champ-strip-cup", "🏆"));
+  el.appendChild(makeAvatarEl(c.n, c.a, "champ-strip-avatar", false));
+  const txt = tourEl("span", "champ-strip-text");
+  txt.appendChild(tourEl("span", "champ-strip-label", t("tourLastChamp")));
+  txt.appendChild(tourEl("span", "champ-strip-name", c.id === myId ? t("you") : shortName(c.n)));
+  el.appendChild(txt);
+  el.appendChild(tourEl("span", "champ-strip-date", tourDateLabel(Number(c.startsAt))));
+}
+
+function tourLoadImage(src) {
+  return new Promise(resolve => {
+    if (!src || typeof Image === "undefined") return resolve(null);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    const timer = setTimeout(() => resolve(null), 3000);
+    img.onload = () => { clearTimeout(timer); resolve(img); };
+    img.onerror = () => { clearTimeout(timer); resolve(null); };
+    img.src = src;
+  });
+}
+// 1200×630: the News Feed card size. Emerald table, double gold frame, a royal
+// fan of ♠ and ♥ either side, the "13" medallion (or the champion's photo) in a
+// laurel under a crown, the title ribbon, and the champion's name in gold.
+async function tourChampionBanner(rec) {
+  if (tourBannerCache[rec.startsAt]) return tourBannerCache[rec.startsAt];
+  if (typeof document === "undefined" || !document.createElement) return null;
+  try {
+    if (document.fonts && document.fonts.load) await Promise.all([
+      document.fonts.load('900 80px "Noto Serif"'), document.fonts.load('800 26px "Noto Sans"')]);
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+  } catch (_) {}
+  const avatar = await tourLoadImage(rec.a);
+  const W = 1200, H = 630, cx = W / 2;
+  const cv = document.createElement("canvas");
+  cv.width = W; cv.height = H;
+  const g = cv.getContext && cv.getContext("2d");
+  if (!g) return null;
+  const rnd = mulberry32(tourHash("banner:" + rec.startsAt + ":" + rec.id));
+  const rr = (x, y, w, h, r) => {
+    g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+  };
+  const gold = (y0, y1) => {
+    const gr = g.createLinearGradient(0, y0, 0, y1);
+    gr.addColorStop(0, "#fff3b0"); gr.addColorStop(.35, "#ffd24d"); gr.addColorStop(.65, "#e9a91c"); gr.addColorStop(1, "#a86f08");
+    return gr;
+  };
+  const AX = cx, AY = 222, AR = 78;
+
+  // ── table: outer margin, green felt, rays from the medallion
+  g.fillStyle = "#0a3a23"; g.fillRect(0, 0, W, H);
+  g.save(); rr(26, 24, W - 52, H - 48, 22); g.clip();
+  const bg = g.createRadialGradient(AX, AY, 20, AX, 300, 760);
+  bg.addColorStop(0, "#2a9a5c"); bg.addColorStop(.45, "#16743f"); bg.addColorStop(1, "#0b4a28");
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  g.save(); g.translate(AX, AY);
+  for (let i = 0; i < 32; i++) {
+    g.rotate(Math.PI / 16);
+    if (i % 2) continue;
+    const ray = g.createLinearGradient(0, 0, 0, -900);
+    ray.addColorStop(0, "rgba(140,230,150,.22)"); ray.addColorStop(1, "rgba(140,230,150,.02)");
+    g.fillStyle = ray; g.beginPath(); g.moveTo(0, 0); g.lineTo(-55, -900); g.lineTo(55, -900); g.closePath(); g.fill();
+  }
+  g.restore();
+  const glow = g.createRadialGradient(AX, AY, 30, AX, AY, 230);
+  glow.addColorStop(0, "rgba(190,255,150,.35)"); glow.addColorStop(1, "rgba(190,255,150,0)");
+  g.fillStyle = glow; g.fillRect(0, 0, W, H);
+  g.restore();
+
+  // ── double gold frame
+  g.save();
+  g.lineWidth = 9; g.strokeStyle = gold(20, H - 20); rr(30, 28, W - 60, H - 56, 20); g.stroke();
+  g.lineWidth = 2; g.strokeStyle = "rgba(60,35,0,.6)"; rr(36, 34, W - 72, H - 68, 16); g.stroke();
+  g.lineWidth = 2.5; g.strokeStyle = gold(40, H - 40); rr(46, 44, W - 92, H - 88, 12); g.stroke();
+  g.restore();
+
+  // ── royal fans: 10 J Q K A of ♠ (left) and ♥ (right)
+  const card = (x, y, rot, rank, sym, red, front) => {
+    g.save(); g.translate(x, y); g.rotate(rot);
+    g.shadowColor = "rgba(0,0,0,.45)"; g.shadowBlur = 16; g.shadowOffsetX = -3; g.shadowOffsetY = 6;
+    rr(-74, -104, 148, 208, 12); g.fillStyle = "#fbf6e6"; g.fill();
+    g.shadowColor = "transparent";
+    g.lineWidth = 3; g.strokeStyle = "#d9b240"; g.stroke();
+    g.fillStyle = red ? "#c4161c" : "#111";
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.font = '900 ' + (rank === "10" ? 34 : 40) + 'px "Noto Serif", serif'; g.fillText(rank, -48, -72);
+    g.font = '30px serif'; g.fillText(sym, -48, -36);
+    if (front) { g.font = '92px serif'; g.fillText(sym, 6, 22); }
+    g.restore();
+  };
+  const ranks = ["10", "J", "Q", "K", "A"];
+  ranks.forEach((r, i) => card(158 + i * 50, 316 - i * 8, -0.36 + i * 0.05, r, "♠", false, i === 4));
+  ranks.forEach((r, i) => card(840 + i * 50, 284 + i * 8, 0.1 + i * 0.05, r, "♥", true, i === 4));
+
+  // ── laurel wreath
+  const leaf = (x, y, ang, len) => {
+    g.save(); g.translate(x, y); g.rotate(ang);
+    g.beginPath(); g.moveTo(0, 0); g.quadraticCurveTo(len * .5, -len * .34, len, 0); g.quadraticCurveTo(len * .5, len * .34, 0, 0);
+    g.fill(); g.restore();
+  };
+  g.save();
+  const leafGold = g.createLinearGradient(0, AY - 130, 0, AY + 130);
+  leafGold.addColorStop(0, "#ffd75a"); leafGold.addColorStop(.5, "#eaa621"); leafGold.addColorStop(1, "#b9780c");
+  g.fillStyle = leafGold; g.strokeStyle = "#c98d12"; g.lineWidth = 3;
+  g.shadowColor = "rgba(0,0,0,.35)"; g.shadowBlur = 4;
+  const R = AR + 34;
+  for (const side of [-1, 1]) {
+    // stem
+    g.beginPath();
+    const a0 = side < 0 ? Math.PI * 0.6 : Math.PI * 0.4, a1 = side < 0 ? Math.PI * 1.36 : -Math.PI * 0.36;
+    g.arc(AX, AY, R, a0, a1, side > 0); g.stroke();
+    for (let i = 0; i < 12; i++) {
+      const a = a0 + (a1 - a0) * (i / 11);
+      const x = AX + Math.cos(a) * R, y = AY + Math.sin(a) * R;
+      const travel = a - side * Math.PI / 2;       // along the stem, towards the top
+      const len = 30 - i * 0.9;
+      leaf(x, y, travel - side * 0.75, len);       // outer leaf
+      leaf(x, y, travel + side * 0.55, len * .85); // inner leaf
+    }
+  }
+  g.restore();
+
+  // ── medallion
+  g.save(); g.shadowColor = "rgba(255,220,90,.7)"; g.shadowBlur = 30;
+  g.beginPath(); g.arc(AX, AY, AR + 9, 0, Math.PI * 2); g.fillStyle = gold(AY - AR, AY + AR); g.fill(); g.restore();
+  g.beginPath(); g.arc(AX, AY, AR + 2, 0, Math.PI * 2); g.fillStyle = "#6b4a07"; g.fill();
+  g.save(); g.beginPath(); g.arc(AX, AY, AR, 0, Math.PI * 2); g.clip();
+  const md = g.createRadialGradient(AX - 20, AY - 30, 10, AX, AY, AR);
+  md.addColorStop(0, "#1f8a50"); md.addColorStop(1, "#063a20");
+  g.fillStyle = md; g.fillRect(AX - AR, AY - AR, AR * 2, AR * 2);
+  if (avatar) {
+    const s = Math.min(avatar.width, avatar.height);
+    g.drawImage(avatar, (avatar.width - s) / 2, (avatar.height - s) / 2, s, s, AX - AR, AY - AR, AR * 2, AR * 2);
+  } else {
+    g.textAlign = "center"; g.textBaseline = "middle"; g.font = '900 84px "Noto Serif", serif';
+    g.lineWidth = 5; g.strokeStyle = "#3d2700"; g.strokeText("13", AX, AY + 6);
+    g.fillStyle = gold(AY - 40, AY + 44); g.fillText("13", AX, AY + 6);
+  }
+  g.restore();
+
+  // ── crown
+  g.save(); g.translate(AX, AY - AR - 34);
+  g.shadowColor = "rgba(0,0,0,.4)"; g.shadowBlur = 10; g.shadowOffsetY = 4;
+  g.fillStyle = gold(-40, 30);
+  g.beginPath();
+  g.moveTo(-56, 22); g.lineTo(-66, -24); g.lineTo(-32, 2); g.lineTo(0, -40); g.lineTo(32, 2); g.lineTo(66, -24); g.lineTo(56, 22);
+  g.closePath(); g.fill();
+  rr(-60, 16, 120, 20, 5); g.fill();
+  g.shadowColor = "transparent";
+  [[-66, -24], [0, -40], [66, -24]].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, 7, 0, Math.PI * 2); g.fillStyle = "#fff0a8"; g.fill(); });
+  [[-28, 26, "#22b14c"], [0, 26, "#e0202a"], [28, 26, "#2f6fe0"]].forEach(([x, y, c]) => {
+    g.beginPath(); g.arc(x, y, 6, 0, Math.PI * 2); g.fillStyle = c; g.fill();
+    g.beginPath(); g.arc(x - 2, y - 2, 2, 0, Math.PI * 2); g.fillStyle = "rgba(255,255,255,.8)"; g.fill();
+  });
+  g.restore();
+
+  // ── title ribbon
+  const RY = 330, RW = 580, RH = 58;
+  g.save();
+  for (const side of [-1, 1]) {      // folded tails, angled down
+    const x0 = AX + side * (RW / 2 - 30);
+    g.fillStyle = "#b27d10";
+    g.beginPath();
+    g.moveTo(x0, RY + 18); g.lineTo(x0 + side * 92, RY + 22); g.lineTo(x0 + side * 70, RY + 22 + RH / 2);
+    g.lineTo(x0 + side * 98, RY + 26 + RH); g.lineTo(x0, RY + 18 + RH); g.closePath(); g.fill();
+    g.fillStyle = "#6e4a05";
+    g.beginPath(); g.moveTo(AX + side * (RW / 2), RY + RH); g.lineTo(x0, RY + 18 + RH); g.lineTo(AX + side * (RW / 2), RY + RH - 12); g.closePath(); g.fill();
+  }
+  g.shadowColor = "rgba(0,0,0,.4)"; g.shadowBlur = 12; g.shadowOffsetY = 5;
+  g.fillStyle = gold(RY - 8, RY + RH);
+  g.beginPath();
+  g.moveTo(AX - RW / 2, RY); g.quadraticCurveTo(AX, RY - 16, AX + RW / 2, RY);
+  g.lineTo(AX + RW / 2, RY + RH); g.quadraticCurveTo(AX, RY + RH - 16, AX - RW / 2, RY + RH); g.closePath(); g.fill();
+  g.restore();
+  g.fillStyle = "#3b2500"; g.textAlign = "center"; g.textBaseline = "middle";
+  let ts = 28;
+  do { g.font = '800 ' + ts + 'px "Noto Sans", sans-serif'; ts--; } while (g.measureText(t("tourBannerTitle")).width > RW - 70 && ts > 16);
+  g.fillText(t("tourBannerTitle"), AX, RY + RH / 2 - 5);
+
+  // ── the champion's name, big and gold
+  const NY = 470;
+  let size = 78;
+  do { g.font = '900 ' + size + 'px "Noto Serif", serif'; size -= 2; } while (g.measureText(rec.n).width > 720 && size > 36);
+  g.textBaseline = "alphabetic";
+  g.save(); g.shadowColor = "rgba(0,0,0,.55)"; g.shadowBlur = 14; g.shadowOffsetY = 5;
+  g.lineWidth = 7; g.strokeStyle = "#4a2f00"; g.lineJoin = "round"; g.strokeText(rec.n, AX, NY);
+  g.restore();
+  g.fillStyle = gold(NY - size, NY + 6); g.fillText(rec.n, AX, NY);
+  g.save(); g.globalAlpha = .35; g.lineWidth = 1.5; g.strokeStyle = "#fff6c8"; g.strokeText(rec.n, AX, NY - 1); g.restore();
+
+  // ── the game: stat chips, then the game's name along the bottom
+  const chips = [t("tourBannerPlayers", rec.players), t("tourBannerStages", rec.stages), tourDateLabel(rec.startsAt)];
+  g.font = '700 21px "Noto Sans", sans-serif'; g.textBaseline = "middle";
+  const cw = chips.map(c => g.measureText(c).width + 40), gap = 14;
+  let chx = AX - (cw.reduce((a, b) => a + b, 0) + gap * (chips.length - 1)) / 2;
+  const CY = NY + 44;
+  chips.forEach((c, i) => {
+    rr(chx, CY - 18, cw[i], 36, 18); g.fillStyle = "rgba(0,40,20,.55)"; g.fill();
+    g.lineWidth = 1.5; g.strokeStyle = "rgba(255,210,90,.8)"; g.stroke();
+    g.fillStyle = "#ffe08a"; g.fillText(c, chx + cw[i] / 2, CY + 1);
+    chx += cw[i] + gap;
+  });
+  const foot = t("tourBannerGame");
+  g.font = '800 19px "Noto Sans", sans-serif';
+  const fw = g.measureText(foot).width;
+  g.fillStyle = "rgba(255,236,170,.85)"; g.fillText(foot, AX, H - 66);
+  g.strokeStyle = "rgba(255,210,90,.55)"; g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(AX - fw / 2 - 70, H - 66); g.lineTo(AX - fw / 2 - 18, H - 66);
+  g.moveTo(AX + fw / 2 + 18, H - 66); g.lineTo(AX + fw / 2 + 70, H - 66); g.stroke();
+
+  // ── a few gold flecks
+  g.save(); g.fillStyle = "#ffd75a";
+  for (let i = 0; i < 9; i++) {
+    const sx = 90 + rnd() * (W - 180), sy = 70 + rnd() * 130;
+    if (Math.abs(sx - AX) < 200) continue;
+    g.save(); g.translate(sx, sy); g.rotate(rnd() * Math.PI); g.fillRect(-6, -1.5, 12, 3); g.restore();
+  }
+  g.restore();
+
+  let url = null;
+  try { url = cv.toDataURL("image/jpeg", .92); } catch (_) { url = null; }   // tainted by a no-CORS avatar
+  if (!url && avatar) return tourChampionBanner(Object.assign({}, rec, { a: null }));
+  if (url) tourBannerCache[rec.startsAt] = url;
+  return url;
+}
+function tourCanShare() {
+  try { return !!(window.Usion && typeof Usion.canShareToFeed === "function" && Usion.canShareToFeed() && typeof Usion.shareToFeed === "function"); }
+  catch (_) { return false; }
+}
+function tourSharedKey(startsAt) { return "t13:tourShared:" + startsAt; }
+function tourWasShared(startsAt) { try { return localStorage.getItem(tourSharedKey(startsAt)) === "1"; } catch (_) { return false; } }
+let tourSharing = false;
+async function tourShareChampion() {
+  const tt = tourDerive(tour.startsAt, tour.roster, tour.results, Date.now());
+  const rec = tourChampRecord(tt);
+  if (!rec || rec.id !== myId || tourSharing || !tourCanShare()) return;
+  tourSharing = true; tourRender(); tourRenderShareButtons();
+  try {
+    const payload = {
+      text: t("tourShareText"),
+      path: "/tournament/" + rec.startsAt,
+      card: { title: t("tourShareCardTitle", rec.n), subtitle: t("tourBannerStats", rec.players, rec.stages) + " · " + tourDateLabel(rec.startsAt) },
+    };
+    let canImage = false;
+    try { canImage = Usion.canShareToFeed("image"); } catch (_) {}
+    if (canImage) { const img = await tourChampionBanner(rec); if (img) payload.image = img; }
+    await Usion.shareToFeed("text", payload);
+    try { localStorage.setItem(tourSharedKey(rec.startsAt), "1"); } catch (_) {}
+    toast(t("tourShared"));
+  } catch (err) {
+    const code = err && err.code;
+    if (code !== "CANCELLED") toast(code === "RATE_LIMITED" ? t("tourShareLater") : t("tourShareFail"));
+  }
+  tourSharing = false; tourRender(); tourRenderShareButtons();
+}
+// The champion's prize block on the tournament screen, and the button on the final's winner card.
+function tourRenderPrize(tt) {
+  const box = document.getElementById("tourPrize");
+  if (!box) return;
+  const rec = tourChampRecord(tt);
+  const mine = !!rec && rec.id === myId;
+  box.style.display = mine ? "block" : "none";
+  if (!mine) return;
+  const img = document.getElementById("tourBannerImg");
+  if (img && img.dataset.for !== String(rec.startsAt)) {
+    img.dataset.for = String(rec.startsAt);
+    tourChampionBanner(rec).then(url => { if (url) img.src = url; });
+  }
+  tourRenderShareButtons();
+}
+function tourRenderShareButtons() {
+  const can = tourCanShare();
+  const startsAt = tour.startsAt;
+  const done = tourWasShared(startsAt);
+  ["tourShareBtn", "winnerShareBtn"].forEach(id => {
+    const b = document.getElementById(id);
+    if (!b) return;
+    if (id === "winnerShareBtn") {
+      const tt = tourDerive(tour.startsAt, tour.roster, tour.results, Date.now());
+      const rec = tourChampRecord(tt);
+      if (!(tourCtx && tourCtx.isFinal && rec && rec.id === myId)) { b.style.display = "none"; return; }
+    }
+    b.style.display = can ? "block" : "none";
+    b.disabled = tourSharing || done;
+    b.textContent = done ? t("tourSharedBtn") : t("tourShareBtn");
+  });
+  const hint = document.getElementById("tourShareHint");
+  if (hint) hint.textContent = can ? "" : t("tourShareNoHost");
+}
+(function wireChampion() {
+  const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("click", fn); };
+  on("tourShareBtn", tourShareChampion);
+  on("winnerShareBtn", tourShareChampion);
+  on("menuChampStrip", openTournament);
+})();
+
+// ── Daily reminder ──────────────────────────────────────────────────────
+// The game cannot notify anybody at 20:40 by itself: Usion.notify only reaches
+// the current user, and only while the app is running. Usion's daily reminder
+// does it for us: the service is configured once (13/daily-reminder.json, 20:40
+// Ulaanbaatar), and each player who agrees is subscribed with
+//   GET|PUT {apiUrl}/services/{serviceId}/reminders/daily
+// The platform then sends it every day, app closed or not, until they turn it off.
+// It goes to every subscriber, registered today or not, so its text is neutral.
+const tourRemind = { state: null, loadedAt: 0, busy: false };
+function tourRemindUrl() {
+  const cfg = (window.Usion && Usion.config) || {};
+  if (!cfg.apiUrl || !cfg.serviceId) return null;
+  return String(cfg.apiUrl).replace(/\/+$/, "") + "/services/" + encodeURIComponent(cfg.serviceId) + "/reminders/daily";
+}
+function tourAuthToken() {
+  try {
+    return (Usion.user && typeof Usion.user.getToken === "function" && Usion.user.getToken()) ||
+           (Usion.config && Usion.config.authToken) || null;
+  } catch (_) { return null; }
+}
+// Token read per request (it is re-minted hourly); one retry after a 401.
+async function tourRemindCall(method, body) {
+  const url = tourRemindUrl(), f = window.fetch, who = myId;
+  if (!url || typeof f !== "function") return null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = tourAuthToken();
+    if (!token) { await new Promise(r => setTimeout(r, 1500)); continue; }
+    let res;
+    try {
+      res = await f(url, { method, headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+                           body: body ? JSON.stringify(body) : undefined });
+    } catch (_) { return null; }
+    if (res.status === 401 && attempt === 0) { await new Promise(r => setTimeout(r, 1500)); continue; }
+    if (!res.ok) return null;
+    let data = null;
+    try { data = await res.json(); } catch (_) { return null; }
+    return myId === who ? data : null;   // the user changed while it was pending
+  }
+  return null;
+}
+async function tourRemindLoad(force) {
+  if (!force && Date.now() - tourRemind.loadedAt < 60000) return;
+  tourRemind.loadedAt = Date.now();
+  const d = await tourRemindCall("GET");
+  if (d) tourRemind.state = d;
+  tourRenderRemind();
+}
+async function tourRemindSet(on) {
+  if (tourRemind.busy) return;
+  tourRemind.busy = true; tourRenderRemind();
+  try {
+    if (on) {
+      // Ask first, on this tap; subscribe only if they really said yes.
+      let granted = false;
+      try {
+        const r = await Usion.permissions.request(["notifications"], { reason: t("tourRemindReason") });
+        granted = !!(r && (r.granted || (r.permissions && r.permissions.notifications)));
+      } catch (_) {}
+      if (!granted) { toast(t("tourRemindDenied")); return; }
+    }
+    const d = await tourRemindCall("PUT", { enabled: !!on, locale: LANG });
+    if (d) { tourRemind.state = d; if (on) toast(t("tourRemindOnToast")); }
+    else toast(t("tourRemindFail"));
+  } finally {
+    tourRemind.busy = false; tourRenderRemind();
+  }
+}
+function tourRemindClock() {
+  const sc = tourRemind.state && tourRemind.state.schedule;
+  if (!sc || !Number.isFinite(sc.hour_utc)) return "20:40";
+  const d = new Date(Date.UTC(2026, 0, 1, sc.hour_utc, sc.minute_utc || 0));
+  return tourFmtClock(d.getTime());
+}
+// The card under the main button: offered once a player has registered, then a
+// one-line on/off switch for as long as they have decided.
+function tourRenderRemind() {
+  const box = document.getElementById("tourRemind");
+  if (!box) return;
+  const s = tourRemind.state;
+  const tt = tourDerive(tour.startsAt || tourCurrentStart(Date.now()), tour.roster, tour.results, Date.now());
+  const registered = tt.people.some(p => p.id === myId);
+  let mode = "";
+  if (s && s.configured) {
+    if (!s.decided) mode = registered ? "offer" : "";
+    else if (s.enabled && s.next_run_at) mode = "on";
+    else if (s.enabled) mode = "blocked";            // chosen, but permission revoked or muted
+    else mode = registered ? "off" : "";
+  }
+  box.style.display = mode ? "flex" : "none";
+  box.className = "tour-remind " + mode;
+  if (!mode || box.dataset.mode === mode + tourRemind.busy) return;
+  box.dataset.mode = mode + tourRemind.busy;
+  box.innerHTML = "";
+  box.appendChild(tourEl("span", "tour-remind-ico", mode === "on" ? "🔔" : mode === "offer" ? "🔔" : "🔕"));
+  const txt = tourEl("span", "tour-remind-text",
+    mode === "offer" ? t("tourRemindOffer", tourRemindClock()) :
+    mode === "on" ? t("tourRemindOn", tourRemindClock()) :
+    mode === "blocked" ? t("tourRemindBlocked") : t("tourRemindOff"));
+  box.appendChild(txt);
+  const btn = (label, cls, fn) => {
+    const b = tourEl("button", "tour-remind-btn " + cls, label);
+    b.type = "button"; b.disabled = tourRemind.busy;
+    b.addEventListener("click", fn);
+    box.appendChild(b);
+    return b;
+  };
+  if (mode === "offer") {
+    const row = tourEl("div", "tour-remind-actions");
+    box.appendChild(row);
+    const yes = btn(t("tourRemindYes"), "primary", () => tourRemindSet(true));
+    const later = btn(t("tourRemindLater"), "", () => tourRemindSet(false));
+    row.appendChild(yes); row.appendChild(later);
+  } else if (mode === "on") btn(t("tourRemindTurnOff"), "", () => tourRemindSet(false));
+  else btn(t("tourRemindTurnOn"), "primary", () => tourRemindSet(true));
 }

@@ -152,7 +152,9 @@ class SDK {
       cloud: { get: () => Promise.resolve(null), set: () => Promise.resolve({}), shared: {
         incr: () => Promise.resolve({}),
         get: key => Promise.resolve(srv.sharedKV.has(key) ? JSON.parse(JSON.stringify(srv.sharedKV.get(key))) : null),
-        set: (key, value) => { srv.sharedKV.set(key, JSON.parse(JSON.stringify(value))); return Promise.resolve({success:true}); }
+        set: (key, value) => { srv.sharedKV.set(key, JSON.parse(JSON.stringify(value))); return Promise.resolve({success:true}); },
+        keys: () => Promise.resolve([...srv.sharedKV.keys()]),
+        remove: key => Promise.resolve({ success: true, removed: srv.sharedKV.delete(key) })
       } },
       leaderboard: { submit: (v) => { self.calls.leaderboard.push(v); return Promise.resolve({ success: true }); } },
       game: {
