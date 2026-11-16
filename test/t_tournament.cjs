@@ -333,5 +333,56 @@ test("daily reminder: hidden when the service has no reminder configured", async
   eq(remindText(c), "", "no card");
 });
 
+test("the 1 s redraw leaves the screen alone: rules stay open, rows are not rebuilt", async () => {
+  const { w, cs } = await registered(3);
+  const c = cs[0];
+  const rules = c.el("tourRules");
+  rules.open = true;                                       // the player opened ДҮРЭМ
+  const row = c.el("tourBody").children[1];                 // an entrant row
+  row.__mark = 1;
+  await w.advance(5000);                                    // five redraw ticks
+  ok(c.el("tourRules") === rules && rules.open, "the rules are untouched");
+  ok(c.el("tourBody").children[1] && c.el("tourBody").children[1].__mark === 1, "same row node: nothing rebuilt without a change");
+  eq(c.el("tourRulesList").children.length, 6, "six rules");
+});
+
+test("opening the app: «Оролцоё» on the invitation registers you", async () => {
+  const w = new World();
+  const c = launch(w, "i1", "Alice", w.clock.now + 2 * 3600e3);
+  await w.advance(2000);
+  ok(shown(c, "tourInviteOverlay"), "the invitation is up");
+  ok(/тэмцээнтэй/.test(c.el("tourInviteTitle").textContent), c.el("tourInviteTitle").textContent);
+  c.click("tourInviteYes");
+  await eventually(w, () => status(c) === "registered", 15000);
+  eq(status(c), "registered", "registered");
+  ok(shown(c, "tourOverlay") && !shown(c, "tourInviteOverlay"), "on the tournament screen");
+});
+
+test("opening the app: «Үгүй» leaves you on the home page, and it isn't asked again today", async () => {
+  const w = new World();
+  const c = launch(w, "i2", "Bob", w.clock.now + 2 * 3600e3);
+  await w.advance(2000);
+  c.click("tourInviteNo");
+  await w.advance(1000);
+  ok(!shown(c, "tourInviteOverlay") && shown(c, "menuOverlay"), "home page");
+  eq(status(c), "guest", "not registered");
+  c.run("tourResumeOnLaunch(false)");                      // as if the app were opened again
+  await w.advance(2000);
+  ok(!shown(c, "tourInviteOverlay"), "not asked twice for the same event");
+});
+
+test("no invitation once registered, after registration closes, or for a chat invite", async () => {
+  const { w, cs, startAt } = await registered(1, 3 * 3600e3);
+  const again = launch(w, "p1", "Alice", startAt);         // already registered, opens the app again
+  const late = launch(w, "i3", "Chuck", w.clock.now + 5 * MIN);   // past the 20:50 close
+  const chat = w.add("i4", "Dana", { mode: "multiplayer", roomId: w.roomId });
+  chat.run("window.T13_TOUR_START_AT = " + startAt);
+  chat.start({ userId: "i4", userName: "Dana", roomId: w.roomId, playerIds: [] });
+  await w.advance(3000);
+  ok(!shown(again, "tourInviteOverlay"), "registered: no invitation");
+  ok(!shown(late, "tourInviteOverlay"), "registration closed: no invitation");
+  ok(!shown(chat, "tourInviteOverlay"), "chat invite: straight to the waiting room");
+});
+
 if (require.main === module) run("TOURNAMENT").then(r => process.exit(r.fails.length ? 1 : 0));
 module.exports = { run: () => run("TOURNAMENT") };

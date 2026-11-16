@@ -206,6 +206,10 @@ can never hang.
   20 s after the draw, unfinished stages, and the live scores of the stage in
   play. At a table it polls every 30 s, only to re-file a lost result. Tests hold
   both cases to ≤ 30 ops a minute.
+- **Invitation.** Opening the app while registration is open and you are not
+  registered shows «Өнөөдөр тэмцээнтэй! Оролцох уу?» (`showTourInvite()`):
+  «ОРОЛЦОЁ» registers and opens the tournament, «Үгүй» leaves the home page and
+  is remembered for that event. Not shown to chat invites or after 20:50.
 - **Coming back.** Opening the app with a live table (or a drawn table you have
   not reached yet) goes straight to it (`tourResumeOnLaunch()`), and the tournament
   screen auto-enters it (`tourMaybeAutoEnter()`) — except a table you left on
@@ -462,7 +466,7 @@ Note: the platform injects `https://usions.com/usion-sdk.js`; the script tag in
 node 13/test/run_all.cjs
 ```
 
-191 headless scenario tests covering both modes and the tournament, no dependencies and no browser:
+195 headless scenario tests covering both modes and the tournament, no dependencies and no browser:
 every simulated player is the real `script.js` in its own `vm` realm on a virtual
 clock. See [test/README.md](test/README.md).
 

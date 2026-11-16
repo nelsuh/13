@@ -242,6 +242,12 @@ const STR = {
     tourRegFail: "Бүртгэж чадсангүй. Дахин оролдоно уу.",
     tourNoCloud: "Тэмцээн зөвхөн Usion апп дотор ажиллана.",
     tourLate: "Таны ширээ эхэлчихсэн тул энэ шатанд оролцох боломжгүй.",
+    tourInviteTitle: "Өнөөдөр тэмцээнтэй! Оролцох уу?",
+    tourInviteWhen: hm => "Өнөөдөр " + hm + "-д эхэлнэ",
+    tourInviteFirst: "Хамгийн түрүүнд бүртгүүлээрэй",
+    tourInviteClose: hm => "Бүртгэл " + hm + "-д хаагдана",
+    tourInviteYes: "ОРОЛЦОЁ",
+    tourInviteNo: "Үгүй",
     tourRemindOffer: hm => "Өдөр бүр " + hm + "-д тэмцээний сануулга авах уу?",
     tourRemindOn: hm => "Сануулга асаалттай · өдөр бүр " + hm,
     tourRemindOff: "Тэмцээний сануулга унтраалттай",
@@ -429,6 +435,12 @@ const STR = {
     tourRegFail: "Couldn't register. Please try again.",
     tourNoCloud: "Tournaments only work inside the Usion app.",
     tourLate: "Your table already started, so you can't play this stage.",
+    tourInviteTitle: "Tournament today! Want to play?",
+    tourInviteWhen: hm => "Starts today at " + hm,
+    tourInviteFirst: "Be the first to register",
+    tourInviteClose: hm => "Registration closes at " + hm,
+    tourInviteYes: "COUNT ME IN",
+    tourInviteNo: "No thanks",
     tourRemindOffer: hm => "Get a tournament reminder every day at " + hm + "?",
     tourRemindOn: hm => "Reminder on · daily at " + hm,
     tourRemindOff: "Tournament reminder is off",
@@ -5212,11 +5224,13 @@ function tourPerson(id) {
   return p ? { id, name: p.n || "?", avatar: p.a || null } : { id, name: "?", avatar: null };
 }
 function openTournament() {
+  hideTourInvite();
   hideMenu();
   const ov = document.getElementById("tourOverlay");
   if (ov) ov.classList.add("show");
   document.body.classList.add("tour-open");
   if (!tour.startsAt) tour.startsAt = tourCurrentStart(Date.now());
+  tourFillRules();
   tourRender();
   tourLoad().then(tourRender);
   tourRemindLoad();
@@ -5237,6 +5251,13 @@ function closeTournament() {
   if (ov) ov.classList.remove("show");
   document.body.classList.remove("tour-open");
   showMenu();
+}
+// Replace a container's children only when the new content differs, so the
+// per-second redraw never recreates avatars (flicker) or resets what was touched.
+function tourSwap(el, fresh) {
+  if (fresh.innerHTML === el.innerHTML) return;
+  el.innerHTML = "";
+  Array.prototype.slice.call(fresh.childNodes).forEach(n => el.appendChild(n));
 }
 function tourEl(tag, cls, text) {
   const el = document.createElement(tag);
@@ -5299,17 +5320,18 @@ function tourRender() {
   // Champion banner
   const champ = document.getElementById("tourChampion");
   if (champ) {
-    champ.innerHTML = "";
     champ.style.display = tt.championId ? "flex" : "none";
+    const fresh = document.createElement("div");
     if (tt.championId) {
       const p = tourPerson(tt.championId);
-      champ.appendChild(tourEl("span", "tour-champ-cup", "🏆"));
-      champ.appendChild(makeAvatarEl(p.name, p.avatar, "tour-avatar", false));
+      fresh.appendChild(tourEl("span", "tour-champ-cup", "🏆"));
+      fresh.appendChild(makeAvatarEl(p.name, p.avatar, "tour-avatar", false));
       const txt = tourEl("div", "tour-champ-text");
       txt.appendChild(tourEl("div", "tour-champ-label", t("tourChampion")));
       txt.appendChild(tourEl("div", "tour-champ-name", p.id === myId ? t("you") : p.name));
-      champ.appendChild(txt);
+      fresh.appendChild(txt);
     }
+    tourSwap(champ, fresh);
   }
 
   tourRenderPrize(tt);
@@ -5317,9 +5339,9 @@ function tourRender() {
   tourMaybeAutoEnter(tt, st);
 
   // Entrants while registration is open, the bracket after the draw.
-  const body = document.getElementById("tourBody");
-  if (!body) return;
-  body.innerHTML = "";
+  const bodyEl = document.getElementById("tourBody");
+  if (!bodyEl) return;
+  const body = document.createElement("div");
   if (tt.phase === "registration" || (tt.phase === "cancelled" && tt.reason === "few")) {
     body.appendChild(tourEl("div", "tour-section", t("tourEntrants")));
     if (!tt.people.length) body.appendChild(tourEl("p", "tour-empty", t("tourNoEntrants")));
@@ -5367,12 +5389,17 @@ function tourRender() {
     });
   });
   tourRenderFame(body);
-  const rules = tourEl("details", "tour-rules");
-  rules.appendChild(tourEl("summary", null, t("tourRules")));
-  const ul = tourEl("ul");
-  t("tourRulesList").forEach(line => ul.appendChild(tourEl("li", null, line)));
-  rules.appendChild(ul);
-  body.appendChild(rules);
+  tourSwap(bodyEl, body);
+}
+// The rules never change: written once, and left alone by the per-second redraw.
+function tourFillRules() {
+  const title = document.getElementById("tourRulesTitle");
+  const list = document.getElementById("tourRulesList");
+  if (!title || !list || list.dataset.lang === LANG) return;
+  list.dataset.lang = LANG;
+  title.textContent = t("tourRules");
+  list.innerHTML = "";
+  t("tourRulesList").forEach(line => list.appendChild(tourEl("li", null, line)));
 }
 
 // ── At the table ──
@@ -5464,7 +5491,7 @@ function renderTourLobby() {
   if (limit) limit.style.display = "none";
   tourShowLobbyBack(true);
   if (list) {
-    list.innerHTML = "";
+    const fresh = document.createElement("div");
     tourCtx.roster.forEach(id => {
       const here = presentIds.has(id);
       const meta = playerMeta[id] || {};
@@ -5475,8 +5502,9 @@ function renderTourLobby() {
       row.appendChild(makeAvatarEl(nm, meta.avatar || p.avatar, "lobby-avatar", false));
       row.appendChild(tourEl("span", "lobby-name", shortName(nm)));
       row.appendChild(tourEl("span", "lobby-badge " + (here ? "ready" : "wait"), here ? t("tourHere") : t("tourAway")));
-      list.appendChild(row);
+      fresh.appendChild(row);
     });
+    tourSwap(list, fresh);
   }
   if (tourCtx.walkover) return;
   const present = tourCtx.roster.filter(id => presentIds.has(id)).length;
@@ -5663,8 +5691,54 @@ async function tourResumeOnLaunch(forceScreen) {
   const st = tourMyStatus(tt, myId);
   const menuUp = menuOverlay && menuOverlay.classList.contains("show");
   if (!menuUp || online) return;
-  if (forceScreen || st === "playing" || st === "waiting") openTournament();
+  if (forceScreen || st === "playing" || st === "waiting") { openTournament(); return; }
+  // Registration is open and they are not in yet: invite them, once a day.
+  if (tt.phase === "registration" && st === "guest" && tourShared() && myId &&
+      Date.now() < tt.closesAt - TOUR_REG_GUARD_MS && !tourInviteDismissed(tt.startsAt)) showTourInvite(tt);
 }
+// ── The invitation on opening the app ──
+// «Оролцоё» registers and opens the tournament; «Үгүй» leaves them on the home
+// page and the question is not asked again for this event.
+function tourInviteKey(startsAt) { return "t13:tourInvite:" + startsAt; }
+function tourInviteDismissed(startsAt) { try { return localStorage.getItem(tourInviteKey(startsAt)) === "no"; } catch (_) { return false; } }
+let tourInviteTimer = null;
+function showTourInvite(tt) {
+  const ov = document.getElementById("tourInviteOverlay");
+  if (!ov) return;
+  const set = (id, txt) => { const e = document.getElementById(id); if (e) e.textContent = txt; };
+  set("tourInviteTitle", t("tourInviteTitle"));
+  set("tourInviteWhen", t("tourInviteWhen", tourFmtClock(tt.startsAt)));
+  set("tourInviteCount", tt.people.length ? t("tourRegistered", tt.people.length) : t("tourInviteFirst"));
+  set("tourInviteClose", t("tourInviteClose", tourFmtClock(tt.closesAt)));
+  set("tourInviteYes", t("tourInviteYes"));
+  set("tourInviteNo", t("tourInviteNo"));
+  const tick = () => set("tourInviteLeft", t("tourStartsIn", tourFmtLeft(tt.startsAt - Date.now())));
+  tick();
+  if (tourInviteTimer) clearInterval(tourInviteTimer);
+  tourInviteTimer = setInterval(() => {
+    // Registration closed while it sat there, or they went elsewhere: drop it.
+    if (Date.now() >= tt.closesAt - TOUR_REG_GUARD_MS || online) { hideTourInvite(); return; }
+    tick();
+  }, 1000);
+  ov.classList.add("show");
+}
+function hideTourInvite() {
+  if (tourInviteTimer) { clearInterval(tourInviteTimer); tourInviteTimer = null; }
+  const ov = document.getElementById("tourInviteOverlay");
+  if (ov) ov.classList.remove("show");
+}
+(function wireTourInvite() {
+  const yes = document.getElementById("tourInviteYes"), no = document.getElementById("tourInviteNo");
+  if (yes) yes.addEventListener("click", () => {
+    hideTourInvite();
+    openTournament();
+    tourRegister();
+  });
+  if (no) no.addEventListener("click", () => {
+    hideTourInvite();
+    try { localStorage.setItem(tourInviteKey(tour.startsAt || tourCurrentStart(Date.now())), "no"); } catch (_) {}
+  });
+})();
 function tourDateLabel(ms) {
   const d = new Date(ms);
   return d.getFullYear() + "." + String(d.getMonth() + 1).padStart(2, "0") + "." + String(d.getDate()).padStart(2, "0");

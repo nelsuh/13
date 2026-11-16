@@ -858,3 +858,11 @@ body.tour-open .skin-toggle, body.tour-open .chat-toggle, body.tour-open .voice-
 }
 .tour-remind-btn.primary { color: #352000; background: linear-gradient(180deg, #ffd45e, #ffc83d); border-color: #ffe08a; }
 .tour-remind-btn:disabled { opacity: .6; cursor: default; }
+
+/* Invitation on opening the app */
+#tourInviteOverlay { z-index: 60; }
+.tour-invite-card { max-width: 340px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px 22px 18px; }
+.tour-invite-title { font-family: "Noto Serif", serif; font-size: 22px; font-weight: 900; line-height: 1.25; color: var(--gold-hi); margin: 10px 0 2px; }
+.tour-invite-meta { font-size: 12.5px; color: var(--text-dim); margin: 2px 0 16px; }
+.tour-invite-card .btn-confirm { margin-bottom: 0; }
+.tour-invite-card .tour-secondary { margin-top: 6px; text-decoration: none; font-size: 14px; }
