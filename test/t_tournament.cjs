@@ -14,6 +14,13 @@ const OPEN = 10 * MIN;   // registration closes / tables drawn this long before 
 function launch(w, id, name, startAt) {
   const c = w.add(id, name, { mode: "single", roomId: "standalone_" + id, pick: "none" });
   c.run("window.T13_TOUR_START_AT = " + startAt);
+  if (w.server.opts.strictRooms) {
+    // What the Usion host hands the game: its api base, service id and a live
+    // token, so the game can create/join real rooms over REST.
+    c.sandbox.Usion.config = { apiUrl: "https://api.test", serviceId: "svc13" };
+    c.sandbox.Usion.user = { getToken: () => "tok-" + id };
+    c.sandbox.fetch = w.server.restFetch(id);
+  }
   c.start({ userId: id, userName: name, roomId: "standalone_" + id, playerIds: [id] });
   return c;
 }
@@ -22,7 +29,7 @@ const derived = c => c.read("tourDerive(tour.startsAt, tour.roster, tour.results
 const status = c => c.read("tourMyStatus(tourDerive(tour.startsAt, tour.roster, tour.results, Date.now()), myId)");
 
 async function registered(n, lead = 15 * MIN) {
-  const w = new World();
+  const w = new World({ strictRooms: true });
   const startAt = w.clock.now + lead;
   const cs = [];
   for (let i = 0; i < n; i++) cs.push(launch(w, "p" + (i + 1), NAMES[i], startAt));
@@ -48,7 +55,7 @@ async function playStage(w, cs) {
 }
 
 test("tables of 2–4, as even as possible", async () => {
-  const w = new World();
+  const w = new World({ strictRooms: true });
   const c = launch(w, "q1", "Alice", w.clock.now + MIN);
   const sizes = n => c.read("tourTableSizes(" + n + ")").join("+");
   eq(sizes(2), "2"); eq(sizes(4), "4"); eq(sizes(5), "3+2"); eq(sizes(7), "4+3");
@@ -173,7 +180,7 @@ test("watching other tables: anyone sees live scores on the bracket", async () =
 });
 
 test("capacity: 200 registrations with photos fit the one record, 50 tables", async () => {
-  const w = new World();
+  const w = new World({ strictRooms: true });
   const c = launch(w, "q1", "Alice", w.clock.now + 30 * MIN);
   const avatar = "https://cdn.usions.com/avatars/" + "a".repeat(140) + ".jpg";   // a long real-world url
   const rows = Array.from({ length: 200 }, (_, i) => ({
@@ -276,7 +283,7 @@ const remindBtn = (c, label) => {
 };
 
 test("daily reminder: offered after registering, subscribed only after the permission is granted", async () => {
-  const w = new World();
+  const w = new World({ strictRooms: true });
   const startAt = w.clock.now + 30 * MIN;
   const c = launch(w, "r1", "Alice", startAt);
   const fake = withReminder(c);
@@ -302,7 +309,7 @@ test("daily reminder: offered after registering, subscribed only after the permi
 });
 
 test("daily reminder: a denied permission subscribes nothing; Later records the choice", async () => {
-  const w = new World();
+  const w = new World({ strictRooms: true });
   const startAt = w.clock.now + 30 * MIN;
   const a = launch(w, "r2", "Bob", startAt), b = launch(w, "r3", "Chuck", startAt);
   const fa = withReminder(a, { grant: false }), fb = withReminder(b);
@@ -322,7 +329,7 @@ test("daily reminder: a denied permission subscribes nothing; Later records the 
 });
 
 test("daily reminder: hidden when the service has no reminder configured", async () => {
-  const w = new World();
+  const w = new World({ strictRooms: true });
   const c = launch(w, "r4", "Dana", w.clock.now + 30 * MIN);
   withReminder(c, { configured: false });
   await w.advance(500);
@@ -347,7 +354,7 @@ test("the 1 s redraw leaves the screen alone: rules stay open, rows are not rebu
 });
 
 test("opening the app: «Оролцоё» on the invitation registers you", async () => {
-  const w = new World();
+  const w = new World({ strictRooms: true });
   const c = launch(w, "i1", "Alice", w.clock.now + 2 * 3600e3);
   await w.advance(2000);
   ok(shown(c, "tourInviteOverlay"), "the invitation is up");
@@ -359,7 +366,7 @@ test("opening the app: «Оролцоё» on the invitation registers you", asyn
 });
 
 test("opening the app: «Үгүй» leaves you on the home page, and it isn't asked again today", async () => {
-  const w = new World();
+  const w = new World({ strictRooms: true });
   const c = launch(w, "i2", "Bob", w.clock.now + 2 * 3600e3);
   await w.advance(2000);
   c.click("tourInviteNo");
@@ -382,6 +389,40 @@ test("no invitation once registered, after registration closes, or for a chat in
   ok(!shown(again, "tourInviteOverlay"), "registered: no invitation");
   ok(!shown(late, "tourInviteOverlay"), "registration closed: no invitation");
   ok(!shown(chat, "tourInviteOverlay"), "chat invite: straight to the waiting room");
+});
+
+test("real rooms: one platform room per table, created over REST and joined by its players", async () => {
+  const { w, cs, startAt } = await registered(5);
+  await w.advance(startAt - w.clock.now + 6000);
+  ok(cs.every(c => c.snap().dealActive), "both tables dealt (under the real relay's join rules)");
+  const tables = new Map();
+  cs.forEach(c => { const r = c.read("tourCtx && tourCtx.roomId"); tables.set(r, (tables.get(r) || 0) + 1); });
+  eq([...tables.values()].sort().join("+"), "2+3", "players of each table share one room: " + JSON.stringify([...tables]));
+  ok([...tables.keys()].every(id => /^room_\d+$/.test(id)), "rooms the server named, not made-up ids");
+  ok(w.server.restLog.some(e => /\/games\/rooms$/.test(e.url) && e.status === 200), "rooms were created over REST");
+  ok(w.server.restLog.some(e => /\/join$/.test(e.url) && e.status === 200), "…and joined over REST");
+});
+
+test("real rooms: everybody arriving in the same instant still ends up at one table", async () => {
+  const { w, cs, startAt } = await registered(4, 16 * MIN);
+  cs.forEach(c => c.click("tourBackBtn"));                   // all on the menu…
+  await w.advance(startAt - w.clock.now - 20000);
+  cs.forEach(c => c.click("menuTourBtn"));                  // …and all tap in together
+  await w.advance(30000);
+  const rooms = new Set(cs.map(c => c.read("tourCtx && tourCtx.roomId")));
+  eq(rooms.size, 1, "one room for the table: " + [...rooms].join(", "));
+  ok(cs.every(c => c.snap().dealActive), "dealt, all four seated");
+  eq(cs[0].snap().numPlayers, 4);
+});
+
+test("real rooms: a failed join is said out loud, never a silent bounce", async () => {
+  const { w, cs, startAt } = await registered(2, 11 * MIN);
+  cs.forEach(c => { c.sandbox.fetch = () => Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) }); });
+  await w.advance(startAt - w.clock.now + 3000);
+  const c = cs[0];
+  ok(shown(c, "tourOverlay"), "back on the tournament screen");
+  ok(/холбогдож чадсангүй/.test(c.el("toast").textContent), "with a message: " + c.el("toast").textContent);
+  eq(c.el("tourPrimary").dataset.act, "enter", "and «Ширээндээ орох» to try again");
 });
 
 if (require.main === module) run("TOURNAMENT").then(r => process.exit(r.fails.length ? 1 : 0));

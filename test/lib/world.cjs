@@ -9,18 +9,29 @@ const NAMES = ["Alice", "Bob", "Chuck", "Dana"];
 // Must match OPEN_ROOM_PREFIX + "1" in script.js: the first public table.
 const PUBLIC_ROOM = "public-13-1";
 const PUBLIC_ROOM_2 = "public-13-2";
+const WORLD_ROOM = "world_1";
+const WORLD_ROOM_2 = "world_2";
 
 class World {
   constructor(opts = {}) {
     this.clock = new Clock();
     this.server = new Server(this.clock, { latency: opts.latency || 20, syncModel: opts.syncModel || "tail",
                                            bareJoinAck: !!opts.bareJoinAck,
-                                           lingeringCount: !!opts.lingeringCount });
+                                           lingeringCount: !!opts.lingeringCount,
+                                           strictRooms: !!opts.strictRooms,
+                                           worlds: !!opts.worlds });
     this.roomId = opts.roomId || "room1";
     this.clients = [];
     this.trace = [];
   }
   add(id, name, launch) {
+    // Under the real rules the platform has already made a no-invite launch its
+    // own standalone room, with the player in it — create that, so the game's
+    // fallback to it behaves as in production.
+    if (this.server.opts.strictRooms && launch && /^standalone_/.test(launch.roomId || "")) {
+      const r = this.server.room(launch.roomId);
+      r.created = true; r.players = [id]; r.max = 4;
+    }
     const c = new Client({ server: this.server, clock: this.clock, id, name, launch });
     this.clients.push(c);
     return c;
@@ -57,7 +68,8 @@ async function onlineWorld(n, opts = {}) {
  * the same shared public table, which is what `w.roomId` points at here.
  */
 async function openWorld(n, opts = {}) {
-  const w = new World(Object.assign({}, opts, { roomId: PUBLIC_ROOM }));
+  // On a world-tagged service the server names the shared tables world_1, world_2…
+  const w = new World(Object.assign({}, opts, { roomId: opts.worlds ? WORLD_ROOM : PUBLIC_ROOM }));
   w.mode = "single";
   for (let i = 0; i < n; i++) {
     const id = "u" + (i + 1);
@@ -262,4 +274,4 @@ async function driveUntil(w, pred, opts = {}) {
   return playOut(w, Object.assign({ done: pred, budget: 10 * 60 * 1000, consistency: false }, opts));
 }
 
-module.exports = { World, onlineWorld, openWorld, startMatch, arrive, joinTable, botSeats, sameRoom, playOut, driveUntil, rejoin, eventually, consistency, dump, signature, NAMES, PUBLIC_ROOM, PUBLIC_ROOM_2, flush };
+module.exports = { World, onlineWorld, openWorld, startMatch, arrive, joinTable, botSeats, sameRoom, playOut, driveUntil, rejoin, eventually, consistency, dump, signature, NAMES, PUBLIC_ROOM, PUBLIC_ROOM_2, WORLD_ROOM, WORLD_ROOM_2, flush };

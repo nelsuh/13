@@ -58,12 +58,69 @@ class Server {
     this.rooms = new Map();
     this.sharedKV = new Map();
     this.reports = [];               // every Usion.game.reportResult payload
+    // strictRooms: the REAL relay's rules (backend realtime/game_handlers.py
+    // handle_game_join): a room must have been created over REST
+    // (POST /games/rooms) and you must be one of its players (POST
+    // /games/rooms/{id}/join) before game:join admits you. Without it this fake
+    // makes up any room you name — which is how the first tournament build
+    // passed here and seated nobody in production.
+    this.roomSeq = 0;
+    this.worldSeq = 0;
+    this.restLog = [];
     this.dropNext = [];              // [{ to, type }] one-shot delivery drops
     this.log = [];                   // transport trace, for debugging a failure
   }
   room(id) {
     if (!this.rooms.has(id)) this.rooms.set(id, new Room(this, id));
     return this.rooms.get(id);
+  }
+  /** POST /games/rooms — the server names the room; the creator is its first player. */
+  createRoom(hostId, max) {
+    const r = this.room("room_" + (++this.roomSeq));
+    r.created = true; r.players = [hostId]; r.max = max || 4;
+    return r;
+  }
+  /**
+   * mm:join {mode:"world"} — backend realtime/matchmaking_handlers.py _join_world:
+   * the world you are already in → atomic backfill into a world with space →
+   * a fresh world. max_players comes from the service (13: 4).
+   */
+  joinWorld(userId) {
+    const worlds = [...this.rooms.values()].filter(r => r.world);
+    let r = worlds.find(w => w.players.includes(userId));
+    if (!r) {
+      r = worlds.find(w => w.players.length < w.max);
+      if (r) r.players.push(userId);
+    }
+    if (!r) {
+      r = this.room("world_" + (++this.worldSeq));
+      r.created = true; r.world = true; r.players = [userId]; r.max = this.opts.worldMax || 4;
+    }
+    return { roomId: r.id, playerIds: r.players.slice() };
+  }
+  /** A fetch() for one user speaking the two room endpoints, with relay latency. */
+  restFetch(userId) {
+    return (url, init) => new Promise(resolve => {
+      this.clock.setTimeout(null, () => {
+        const m = /\/games\/rooms(?:\/([^/?]+)\/join)?$/.exec(String(url));
+        let status = 200, body;
+        if (!m || (init && init.method) !== "POST") { status = 404; body = { detail: "Not Found" }; }
+        else if (!m[1]) {
+          const r = this.createRoom(userId);
+          body = { id: r.id, player_ids: r.players.slice(), max_players: r.max, status: "waiting" };
+        } else {
+          const r = this.rooms.get(decodeURIComponent(m[1]));
+          if (!r || !r.created) { status = 404; body = { detail: "Game room not found" }; }
+          else if (!r.players.includes(userId) && r.players.length >= r.max) { status = 400; body = { detail: "Game room is full" }; }
+          else {
+            if (!r.players.includes(userId)) r.players.push(userId);
+            body = { id: r.id, player_ids: r.players.slice(), max_players: r.max };
+          }
+        }
+        this.restLog.push({ userId, url: String(url), status });
+        resolve({ ok: status < 300, status, json: () => Promise.resolve(body) });
+      }, this.opts.latency);
+    });
   }
   /** Deliver later, from the server's own timer, so a frozen target loses it. */
   push(target, type, payload) {
@@ -133,6 +190,8 @@ class SDK {
     this.left = true;
     this.connected = false;
     if (!room.started) room.roster = room.roster.filter(x => x !== this.id);
+    // World seats free up on leave so backfill can hand them out (handle_game_leave).
+    if (room.world) room.players = room.players.filter(x => x !== this.id);
     room.members.delete(this.id);
     room.peers(this.id).forEach(p => this.server.push(p, "playerLeft",
       { player_id: this.id, player_ids: room.roster.slice(), connected_count: room.connectedCount() }));
@@ -165,6 +224,16 @@ class SDK {
           return { success: true };
         }),
         join: (roomId) => later(() => {
+          if (srv.opts.strictRooms) {
+            const r = srv.rooms.get(roomId);
+            if (!r || !r.created) throw new Error("Game room not found");
+            if (!r.players.includes(self.id)) {
+              // World rooms auto-admit non-members while there is space.
+              if (!r.world) throw new Error("Not a participant in this room");
+              if (r.players.length >= r.max) throw new Error("World room is full");
+              r.players.push(self.id);
+            }
+          }
           const room = srv.room(roomId);
           self.room = room;
           self.left = false;
@@ -183,6 +252,12 @@ class SDK {
           return { room_id: roomId, player_id: self.id, sequence: room.seq };
         }),
         leave: () => { self.leaveRoom(); return Promise.resolve({ success: true }); },
+        // Only on a world-tagged service (opts.worlds); otherwise the SDK call
+        // fails with NOT_WORLD_SERVICE, as 13 does until it carries the tag.
+        joinWorld: () => later(() => {
+          if (!srv.opts.worlds) { const e = new Error("Service does not support world rooms"); e.code = "NOT_WORLD_SERVICE"; throw e; }
+          return srv.joinWorld(self.id);
+        }),
         isMultiplayer: () => self.launch.mode === "multiplayer",
         action: (type, data) => later(() => {
           self.calls.action++;

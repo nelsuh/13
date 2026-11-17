@@ -49,7 +49,29 @@ Sharing mid-game *is* inviting, so a Share promotion (`onRoomAssigned`) moves an
 open room over to the invite rules: the table is torn down and a waiting room
 opens in the new room.
 
-### Why the open room picks its own room id
+### Shared tables are Usion world rooms (since 2026-11-17)
+
+The real relay admits only rooms that exist, and only their players (backend
+`realtime/game_handlers.py` → `handle_game_join`: `ROOM_NOT_FOUND` /
+`NOT_PARTICIPANT`). The ladder of made-up `public-13-N` rooms described below
+therefore never seated anybody in production: every join failed and each player
+fell back to their own room with three bots. The shared table is now a **world
+room**: `Usion.game.joinWorld()` (`joinWorldTable()`) places a player in the world
+they are already in, else a world with a free seat (max 4, from the service's
+`game_config`), else a fresh one, and the server frees a seat when its player
+leaves. Everything inside the table — bots, taking over the weakest bot,
+restarting, clearing a dead room — is unchanged.
+
+This needs the service tagged `world` + `private-invites` (13 has both since
+2026-11-17; the server then stores `game_config.room_mode: "world"`,
+`min_players: 1`). Chat invites and tournament tables are created with
+`POST /games/rooms` and stay ordinary match rooms. **Saving the service in the
+Service Creator drops the `world` tag** — re-add it through the API after any save.
+Without world rooms (older SDK, tag missing) the game falls back to the ladder
+below, which ends at the player's own room. `test/t_world.cjs` runs the open table
+under the real rules (`World({ strictRooms: true, worlds: true })`).
+
+### Why the open room picks its own room id (fallback only)
 
 The platform hands **every** no-invite launch its own private `standalone_` room.
 Joining that is what an open table must *not* do: two people who both tap Play
@@ -186,13 +208,23 @@ Muushig the tournament is not run by one. These records live in
 t13.v1.<startsAt>.reg        {v, list:[{id, n, a}]}           registrations
 t13.v1.<startsAt>.s<N>        {v, t:{<table>: {w, at}}}        each table's winner in stage N
 t13.v1.<startsAt>.l<N>        {v, t:{<table>: {s, o, r, at}}}  live scores in stage N
+t13.v1.<startsAt>.r<N>        {v, t:{<table>: roomId}}         each table's platform room
 t13.v1.fame                   {v, events, list, latest}        champions: wins + the latest
 ```
 
 Everything else — every stage's seating, who plays whom, when the next stage
 starts — is *derived* (`tourDerive()`) from those records plus a seed made from the
-event id, so every client computes the identical bracket. Each table is a private
-relay room `t13-<startsAt>-s<N>-t<K>` running the normal frozen-roster match; its
+event id, so every client computes the identical bracket. Each table is a real
+platform room running the normal frozen-roster match. **The relay admits only a
+room that exists, and only its players** (backend `handle_game_join`:
+`ROOM_NOT_FOUND` / `NOT_PARTICIPANT`), and a room id cannot be chosen — so the
+first player at a table creates one (`POST {apiUrl}/games/rooms` with the iframe
+token), publishes the id in `.r<N>`, and the others join it over REST
+(`POST /games/rooms/{id}/join`) before `game:join` (`tourTableRoom()`). Two
+players creating at once converge on the published one before the deal
+(`tourCheckRoom()`); a failed join says so instead of bouncing silently. The first
+tournament build named rooms itself and seated nobody in production; the test
+relay now enforces the same rules (`World({ strictRooms: true })`). Its
 opening deal is accepted only from somebody on that table's list, seating only
 people on it (`tourOpeningDealOk()`). Every client at the table files the winner
 (read-modify-write, then re-read; a write lost in a race is re-filed on the next
@@ -466,7 +498,7 @@ Note: the platform injects `https://usions.com/usion-sdk.js`; the script tag in
 node 13/test/run_all.cjs
 ```
 
-195 headless scenario tests covering both modes and the tournament, no dependencies and no browser:
+206 headless scenario tests covering both modes and the tournament, no dependencies and no browser:
 every simulated player is the real `script.js` in its own `vm` realm on a virtual
 clock. See [test/README.md](test/README.md).
 

@@ -248,6 +248,7 @@ const STR = {
     tourInviteClose: hm => "Бүртгэл " + hm + "-д хаагдана",
     tourInviteYes: "ОРОЛЦОЁ",
     tourInviteNo: "Үгүй",
+    tourJoinFail: "Ширээнд холбогдож чадсангүй. «Ширээндээ орох» дээр дахин дарна уу.",
     tourRemindOffer: hm => "Өдөр бүр " + hm + "-д тэмцээний сануулга авах уу?",
     tourRemindOn: hm => "Сануулга асаалттай · өдөр бүр " + hm,
     tourRemindOff: "Тэмцээний сануулга унтраалттай",
@@ -441,6 +442,7 @@ const STR = {
     tourInviteClose: hm => "Registration closes at " + hm,
     tourInviteYes: "COUNT ME IN",
     tourInviteNo: "No thanks",
+    tourJoinFail: "Couldn't connect to your table. Tap «Go to my table» again.",
     tourRemindOffer: hm => "Get a tournament reminder every day at " + hm + "?",
     tourRemindOn: hm => "Reminder on · daily at " + hm,
     tourRemindOff: "Tournament reminder is off",
@@ -3152,6 +3154,7 @@ let directoryLastKey = null, directoryLastSignature = null, directoryLastAt = 0;
 let directoryWriting = false, openSearchSeq = 0;
 let preferredOpenShards = [];
 function publishOpenTable() {
+  if (worldTables === true) return;
   const shared = window.Usion && Usion.cloud && Usion.cloud.shared;
   if (!shared || typeof shared.set !== "function" || !online || !openTable || !gameStarted || netPaused || joiningRoom) return;
   if (authorityRank() !== 0) return;
@@ -3198,13 +3201,75 @@ async function fullestOpenShard(fallback, candidates) {
 }
 async function findOpenTable(fallbackShard, fallbackRoomId) {
   const seq = ++openSearchSeq;
+  // The real relay only admits rooms that exist (and their players), so the
+  // made-up public-13-N ladder below never seats anybody in production. A Usion
+  // WORLD room is the platform's shared drop-in table: joinWorld() places us in
+  // the world we are in, else one with a free seat (max 4), else a fresh one.
+  // The ladder stays only for an SDK or service without world rooms.
+  if (fallbackRoomId !== undefined) openFallbackRoom = fallbackRoomId;
+  if (worldTables !== false && window.Usion && Usion.game && typeof Usion.game.joinWorld === "function") {
+    const placed = await joinWorldTable(seq);
+    if (placed !== null) return;
+    worldTables = false;          // this service has no world rooms: use the old search
+    if (seq !== openSearchSeq || !online || !openTable) return;
+  }
   const candidates = [];
   const shard = await fullestOpenShard(fallbackShard, candidates);
   if (seq !== openSearchSeq || !online || !openTable) return;
   preferredOpenShards = candidates.map(entry => entry.shard).filter(candidate => candidate !== shard);
   joinOpenRoom(shard, fallbackRoomId);
 }
+// null = world rooms unavailable (fall back to the ladder); true/false = handled.
+let worldTables = null;       // null unknown · true works · false not on this service
+async function joinWorldTable(seq) {
+  openShard = 0;                      // one shared table: never "away from the front"
+  if (!openSeekSince) openSeekSince = Date.now();
+  noteOpenWait();
+  resetRoomState();
+  onlineOverlay.classList.add("show");
+  try {
+    await Usion.game.connect();
+    registerNetHandlers();
+  } catch (err) {
+    console.error("Open room failed:", err);
+    online = false; openTable = false;
+    onlineOverlay.classList.remove("show");
+    startBotsGame();
+    return false;
+  }
+  let roomId;
+  try {
+    const placed = await Usion.game.joinWorld();
+    roomId = placed && (placed.roomId || placed.room_id);
+    if (!roomId) throw new Error("no world room");
+  } catch (err) {
+    console.warn("World placement unavailable:", err && (err.code || err.message));
+    return null;
+  }
+  if (seq !== openSearchSeq || !online || !openTable) return false;
+  worldTables = true;
+  try {
+    joiningRoom = true;
+    voiceRoomId = roomId;
+    stopProbe();                      // the server placed us: there is nothing to search
+    await Usion.game.join(roomId);
+    return true;
+  } catch (err) {
+    joiningRoom = false;
+    console.error("World room join failed:", err);
+    if (openFallbackRoom) {
+      try { voiceRoomId = openFallbackRoom; await Usion.game.join(openFallbackRoom); return true; } catch (_) {}
+    }
+    online = false; openTable = false;
+    onlineOverlay.classList.remove("show");
+    startBotsGame();
+    return false;
+  }
+}
 async function joinOpenRoom(shard, fallbackRoomId) {
+  // Hops, probes and "search again" paths land here; with world rooms they all
+  // mean "ask the server for a seat" again (leaving first frees ours).
+  if (worldTables === true) return joinWorldTable(++openSearchSeq);
   openShard = shard;
   if (!openSeekSince) openSeekSince = Date.now();
   noteOpenWait();                     // deliberately NOT reset by a hop or a re-search
@@ -3443,6 +3508,10 @@ function onRoomPromoted() {
   resetRoomState();
   ++openSearchSeq;
   openTable = false;
+  // A sync or checkpoint still in flight from the open table we were at must not
+  // land in the new room (it would rebuild the old table, open:true and all):
+  // drop old-room traffic until the promoted room's join ack arrives.
+  joiningRoom = true;
   try { voiceRoomId = Usion.getLaunchParams().roomId || Usion.config.roomId || null; } catch (_) {}
   openFallbackRoom = null;
   online = true;
@@ -5413,7 +5482,6 @@ function tourEnterTable() {
   if (!(window.Usion && Usion.game)) { toast(t("tourNoCloud")); return; }
   tourCtx = { startsAt: tt.startsAt, stage: stage.number, table: m.number, roster: m.playerIds.slice(),
               startAt: stage.startAt, isFinal: stage.isFinal, walkover: false };
-  const roomId = "t13-" + tt.startsAt + "-s" + stage.number + "-t" + m.number;
   document.getElementById("tourOverlay").classList.remove("show");
   document.body.classList.remove("tour-open");
   hideMenu();
@@ -5424,9 +5492,118 @@ function tourEnterTable() {
   document.getElementById("winnerOverlay").classList.remove("show");
   onlineOverlay.classList.add("show");
   renderLobby();
-  setupMultiplayer(roomId).then(() => {
-    if (tourCtx && !online) { tourSkip[tourTableKey(tourCtx.stage, tourCtx.table)] = true; tourBackToScreen(); }
-  });
+  const ctx = tourCtx;
+  const failed = (why) => {
+    console.warn("tournament table join failed:", why);
+    if (tourCtx !== ctx) return;
+    tourSkip[tourTableKey(ctx.stage, ctx.table)] = true;
+    tourBackToScreen();
+    toast(t("tourJoinFail"));          // never fail silently: the player taps «Ширээндээ орох» again
+  };
+  tourTableRoom(ctx).then(roomId => {
+    if (tourCtx !== ctx) return;
+    ctx.roomId = roomId;
+    return setupMultiplayer(roomId).then(() => { if (tourCtx === ctx && !online) failed("relay join"); });
+  }).catch(e => failed(e && e.message));
+}
+// ── Real rooms for tournament tables ──
+// The relay admits only rooms that EXIST and only their PLAYERS (backend
+// realtime/game_handlers.py → handle_game_join: ROOM_NOT_FOUND / NOT_PARTICIPANT).
+// A room id cannot be chosen, so the first player at a table creates one over
+// REST (POST {apiUrl}/games/rooms), publishes its id in the shared record
+//   t13.v1.<startsAt>.r<stage>  {v, t:{<table>: roomId}}
+// and everybody else joins it (POST /games/rooms/{id}/join) before game:join.
+function tourRoomKey(startsAt, stage) { return TOUR_PREFIX + startsAt + ".r" + stage; }
+function tourRestBase() {
+  const cfg = (window.Usion && Usion.config) || {};
+  return cfg.apiUrl ? String(cfg.apiUrl).replace(/\/+$/, "") : null;
+}
+async function tourRest(path, body) {
+  const base = tourRestBase(), f = window.fetch;
+  if (!base || typeof f !== "function") return { status: 0 };
+  // The host can mint the token a few seconds after launch: wait for it.
+  for (let waited = 0; !tourAuthToken() && waited < 8000; waited += 500) await new Promise(r => setTimeout(r, 500));
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = tourAuthToken();
+    if (!token) return { status: 401 };
+    try {
+      const res = await f(base + path, { method: "POST",
+        headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+        body: JSON.stringify(body || {}) });
+      if (res.status === 401 && attempt === 0) { await new Promise(r => setTimeout(r, 1500)); continue; }
+      let data = null;
+      try { data = await res.json(); } catch (_) {}
+      return { status: res.status, data };
+    } catch (e) { return { status: 0, error: e && e.message }; }
+  }
+  return { status: 0 };
+}
+const tourOk = r => r && r.status >= 200 && r.status < 300;
+async function tourCreateRoom() {
+  const cfg = (window.Usion && Usion.config) || {};
+  const r = await tourRest("/games/rooms", { service_id: cfg.serviceId });
+  if (!tourOk(r) || !r.data || !r.data.id) throw new Error("create room failed (" + r.status + ")");
+  return String(r.data.id);
+}
+async function tourTableRoom(ctx) {
+  const cfg = (window.Usion && Usion.config) || {};
+  // Outside the Usion host (local preview) there is no REST: a named room is all there is.
+  if (!tourRestBase() || !cfg.serviceId) return "t13-" + ctx.startsAt + "-s" + ctx.stage + "-t" + ctx.table;
+  const shared = tourShared();
+  if (!shared) throw new Error("no shared storage");
+  const key = tourRoomKey(ctx.startsAt, ctx.stage), table = ctx.table;
+  const roomOf = rec => rec && rec.t && typeof rec.t[table] === "string" ? rec.t[table] : null;
+  const claim = (fresh, replacing) => tourUpdate(key, cur => {
+    const now = roomOf(cur);
+    if (now && now !== replacing) return null;           // somebody else's room stands
+    const tt = Object.assign({}, cur && cur.t); tt[table] = fresh;
+    return { v: 1, t: tt };
+  }, cur => !!roomOf(cur) && roomOf(cur) !== replacing);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let id = roomOf(await Promise.resolve().then(() => shared.get(key)).catch(() => null));
+    if (id) {
+      const j = await tourRest("/games/rooms/" + encodeURIComponent(id) + "/join");
+      if (tourOk(j)) return id;
+      if (j.status !== 404 && !(j.status === 400 && /finished/i.test((j.data && j.data.detail) || ""))) {
+        throw new Error("join room failed (" + j.status + ")");
+      }
+      // The published room is gone: replace it, unless somebody already did.
+      const fresh = await tourCreateRoom();
+      const now = roomOf(await claim(fresh, id));
+      if (now === fresh) return fresh;
+      continue;
+    }
+    const fresh = await tourCreateRoom();
+    const now = roomOf(await claim(fresh, null));
+    if (now === fresh) return fresh;
+    // Lost the race to publish: join the room that won (ours stays empty).
+    const j = await tourRest("/games/rooms/" + encodeURIComponent(now) + "/join");
+    if (tourOk(j)) return now;
+  }
+  throw new Error("no room for this table");
+}
+// Two players can each publish a room in the same instant. Until the deal, keep
+// checking the shared record and move to the room it names.
+function tourCheckRoom(ctx) {
+  const shared = tourShared();
+  if (!shared || !ctx.roomId || !tourRestBase() || ctx.moving) return;
+  const now = Date.now();
+  if (now - (ctx.roomCheckAt || 0) < 5000) return;
+  ctx.roomCheckAt = now;
+  Promise.resolve().then(() => shared.get(tourRoomKey(ctx.startsAt, ctx.stage))).then(rec => {
+    const id = rec && rec.t && typeof rec.t[ctx.table] === "string" ? rec.t[ctx.table] : null;
+    if (!id || id === ctx.roomId || tourCtx !== ctx || gameStarted || dealActive || roomAlreadyRunning()) return;
+    ctx.moving = true;
+    return tourRest("/games/rooms/" + encodeURIComponent(id) + "/join").then(j => {
+      if (!tourOk(j) || tourCtx !== ctx || gameStarted) return;
+      try { if (Usion.game && Usion.game.leave) Usion.game.leave(); } catch (_) {}
+      resetRoomState();
+      openTable = false; online = true;
+      ctx.roomId = id;
+      renderLobby();
+      return setupMultiplayer(id);
+    });
+  }).catch(() => {}).finally(() => { ctx.moving = false; });
 }
 // Opening deal of a tournament table: anybody on this table's list may deal,
 // seat 0 being the dealer, and only to people on the list. Judged on the deal
@@ -5444,6 +5621,7 @@ function tourTableTick() {
   if (!tourCtx || !online) return;
   if (gameStarted) { tourPublishLive(); return; }
   if (dealActive) return;
+  tourCheckRoom(tourCtx);
   renderLobby();
   const now = Date.now();
   const present = tourCtx.roster.filter(id => presentIds.has(id));
