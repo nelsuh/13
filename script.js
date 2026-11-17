@@ -5150,7 +5150,9 @@ async function tourLoad() {
     tour.startsAt = startsAt; tour.roster = []; tour.results = {}; tour.live = {};
     tour.rosterFinal = false; tour.stageFinal = {}; tour.loaded = false;
   }
-  if (!shared) { tour.loaded = true; return; }
+  // Outside the Usion app there is no signed-in player and no server to read:
+  // say so on the card instead of waiting on a load that can never finish.
+  if (!shared || !myId) { tour.loaded = true; return; }
   try {
     if (!tour.rosterFinal) {
       tour.roster = tourListOf(await shared.get(tourRegKey(startsAt)));
@@ -5174,7 +5176,10 @@ async function tourLoad() {
     tour.loaded = true;
     tourReassert();
     if (d.phase === "complete") tourRecordChampion(d);
-  } catch (e) { console.warn("tournament load failed", e); }
+  } catch (e) {
+    console.warn("tournament load failed", e);
+    tour.loaded = true;   // a dead, silent button is worse: a tap now retries and explains a failure
+  }
 }
 // Read-modify-write with a check afterwards. Two writers landing together can
 // drop one entry; whoever was dropped notices on the re-read and writes again.
@@ -5373,6 +5378,7 @@ function tourRender() {
     note = t("tourNoteQualified", stage.matches.filter(m => m.done).length, stage.matches.length);
   } else if (st === "eliminated") { note = t("tourNoteEliminated"); act = "menu"; }
   else if (st === "champion") { note = t("tourNoteChampion"); act = null; }   // the share button is their next step
+  if (!tourShared() || !myId) note = t("tourNoCloud");
   set("tourNote", note);
   if (primary) {
     primary.style.display = act ? "block" : "none";
