@@ -209,7 +209,6 @@ const STR = {
     tourWatchDealing: "Хөзөр тарааж байна…",
     tourWatchTurn: n => "Ээлж: " + n,
     tourWatchWinner: n => "Ялагч: " + n,
-    tourSpectator: "Үзэгч",
     tourViewers: n => n + " үзэгч",
     tourSpecExit: "Гарах",
     tourNoteChampion: "Та тэмцээнд түрүүллээ!",
@@ -413,7 +412,6 @@ const STR = {
     tourWatchDealing: "Dealing…",
     tourWatchTurn: n => "Turn: " + n,
     tourWatchWinner: n => "Winner: " + n,
-    tourSpectator: "Spectator",
     tourViewers: n => n + " watching",
     tourSpecExit: "Leave",
     tourNoteChampion: "You won the tournament!",
@@ -6067,8 +6065,9 @@ function tourViewStamp(startsAt, stage, table, present) {
   }).catch(() => null);
 }
 function tourShowViewers(n) {
-  const spec = document.getElementById("specViewers");
-  if (spec) spec.textContent = n > 0 ? t("tourViewers", n) : "";
+  const spec = document.getElementById("specViewers"), box = document.getElementById("specViewersBox");
+  if (spec) spec.textContent = String(n);
+  if (box) { box.hidden = !(n > 0); box.setAttribute("aria-label", t("tourViewers", n)); }
   const badge = document.getElementById("tableViewers");
   if (badge) {
     const on = !!tourCtx && gameStarted && n > 0;
@@ -6183,9 +6182,8 @@ function tourRenderWatch() {
   const set = (id, txt) => { const e = document.getElementById(id); if (e) e.textContent = txt; };
   const d = tourDerive(w.startsAt, tour.roster, tour.results, Date.now());
   const st = d.stages[w.stage - 1];
-  set("specLabel", t("tourSpectator"));
-  set("specTable", t("tourLobbyTitle", st && st.isFinal ? t("tourFinal") : t("tourStage", w.stage), w.table));
-  set("specExit", t("tourSpecExit"));
+  set("specExitLabel", t("tourSpecExit"));
+  document.getElementById("specViewersBox").title = t("tourLobbyTitle", st && st.isFinal ? t("tourFinal") : t("tourStage", w.stage), w.table);
   const snap = w.snap;
   if (!snap) {
     oppEl.innerHTML = ""; tableComboEl.innerHTML = ""; handEl.innerHTML = "";

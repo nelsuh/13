@@ -274,8 +274,8 @@ can never hang.
   every 4 s); the bracket shows each live table's points out of 20, who is out,
   and the round. **«Ширээ үзэх»** on any other live table opens that table in
   spectator mode, like Muushig: the real game table — opponents, the trick in the
-  middle, the turn ring — with the bottom seat's hand face down, a «Үзэгч» bar and
-  «Гарах». The relay can't carry a watcher (a full table's room refuses a fifth
+  middle, the turn ring — with the bottom seat's hand face down, «‹ Гарах» top-left and an eye badge with
+  the viewer count top-right. The relay can't carry a watcher (a full table's room refuses a fifth
   member: "Game room is full"), so the table's lead client also posts a small
   snapshot to `t13.v1.<startsAt>.w<stage>.<table>` (set only, ≤ every 2 s, only
   on change; removed a minute after the match) and the watcher polls it every
@@ -285,7 +285,7 @@ can never hang.
   drawn. Each new play flies in from the seat that made it.
 - **Viewers.** Each watcher stamps its id into `t13.v1.<startsAt>.v<stage>.<table>`
   (`{v, ids:{<id>: at}}`) every 20 s and takes it out on «Гарах»; stamps older
-  than 45 s don't count. The watcher's bar shows «N үзэгч», and the players at the
+  than 45 s don't count. The watcher sees an eye badge with the number (top-right), and the players at the
   table read the same record every 15 s and see an eye badge with the number.
   Budget: a watcher ≈ 30 snapshot reads + 6 stamp ops + 6 bracket reads a
   minute; a player adds 4 reads.

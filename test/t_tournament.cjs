@@ -203,8 +203,8 @@ test("watching a table: «Ширээ үзэх» opens the real game table in spe
   eq(guest.el("hand").querySelectorAll(".card").length, guest.el("hand").querySelectorAll(".spec-back").length, "never a face");
   eq(guest.el("hand").querySelectorAll(".pip").length, 0, "no rank or suit drawn in the hand");
   ok(guest.el("meName").textContent.length > 0, "the bottom seat carries its player's name");
-  await eventually(w, () => /1 үзэгч/.test(guest.el("specViewers").textContent), 30000);
-  ok(true, "the watcher's bar counts the viewers");
+  await eventually(w, () => guest.el("specViewers").textContent === "1" && !guest.el("specViewersBox").hidden, 30000);
+  ok(guest.el("specViewers").textContent === "1", "the watcher sees the eye badge count the viewers");
   await eventually(w, () => cs.every(c => !c.el("tableViewers").hidden && c.el("tableViewersN").textContent === "1"), 40000);
   ok(true, "every player at the table sees one viewer on the eye badge");
   eq(guest.read("players.length"), 0, "the watcher's own game state is untouched");

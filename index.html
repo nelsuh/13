@@ -15,14 +15,9 @@
 
 <div class="game-container">
 
-  <!-- Spectator bar: shown only while watching another tournament table -->
-  <div class="spec-bar" id="specBar">
-    <span class="spec-eye" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></span>
-    <span class="spec-label" id="specLabel">Үзэгч</span>
-    <span class="spec-table" id="specTable"></span>
-    <span class="spec-viewers" id="specViewers"></span>
-    <button class="spec-exit" id="specExit" type="button">Гарах</button>
-  </div>
+  <!-- Watching another tournament table: the way out (top-left) and how many watch (top-right) -->
+  <button class="spec-exit" id="specExit" type="button"><span aria-hidden="true">‹</span> <span id="specExitLabel">Гарах</span></button>
+  <div class="spec-viewers" id="specViewersBox" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg><span id="specViewers">0</span></div>
 
   <!-- Opponents (seats other than mine) -->
   <div class="opponents" id="opponents"></div>
