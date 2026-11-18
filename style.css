@@ -723,15 +723,8 @@ body.has-side-seats .turn-line {
 }
 
 /* ── Tournament ─────────────────────────────────────────────
-   Inherits the felt card, gold accents and Noto type. Only the menu tile
-   gets the bright amber, so the daily event stands out from the other modes. */
-.menu-btn.tour {
-  color: #352000; font-weight: 800;
-  background: linear-gradient(180deg, #ffd45e, #ffc83d);
-  border-color: #ffe08a;
-  box-shadow: 0 8px 22px rgba(255,200,61,.3);
-}
-.menu-btn.tour .menu-ico { background: linear-gradient(180deg, #4a3300, #2b1d00); border-color: rgba(53,32,0,.6); }
+   Inherits the felt card, gold accents and Noto type. The menu tile matches
+   the other modes; only its trophy icon is a touch brighter. */
 .menu-btn.tour .menu-ico svg { stroke: #ffc83d; }
 
 .tour-card { max-width: 420px; text-align: left; padding: 14px 18px 22px; }
@@ -839,6 +832,54 @@ body.tour-open .skin-toggle, body.tour-open .chat-toggle, body.tour-open .voice-
 .tour-live { font-size: 10px; font-weight: 800; letter-spacing: .4px; color: #ff8a94; margin-left: auto; margin-right: 8px; }
 .tour-score { font-size: 13px; font-weight: 800; color: var(--gold-hi); font-variant-numeric: tabular-nums; }
 .tour-score.out { color: var(--danger); font-weight: 700; font-size: 12px; }
+
+/* Watching another table: the bracket's button, and the game table in spectator mode */
+.tour-watch-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-left: 8px; padding: 4px 11px; border-radius: 999px; cursor: pointer;
+  font: 800 11px/1.2 "Noto Sans", sans-serif; letter-spacing: .3px;
+  color: var(--gold-hi); background: rgba(255,255,255,.06); border: 1px solid rgba(212,175,55,.45);
+}
+.tour-watch-btn svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.tour-watch-btn:active { transform: scale(.96); }
+.tour-table-head .tour-live + .tour-watch-btn { margin-left: 0; }
+.spec-bar { display: none; }
+body.spectating .spec-bar {
+  position: fixed; z-index: 30; left: 50%; transform: translateX(-50%);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);   /* where Play/Pass sit: they are hidden while watching */
+  display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px);
+  padding: 5px 5px 5px 12px; border-radius: 999px;
+  background: rgba(0,0,0,.55); border: 1px solid rgba(212,175,55,.4);
+  box-shadow: 0 6px 18px rgba(0,0,0,.35);
+}
+.spec-eye svg { display: block; width: 16px; height: 16px; fill: none; stroke: var(--gold-hi); stroke-width: 1.8; }
+.spec-label { font-size: 12px; font-weight: 800; letter-spacing: .4px; color: var(--gold-hi); }
+.spec-table { font-size: 12px; font-weight: 600; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.spec-exit {
+  flex: 0 0 auto; padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  font: 800 12px/1.2 "Noto Sans", sans-serif; color: #2a1a04;
+  background: linear-gradient(180deg, #efce72, #e2b44e); border: 1px solid #f4dc8c;
+}
+.spec-viewers { font-size: 12px; font-weight: 700; color: var(--cream); white-space: nowrap; }
+.spec-viewers:empty { display: none; }
+.spec-viewers::before { content: "·"; margin-right: 6px; color: var(--text-dim); }
+.table-viewers {
+  position: fixed; z-index: 70; top: calc(var(--safe-top) + 46px); left: max(28px, calc(var(--safe-left) + 8px));
+  display: flex; align-items: center; gap: 4px; padding: 3px 8px 3px 6px; border-radius: 999px;
+  font-size: 12px; font-weight: 800; color: var(--gold-hi);
+  background: rgba(0,0,0,.45); border: 1px solid rgba(212,175,55,.4); pointer-events: none;
+}
+.table-viewers[hidden] { display: none; }
+.table-viewers svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+body.spectating .table-viewers, body.tour-open .table-viewers { display: none; }
+body.spectating .controls { visibility: hidden; }
+body.spectating .skin-toggle, body.spectating .chat-toggle, body.spectating .voice-toggle { display: none !important; }
+.hand .card.spec-back {
+  background:
+    repeating-linear-gradient(45deg, rgba(212,175,55,.5) 0 2px, rgba(212,175,55,0) 2px 6px),
+    linear-gradient(160deg, var(--back-1), var(--back-2));
+  border-color: rgba(212,175,55,.55);
+}
 
 /* Daily reminder: an offer card after registering, then a one-line switch */
 .tour-remind {

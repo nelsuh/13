@@ -197,7 +197,10 @@ nearly over anyway; a room two people can close is worse.
 - Ширээ бүрээс нэг ялагч гарна. Бүх ширээ дуусахаас өмнө дараагийн шат эхлэхгүй;
   шат хооронд 30 секунд. Ганц ширээ үлдвэл тэр нь финал, ялагч нь аварга.
 - Эхлэх цагаас **1 минутын** дотор ширээндээ ороогүй хүн хасагдана, бот нөхөхгүй.
-  Ганцаараа ирсэн бол шууд шалгарна. Тоглолтын дундаас гарсан хүн fold болно.
+  Цагтаа ганцаараа ирсэн бол шууд шалгарна; **хоцорч** ганцаараа ирвэл шалгарахгүй,
+  ширээ ялагчгүй хаагдана. Тоглолтын дундаас гарсан хүн fold болно.
+- **Хэн ч ирээгүй ширээ** 1 минут + 30 секундын дараа ялагчгүй хаагдана, дараагийн
+  шат түүнийг 50 минут хүлээхгүй.
 - 2-оос цөөн хүн бүртгүүлбэл цуцлагдана.
 
 **How it works without a server.** 13 has no backend of its own, so unlike
@@ -231,6 +234,27 @@ people on it (`tourOpeningDealOk()`). Every client at the table files the winner
 poll). A table nobody reports for 50 minutes closes without a winner so a stage
 can never hang.
 
+- **No bots at a table (hardening, 2026-11-18).** A player reported meeting a bot
+  in the 2026-11-17 event. The database says otherwise: every tournament room's
+  saved state seated only humans (`open:false`); the only bot seats that evening
+  were solo «Онлайн» tables outside the tournament. Still, a test showed an
+  open-table client *could* run inside a tournament room if «Онлайн» fell back to
+  it, so: the open-table fallback is only a `standalone_` room (in production
+  that means none, and a failed world join plays locally); a tournament table
+  refuses any open/bot/off-list seating, live or replayed; and tournament deals
+  and checkpoints carry `tour`, which sends a stray open-table client back out.
+- **Empty tables and late arrivals (2026-11-18).** The 2026-11-17 event had 102
+  registrations and 26 first-stage tables: 13 had nobody, 11 had one person. The
+  empty ones were closed only by the 50-minute stall, so stage 2 started at 21:50.
+  Now the first arrival's published room (`.r<N>`) is the proof somebody came: once
+  the grace minute + 30 s is over, any client looking at the event files each
+  table with no room as `{w: null, at: startAt + 1 min}` (`tourCloseEmptyTables`),
+  so every client derives the same next-stage time. A table at play re-adds its
+  room if a crossed write dropped it (`tourCheckRoom`). And a walkover needs an
+  on-time arrival: somebody who sits down alone after the grace minute closes the
+  table without a winner (one player arrived 18 minutes late and went through).
+  Still open: a table whose players all sat down early and then *left* before the
+  start keeps its room, so it still waits for the stall.
 - **Capacity.** Built for up to ~200 entrants: one 64 KB record of `{id, n, a}`
   rows (avatar urls over 200 chars are dropped) holds them, 50 tables of four.
 - **Polling.** Usion allows 60 shared-storage ops a minute per user. The screen
@@ -248,8 +272,23 @@ can never hang.
   purpose or have already finished.
 - **Watching.** The table's lead client publishes totals after each round (at most
   every 4 s); the bracket shows each live table's points out of 20, who is out,
-  and the round. Card-by-card spectating is not built: it would mean letting an
-  unseated client into the seat/authority logic.
+  and the round. **«Ширээ үзэх»** on any other live table opens that table in
+  spectator mode, like Muushig: the real game table — opponents, the trick in the
+  middle, the turn ring — with the bottom seat's hand face down, a «Үзэгч» bar and
+  «Гарах». The relay can't carry a watcher (a full table's room refuses a fifth
+  member: "Game room is full"), so the table's lead client also posts a small
+  snapshot to `t13.v1.<startsAt>.w<stage>.<table>` (set only, ≤ every 2 s, only
+  on change; removed a minute after the match) and the watcher polls it every
+  2 s and draws it with the game's own renderers, putting the real state back
+  after each draw — a couple of seconds behind, writes nothing. A watcher still
+  in the event is sent back to the bracket the moment their own next table is
+  drawn. Each new play flies in from the seat that made it.
+- **Viewers.** Each watcher stamps its id into `t13.v1.<startsAt>.v<stage>.<table>`
+  (`{v, ids:{<id>: at}}`) every 20 s and takes it out on «Гарах»; stamps older
+  than 45 s don't count. The watcher's bar shows «N үзэгч», and the players at the
+  table read the same record every 15 s and see an eye badge with the number.
+  Budget: a watcher ≈ 30 snapshot reads + 6 stamp ops + 6 bracket reads a
+  minute; a player adds 4 reads.
 - **Champions.** Any client that sees an event finish counts it once in
   `t13.v1.fame` (the champion's own client adds their avatar). The tournament
   screen lists the top 10 and shows 🏆 counts next to registered players.

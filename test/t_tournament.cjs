@@ -179,6 +179,82 @@ test("watching other tables: anyone sees live scores on the bracket", async () =
   eq(writes, 0, "watching writes nothing");
 });
 
+test("watching a table: «Ширээ үзэх» opens the real game table in spectator mode", async () => {
+  const { w, cs, startAt } = await registered(4, 15 * MIN);
+  const guest = launch(w, "g1", "Gan", startAt);
+  await w.advance(500);
+  guest.click("menuTourBtn");
+  await w.advance(startAt - OPEN - w.clock.now + 6000);   // past the draw
+  cs.forEach(c => c.click("tourPrimary"));                 // everyone sits down
+  await w.advance(startAt - w.clock.now + 4000);
+  const btn = () => guest.sandbox.document.querySelector(".tour-watch-btn");
+  await eventually(w, () => !!btn(), 20000);
+  guest.el("tourBody").dispatch("click", { target: btn() });
+  const doc = guest.sandbox.document;
+  ok(doc.body.classList.contains("spectating"), "the game table opens in spectator mode");
+  ok(!shown(guest, "tourOverlay"), "the bracket steps aside");
+  let sawPlay = false;
+  const r = await playOut(w, { done: () => {
+    if (guest.el("tableCombo").querySelectorAll(".card").length) sawPlay = true;
+    return sawPlay && guest.el("opponents").querySelectorAll(".opp").length === 3;
+  }, consistency: false, budget: 10 * MIN });
+  ok(r.ok, "the watcher sees three opponents around the table and the cards being played: " + (r.reason || ""));
+  ok(guest.el("hand").querySelectorAll(".card.spec-back").length > 0, "the bottom seat's hand is face down");
+  eq(guest.el("hand").querySelectorAll(".card").length, guest.el("hand").querySelectorAll(".spec-back").length, "never a face");
+  eq(guest.el("hand").querySelectorAll(".pip").length, 0, "no rank or suit drawn in the hand");
+  ok(guest.el("meName").textContent.length > 0, "the bottom seat carries its player's name");
+  await eventually(w, () => /1 үзэгч/.test(guest.el("specViewers").textContent), 30000);
+  ok(true, "the watcher's bar counts the viewers");
+  await eventually(w, () => cs.every(c => !c.el("tableViewers").hidden && c.el("tableViewersN").textContent === "1"), 40000);
+  ok(true, "every player at the table sees one viewer on the eye badge");
+  eq(guest.read("players.length"), 0, "the watcher's own game state is untouched");
+  const writes = [];
+  const gs = guest.sandbox.Usion.cloud.shared, set0 = gs.set;
+  gs.set = (...a) => { writes.push({ key: a[0], at: w.clock.now }); return set0(...a); };
+  const t0 = w.clock.now;
+  const r2 = await playOut(w, { done: () => /Ялагч/.test(guest.el("turnLine").textContent), consistency: false, budget: 30 * MIN });
+  ok(r2.ok, "the watcher sees the table's winner: " + (r2.reason || "") + " / " + guest.el("turnLine").textContent);
+  ok(writes.every(x => /\.v1\.1$/.test(x.key)), "a watcher writes only its viewer stamp: " + writes.map(x => x.key).join(","));
+  const mins = Math.max(1, (w.clock.now - t0) / MIN);
+  ok(writes.length / mins <= 4, "about one stamp every 20 s: " + writes.length + " in " + mins.toFixed(1) + " min");
+  guest.click("specExit");
+  ok(!doc.body.classList.contains("spectating") && shown(guest, "tourOverlay"), "Гарах returns to the bracket");
+  await w.advance(3000);
+  const rec = await guest.sandbox.Usion.cloud.shared.get(guest.read("tourViewKey(tour.startsAt, 1, 1)"));
+  eq(guest.read("tourViewCount(" + JSON.stringify(rec) + ", Date.now())"), 0, "leaving takes the watcher off the count");
+});
+
+test("no bots at a tournament table, even when «Онлайн» falls back to its room", async () => {
+  // 2026-11-17: «Бот …» seats at tournament tables. Players sit at their table
+  // during the wait before 21:00; one walks away, and the reopened app is handed
+  // that live room as its launch room. «Онлайн» (no world rooms here) fell back to
+  // it as an OPEN table — which deals itself at once, bots in the empty seats.
+  const { w, cs, startAt } = await registered(3, 15 * MIN);
+  await w.advance(startAt - OPEN - w.clock.now + 6000);
+  cs.forEach(c => c.click("tourPrimary"));               // everyone waits at the table
+  await w.advance(20000);
+  const room = cs[0].read("tourCtx && tourCtx.roomId");
+  ok(!!room, "the table has a platform room: " + room);
+  cs[0].click("lobbyTourBtn");                           // walks away before the start…
+  cs[0].click("tourBackBtn");                            // …to the menu
+  cs[0].run("launchRoomId = " + JSON.stringify(room));   // the platform hands the live room back
+  cs[0].click("menuOnlineBtn");                          // «Онлайн»
+  await w.advance(30000);
+  const bots = c => c.read("players.filter(p => p.isBot).map(p => p.name)");
+  ok(!(cs[0].read("openTable") && cs[0].read("voiceRoomId") === room),
+    "the walker's open table does not run inside the tournament room (bots: " + bots(cs[0]).join(",") + ")");
+  cs[1].run("Usion.game.requestSync(0)");                // a phone coming back replays the room's log
+  await w.advance(5000);
+  cs.slice(1).forEach(c => {
+    eq(bots(c).length, 0, c.id + " at the tournament table sees no bot: " + bots(c).join(","));
+    eq(c.read("openTable"), false, c.id + " still runs the tournament rules");
+  });
+  // And the match that does start at 21:00 is the real one, bot-free.
+  await w.advance(startAt - w.clock.now + 70000);
+  await playOut(w, { done: () => false, consistency: false, budget: 2 * MIN, stallMs: 10 * MIN });
+  cs.slice(1).forEach(c => eq(bots(c).length, 0, c.id + " still no bot after the start: " + bots(c).join(",")));
+});
+
 test("capacity: 200 registrations with photos fit the one record, 50 tables", async () => {
   const w = new World({ strictRooms: true });
   const c = launch(w, "q1", "Alice", w.clock.now + 30 * MIN);
@@ -223,6 +299,69 @@ test("a no-show is cut after the grace minute; alone at the table = walkover", a
   cs[1].click("menuTourBtn");                   // Bob looks later
   await eventually(w, () => derived(cs[1]).championId === "p1", 20000);
   eq(derived(cs[1]).championId, "p1", "Bob's client agrees");
+});
+
+test("a table nobody came to closes after the grace minute — the next stage does not wait 50 minutes", async () => {
+  // 2026-11-17: 13 of 26 tables had nobody; they closed only by the 50-minute
+  // stall and the second stage started at 21:50.
+  const { w, cs, startAt } = await registered(6, 15 * MIN);
+  // The draw is fixed by the registrations: work it out before it happens.
+  const st1 = cs[0].read("tourDerive(tour.startsAt, tour.roster, {}, tour.startsAt)").stages[0];
+  eq(st1.matches.length, 2, "two tables of three");
+  const byId = id => cs.find(c => c.id === id);
+  const t1 = st1.matches[0].playerIds.map(byId), t2 = st1.matches[1].playerIds.map(byId);
+  t2.forEach(c => c.click("tourBackBtn"));                // table 2: registered, then never came back
+  await w.advance(startAt - OPEN - w.clock.now + 6000);
+  t1.forEach(c => { if (shown(c, "tourOverlay")) c.click("tourPrimary"); });   // table 1 sits down
+  await w.advance(startAt - w.clock.now + 4000);
+  ok(t1.every(c => c.snap().dealActive), "table 1 is dealt");
+  const r = await playOut(w, { done: () => t1.every(c => shown(c, "winnerOverlay")), consistency: false, budget: 30 * MIN });
+  ok(r.ok, "table 1 finishes: " + (r.reason || ""));
+  t1.forEach(c => c.click("playAgainBtn"));               // back to the bracket
+  await eventually(w, () => derived(t1[0]).stages[0].matches[1].done, 60000);
+  ok(derived(t1[0]).stages[0].matches[1].done, "the empty table is closed");
+  const m2 = derived(t1[0]).stages[0].matches[1];
+  eq(m2.winnerId, null, "the empty table closed without a winner");
+  eq(m2.at, startAt + MIN, "…at the moment the grace minute ended");
+  const d = derived(t1[0]);
+  ok(w.clock.now < startAt + 20 * MIN, "decided long before the 50-minute stall");
+  ok(d.phase === "complete" || d.phase === "between" || d.phase === "playing", "the event moves on: " + d.phase);
+  eq(d.championId, st1.matches[0].winnerId || derived(t1[0]).stages[0].matches[0].winnerId, "table 1's winner is the champion");
+  t2[0].click("menuTourBtn");
+  await eventually(w, () => derived(t2[0]).phase === "complete", 30000);
+  eq(derived(t2[0]).championId, d.championId, "a client that was away agrees");
+});
+
+test("a table at play is never closed as empty, even if its room drops out of the record", async () => {
+  const { w, cs, startAt } = await registered(2, 15 * MIN);
+  await w.advance(startAt - OPEN - w.clock.now + 6000);
+  cs.forEach(c => c.click("tourPrimary"));
+  await w.advance(startAt - w.clock.now + 4000);
+  ok(cs.every(c => c.snap().dealActive), "dealt");
+  // A crossed read-modify-write wipes the table's room from the record.
+  const key = cs[0].read("tourRoomKey(tour.startsAt, 1)");
+  await cs[0].sandbox.Usion.cloud.shared.set(key, { v: 1, t: {} });
+  await playOut(w, { done: () => false, consistency: false, budget: 3 * MIN, stallMs: 10 * MIN });
+  const rec = await cs[0].sandbox.Usion.cloud.shared.get(key);
+  ok(rec && rec.t && typeof rec.t[1] === "string", "the table put its room back");
+  const m = derived(cs[0]).stages[0].matches[0];
+  ok(!m.done || m.winnerId !== null, "and was not closed as empty");
+});
+
+test("arriving late and alone is not a walkover: the table closes without a winner", async () => {
+  // 2026-11-17: somebody sat down 18 minutes in, alone, and went through.
+  const { w, cs, startAt } = await registered(2, 11 * MIN);
+  cs.forEach(c => c.click("tourBackBtn"));                // nobody is there at the start
+  await w.advance(startAt - w.clock.now + 65000);        // the grace minute is over
+  const a = cs[0];
+  a.click("menuTourBtn");
+  await w.advance(500);
+  a.click("tourPrimary");                                  // Alice sits down, late
+  await w.advance(30000);
+  await eventually(w, () => derived(a).stages[0].matches[0].done, 30000);
+  eq(derived(a).stages[0].matches[0].winnerId, null, "no winner");
+  ok(/1 минутын дотор ирээгүй/.test(a.el("onlineStatus").textContent), "and she is told why: " + a.el("onlineStatus").textContent);
+  eq(status(a), "eliminated");
 });
 
 test("fewer than two registrations cancels the event", async () => {
@@ -350,7 +489,7 @@ test("the 1 s redraw leaves the screen alone: rules stay open, rows are not rebu
   await w.advance(5000);                                    // five redraw ticks
   ok(c.el("tourRules") === rules && rules.open, "the rules are untouched");
   ok(c.el("tourBody").children[1] && c.el("tourBody").children[1].__mark === 1, "same row node: nothing rebuilt without a change");
-  eq(c.el("tourRulesList").children.length, 6, "six rules");
+  eq(c.el("tourRulesList").children.length, 7, "seven rules");
 });
 
 test("opening the app: «Оролцоё» on the invitation registers you", async () => {

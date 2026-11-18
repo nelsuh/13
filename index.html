@@ -15,6 +15,15 @@
 
 <div class="game-container">
 
+  <!-- Spectator bar: shown only while watching another tournament table -->
+  <div class="spec-bar" id="specBar">
+    <span class="spec-eye" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></span>
+    <span class="spec-label" id="specLabel">Үзэгч</span>
+    <span class="spec-table" id="specTable"></span>
+    <span class="spec-viewers" id="specViewers"></span>
+    <button class="spec-exit" id="specExit" type="button">Гарах</button>
+  </div>
+
   <!-- Opponents (seats other than mine) -->
   <div class="opponents" id="opponents"></div>
 
@@ -229,6 +238,8 @@
 <div id="reactionLayer" class="reaction-layer"></div>
 
 <!-- Table-colour skin toggle (green ↔ red velvet) -->
+<!-- At a tournament table: how many people are watching it -->
+<div id="tableViewers" class="table-viewers" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg><span id="tableViewersN">0</span></div>
 <button id="skinToggle" class="skin-toggle" aria-label="Ширээний өнгө солих"></button>
 
 <script src="https://usions.com/usion-sdk.js"></script>

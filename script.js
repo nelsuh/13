@@ -203,7 +203,15 @@ const STR = {
     tourNotePlaying: "Таны ширээ эхэлсэн — одоо орно уу.",
     tourNoteQualified: (a, b) => "Дараагийн шатыг хүлээж байна: " + a + "/" + b + " ширээ дууссан.",
     tourNoteNextIn: s => "Дараагийн шат " + s + "-ын дараа эхэлнэ.",
-    tourNoteEliminated: "Энэ удаа хасагдлаа. Маргааш 21:00-д дахин оролцоорой.",
+    tourNoteEliminated: "Энэ удаа хасагдлаа. Бусад ширээг «Ширээ үзэх» товчоор үзэж болно.",
+    tourWatch: "Ширээ үзэх",
+    tourWatchWaiting: "Ширээний мэдээлэл ирэхийг хүлээж байна…",
+    tourWatchDealing: "Хөзөр тарааж байна…",
+    tourWatchTurn: n => "Ээлж: " + n,
+    tourWatchWinner: n => "Ялагч: " + n,
+    tourSpectator: "Үзэгч",
+    tourViewers: n => n + " үзэгч",
+    tourSpecExit: "Гарах",
     tourNoteChampion: "Та тэмцээнд түрүүллээ!",
     tourNoteFew: "Бүртгүүлсэн тоглогч 2 хүрээгүй тул тэмцээн цуцлагдлаа.",
     tourNoteEmpty: "Бүх ширээ ялагчгүй дууссан тул тэмцээн дууслаа.",
@@ -223,6 +231,7 @@ const STR = {
       "Ширээ бүр 20 оноо хүртэл тоглож, ганц ялагч нь дараагийн шатанд гарна.",
       "Бүх ширээ дуусахаас өмнө дараагийн шат эхлэхгүй; шат хооронд 30 секунд. Ганц ширээ үлдвэл тэр нь финал.",
       "Эхлэх цагаас 1 минутын дотор ширээндээ ороогүй хүн хасагдана. Бот нөхөхгүй.",
+      "Цагтаа ганцаараа ирвэл шууд шалгарна. Хоцорч ирсэн бол шалгарахгүй. Хэн ч ирээгүй ширээ ялагчгүй хаагдана.",
       "2-оос цөөн хүн бүртгүүлбэл тэмцээн цуцлагдана."
     ],
     tourLobbyTitle: (st, k) => st + " · Ширээ " + k,
@@ -236,6 +245,7 @@ const STR = {
     tourAway: "ХҮЛЭЭЖ БАЙНА",
     tourBackToTour: "ТЭМЦЭЭН РҮҮ",
     tourWalkover: "Өөр хүн ирээгүй — та шалгарлаа!",
+    tourLateOut: "Эхлэх цагаас 1 минутын дотор ирээгүй тул хасагдлаа.",
     tourQualifiedMsg: "Та дараагийн шатанд шалгарлаа!",
     tourChampionMsg: "Та тэмцээнд түрүүллээ! 🏆",
     tourEliminatedMsg: "Та тэмцээнээс хасагдлаа.",
@@ -397,7 +407,15 @@ const STR = {
     tourNotePlaying: "Your table has started — join now.",
     tourNoteQualified: (a, b) => "Waiting for the next stage: " + a + "/" + b + " tables finished.",
     tourNoteNextIn: s => "Next stage starts in " + s + ".",
-    tourNoteEliminated: "You're out this time. Try again tomorrow at 21:00.",
+    tourNoteEliminated: "You're out this time. Tap «Watch table» to follow the other tables.",
+    tourWatch: "Watch table",
+    tourWatchWaiting: "Waiting for this table's first update…",
+    tourWatchDealing: "Dealing…",
+    tourWatchTurn: n => "Turn: " + n,
+    tourWatchWinner: n => "Winner: " + n,
+    tourSpectator: "Spectator",
+    tourViewers: n => n + " watching",
+    tourSpecExit: "Leave",
     tourNoteChampion: "You won the tournament!",
     tourNoteFew: "Fewer than 2 players registered, so the tournament was cancelled.",
     tourNoteEmpty: "Every table ended without a winner.",
@@ -417,6 +435,7 @@ const STR = {
       "Each table plays to 20 points; its single winner moves on.",
       "The next stage waits for every table; 30 s break between stages. One table left is the final.",
       "Not at your table within 1 minute of the start = out. No bots fill in.",
+      "Alone at the table on time = you go through. Late = you don't. A table nobody came to closes without a winner.",
       "Fewer than 2 registrations cancels the tournament."
     ],
     tourLobbyTitle: (st, k) => st + " · Table " + k,
@@ -430,6 +449,7 @@ const STR = {
     tourAway: "WAITING",
     tourBackToTour: "BACK TO TOURNAMENT",
     tourWalkover: "Nobody else showed up — you go through!",
+    tourLateOut: "You arrived after the first minute, so you're out.",
     tourQualifiedMsg: "You're through to the next stage!",
     tourChampionMsg: "You won the tournament! 🏆",
     tourEliminatedMsg: "You're out of the tournament.",
@@ -2358,6 +2378,7 @@ function currentCheckpoint() {
     firstDeal: roundFirstDeal, lastWinner: roundLastWinner,
     loseAt: loseAt,          // host's elimination threshold, so reconnects/late joiners match
     open: openTable,         // which of the two modes this room runs — never inferred locally
+    tour: tourTag(),         // a tournament table says so: an open-table client must not stay
     names: nameMap(),
     avatars: avatarMap(),
     // Freshness is the SERVER's action sequence, never a wall clock: `version`
@@ -2480,6 +2501,8 @@ function showNotSeated() {
 // if a valid checkpoint was applied.
 function applyCheckpoint(state) {
   if (!state || typeof state !== "object" || state.seed === undefined || !validSeatOrder(state.order)) return false;
+  if (strayInTournamentRoom(state)) return false;
+  if (tourCtx && !tourSeatsOk(state.order, state.open)) return false;
   if (state.order.indexOf(myId) < 0) {
     // Whatever else we do with it, this snapshot tells us the shape of the table
     // we are queuing at — and a `null` in it means a bot is holding a seat, so one
@@ -2544,6 +2567,7 @@ function applyCheckpoint(state) {
   lastWinner = (typeof state.lastWinner === "number") ? state.lastWinner : -1;
   if (Number.isFinite(state.loseAt) && state.loseAt > 0) loseAt = state.loseAt;   // adopt host's elimination threshold
   if (typeof state.open === "boolean") openTable = state.open;   // the ROOM decides which mode it runs
+  if (tourCtx) openTable = false;                                // …except a tournament table: never open
   curSeed = state.seed;
   moveLog = [];
   optimisticMoves = []; optimisticStale = false;   // the snapshot is the truth now
@@ -3206,7 +3230,7 @@ async function findOpenTable(fallbackShard, fallbackRoomId) {
   // WORLD room is the platform's shared drop-in table: joinWorld() places us in
   // the world we are in, else one with a free seat (max 4), else a fresh one.
   // The ladder stays only for an SDK or service without world rooms.
-  if (fallbackRoomId !== undefined) openFallbackRoom = fallbackRoomId;
+  if (fallbackRoomId !== undefined) openFallbackRoom = soloFallbackRoom(fallbackRoomId);
   if (worldTables !== false && window.Usion && Usion.game && typeof Usion.game.joinWorld === "function") {
     const placed = await joinWorldTable(seq);
     if (placed !== null) return;
@@ -3273,7 +3297,7 @@ async function joinOpenRoom(shard, fallbackRoomId) {
   openShard = shard;
   if (!openSeekSince) openSeekSince = Date.now();
   noteOpenWait();                     // deliberately NOT reset by a hop or a re-search
-  if (fallbackRoomId !== undefined) openFallbackRoom = fallbackRoomId;
+  if (fallbackRoomId !== undefined) openFallbackRoom = soloFallbackRoom(fallbackRoomId);
   resetRoomState();
   onlineOverlay.classList.add("show");
   const giveUp = (err) => {
@@ -3436,6 +3460,36 @@ async function setupMultiplayer(roomId) {
     if (openTable) { openTable = false; startBotsGame(); return; }
     setupOverlay.classList.add("show");
   }
+}
+
+// ── Tournament tables never get bots ──
+// Hardening (2026-11-18). A player reported a bot in the 2026-11-17 event; the
+// database showed every tournament room seated only humans, and the bot seats
+// that evening were solo «Онлайн» tables. But a test showed that an open table
+// COULD run inside a tournament room if «Онлайн» fell back to it. Three locks:
+// the fallback is only ever a standalone_ room; a tournament table rejects any
+// open/bot/off-list seating, live or replayed; and every tournament deal and
+// checkpoint carries `tour`, which sends an open-table client back out.
+function tourTag() { return tourCtx ? tourCtx.startsAt + ":" + tourCtx.stage + ":" + tourCtx.table : undefined; }
+function tourSeatsOk(order, open) {
+  if (!tourCtx || !Array.isArray(order) || open === true) return false;
+  return order.length >= 2 && order.every(id => id != null && tourCtx.roster.indexOf(id) >= 0);
+}
+function soloFallbackRoom(id) { return typeof id === "string" && /^standalone_/.test(id) ? id : null; }
+let strayLeftAt = 0;
+function strayInTournamentRoom(st) {
+  if (tourCtx || !openTable || !st || typeof st.tour !== "string" || !st.tour) return false;
+  const now = Date.now();
+  if (now - strayLeftAt < 3000) return true;
+  strayLeftAt = now;
+  console.warn("open table landed in a tournament room — leaving it");
+  try { if (window.Usion && Usion.game && Usion.game.leave) Usion.game.leave(); } catch (_) {}
+  resetRoomState();
+  online = false; openTable = false;
+  openFallbackRoom = null;
+  onlineOverlay.classList.remove("show");
+  startBotsGame();            // a private table against bots, in no room at all
+  return true;
 }
 
 // ── Start menu (no-invite launch) ────────────────────────
@@ -3796,6 +3850,7 @@ function targetSeats() {
 function updateOnlineStatus() {
   const s = document.getElementById("onlineStatus");
   if (!s || gameStarted || dealActive) return;
+  if (tourCtx) return;                 // a tournament lobby writes its own line (renderTourLobby)
   if (openTable) { s.textContent = t("openStatus"); renderOpenWaitStatus(); return; }
   const n = targetSeats();
   s.textContent = connectedCount < n
@@ -4482,6 +4537,7 @@ function hostDeal(reset) {
               firstDeal: reset ? true : firstDeal, lastWinner: reset ? -1 : lastWinner,
               loseAt: loseAt,     // host owns the elimination threshold → every client adopts it
               open: openTable };  // and the room's mode travels with it
+  if (tourCtx) d.tour = tourTag();
   if (reset) d.reset = true;
   // A chat-invite rematch keeps the frozen roster, so somebody who walked out of
   // the last match would be dealt straight back in — 13 cards nobody plays, and a
@@ -4886,6 +4942,11 @@ function onDeal(d, fromId) {
   // locked us out of playing for the whole round AND blocked the next deal.
   if (fromId != null && fromId === myId) pendingAction = false;
   if (!d || typeof d !== "object" || !validSeatOrder(d.order)) return false;
+  // An open table that wandered into a tournament room walks back out of it.
+  if (strayInTournamentRoom(d)) return false;
+  // A tournament table never runs open-table rules, live or replayed: no bot
+  // seats, nobody off the drawn list, no open flag.
+  if (tourCtx && !tourSeatsOk(d.order, d.open)) return false;
   // A deal is legal only between rounds. This also collapses two authorities that
   // raced before seeing each other's echo: the first stored deal wins and the
   // second cannot redeal everybody in the middle of the fresh hand.
@@ -4974,6 +5035,7 @@ function onDeal(d, fromId) {
   const loseOk = LOSE_OPTIONS.indexOf(d.loseAt) >= 0 || d.loseAt === OPEN_LOSE_AT;
   if (loseOk && (!wasStarted || d.reset)) loseAt = d.loseAt;
   if (typeof d.open === "boolean") openTable = d.open;   // …and which mode the room runs
+  if (tourCtx) openTable = false;                        // never at a tournament table
   curSeed = d.seed; moveLog = [];
   handOverlay.classList.remove("show");
   numPlayers = d.order.length;
@@ -5025,6 +5087,7 @@ const TOUR_UTC_HOUR = 13;                 // 21:00 Asia/Ulaanbaatar (UTC+8, no D
 const TOUR_OPEN_MS = 10 * 60 * 1000;      // registration closes / tables drawn at 20:50
 const TOUR_BREAK_MS = 30 * 1000;          // between stages
 const TOUR_GRACE_MS = 60 * 1000;          // no-show cut-off after a table's start
+const TOUR_EMPTY_SETTLE_MS = 30 * 1000;   // after the grace: a table that never got a room had nobody — close it
 const TOUR_STALL_MS = 50 * 60 * 1000;     // a table nobody ever reports is closed without a winner
 const TOUR_TABLE_MAX = 4;
 const TOUR_LOSE_AT = 20;
@@ -5175,6 +5238,7 @@ async function tourLoad() {
     }
     tour.loaded = true;
     tourReassert();
+    tourCloseEmptyTables();
     if (d.phase === "complete") tourRecordChampion(d);
   } catch (e) {
     console.warn("tournament load failed", e);
@@ -5235,13 +5299,13 @@ async function tourWithdraw() {
 }
 // File a table's winner (null = nobody). The first result filed stands; we keep
 // owing ours until the board shows one, so a write lost in a race comes back.
-function tourReport(startsAt, stage, table, winnerId) {
+function tourReport(startsAt, stage, table, winnerId, fixedAt) {
   const key = tourStageKey(startsAt, stage);
   const id = key + "#" + table;
   if (tour.reported[id] && tour.reported[id].inFlight) return;
-  const entry = { stage, table, w: winnerId, inFlight: true };
+  const entry = { stage, table, w: winnerId, at: fixedAt, inFlight: true };
   tour.reported[id] = entry;
-  const at = Date.now();
+  const at = Number.isFinite(fixedAt) ? fixedAt : Date.now();
   const filed = rec => !!rec && !!rec.t && rec.t[table] !== undefined;
   tourUpdate(key, cur => {
     if (filed(cur)) return null;
@@ -5261,7 +5325,7 @@ function tourReassert() {
     if (e.inFlight) return;
     const res = tour.results[e.stage];
     if (res && res[e.table] !== undefined) { delete tour.reported[k]; return; }
-    tourReport(tour.startsAt, e.stage, e.table, e.w);
+    tourReport(tour.startsAt, e.stage, e.table, e.w, e.at);
   });
 }
 // The shared bucket holds 200 keys: drop events older than a few days.
@@ -5276,6 +5340,45 @@ function tourCleanup() {
   }).catch(() => {});
 }
 
+// ── Tables nobody came to ──
+// 2026-11-17: 13 of 26 first-stage tables had nobody at all. Nobody filed their
+// result, so they closed only by the 50-minute stall and the second stage waited
+// until 21:50. The first person to sit down at a table publishes its room
+// (tourTableRoom), before the start. So once the grace minute is over (plus a
+// settle), a table with no room in the record had nobody: any client looking at
+// the event files it closed without a winner, at the moment the grace ended, so
+// every client derives the same next-stage time. It only adds entries, never
+// replaces one, and a table at play keeps its room in the record (tourCheckRoom).
+let tourEmptyDone = {};
+function tourCloseEmptyTables() {
+  const shared = tourShared();
+  if (!shared || !tourRestBase()) return;           // local preview: tables have no published rooms
+  const now = Date.now();
+  const tt = tourDerive(tour.startsAt, tour.roster, tour.results, now);
+  const stage = tt.stages[tt.stages.length - 1];
+  if (!stage || tt.phase !== "playing" || now < stage.startAt + TOUR_GRACE_MS + TOUR_EMPTY_SETTLE_MS) return;
+  const doneKey = tour.startsAt + ":" + stage.number;
+  if (tourEmptyDone[doneKey]) return;
+  const open = stage.matches.filter(m => !m.done);
+  if (!open.length) return;
+  tourEmptyDone[doneKey] = true;                    // once per stage per client; others cover a failure
+  const closeAt = stage.startAt + TOUR_GRACE_MS;
+  Promise.resolve().then(() => shared.get(tourRoomKey(tour.startsAt, stage.number))).then(rooms => {
+    const has = n => !!rooms && !!rooms.t && typeof rooms.t[n] === "string";
+    const empty = open.filter(m => !has(m.number)).map(m => m.number);
+    if (!empty.length) return;
+    const key = tourStageKey(tour.startsAt, stage.number);
+    return tourUpdate(key, cur => {
+      const t0 = Object.assign({}, cur && cur.t);
+      let changed = false;
+      empty.forEach(n => { if (t0[n] === undefined) { t0[n] = { w: null, at: closeAt }; changed = true; } });
+      return changed ? { v: 1, t: t0 } : null;
+    }, cur => !!cur && !!cur.t && empty.every(n => cur.t[n] !== undefined)).then(rec => {
+      if (tour.startsAt === Number(doneKey.split(":")[0])) tour.results[stage.number] = rec.t;
+      tourRender();
+    });
+  }).catch(e => { delete tourEmptyDone[doneKey]; console.warn("closing empty tables failed", e); });
+}
 // ── Screen ──
 var tourCtx = null;   // while at a tournament table: {startsAt, stage, table, roster, startAt, isFinal, walkover}
 function tourFmtClock(ms) {
@@ -5313,11 +5416,12 @@ function openTournament() {
     const visible = ov && ov.classList.contains("show");
     tour.pollN++;
     // On the screen: every 10 s. At a table: every 30 s, only to re-file a lost result.
-    if (visible || (tourCtx && tour.pollN % 3 === 0)) tourLoad().then(tourRender);
+    if (visible || ((tourCtx || tourWatching) && tour.pollN % 3 === 0)) tourLoad().then(tourRender);
   }, TOUR_POLL_MS);
   if (!tour.tickTimer) tour.tickTimer = setInterval(() => {
     if (ov && ov.classList.contains("show")) tourRender();
     if (tourCtx) tourTableTick();
+    if (tourWatching) { tourWatchCheckMine(); tourWatchClock(); }
   }, 1000);
 }
 function closeTournament() {
@@ -5445,6 +5549,14 @@ function tourRender() {
       top.appendChild(tourEl("span", "tour-table-no", t("tourTable", m.number)));
       if (live) top.appendChild(tourEl("span", "tour-live", t("tourLive", live.r || 1)));
       if (mine) top.appendChild(tourEl("span", "tour-tag", t("tourYours")));
+      else if (!m.done && s === tt.stages[tt.stages.length - 1] && tt.phase === "playing" && now >= s.startAt) {
+        const wb = tourEl("button", "tour-watch-btn");
+        wb.type = "button";
+        wb.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
+        wb.appendChild(tourEl("span", null, t("tourWatch")));
+        wb.dataset.watchStage = s.number; wb.dataset.watchTable = m.number;
+        top.appendChild(wb);
+      }
       card.appendChild(top);
       const outs = live && Array.isArray(live.o) ? live.o : [];
       m.playerIds.forEach(id => {
@@ -5486,8 +5598,10 @@ function tourEnterTable() {
   if (!m) { tourRender(); return; }
   if (tourCtx && tourCtx.startsAt === tt.startsAt && tourCtx.stage === stage.number && tourCtx.table === m.number) return;
   if (!(window.Usion && Usion.game)) { toast(t("tourNoCloud")); return; }
+  const tkey = tourTableKey(stage.number, m.number);
+  if (!tourArrivedAt[tkey]) tourArrivedAt[tkey] = now;
   tourCtx = { startsAt: tt.startsAt, stage: stage.number, table: m.number, roster: m.playerIds.slice(),
-              startAt: stage.startAt, isFinal: stage.isFinal, walkover: false };
+              startAt: stage.startAt, isFinal: stage.isFinal, walkover: false, arrivedAt: tourArrivedAt[tkey] };
   document.getElementById("tourOverlay").classList.remove("show");
   document.body.classList.remove("tour-open");
   hideMenu();
@@ -5596,8 +5710,18 @@ function tourCheckRoom(ctx) {
   const now = Date.now();
   if (now - (ctx.roomCheckAt || 0) < 5000) return;
   ctx.roomCheckAt = now;
-  Promise.resolve().then(() => shared.get(tourRoomKey(ctx.startsAt, ctx.stage))).then(rec => {
-    const id = rec && rec.t && typeof rec.t[ctx.table] === "string" ? rec.t[ctx.table] : null;
+  const key = tourRoomKey(ctx.startsAt, ctx.stage), table = ctx.table;
+  Promise.resolve().then(() => shared.get(key)).then(rec => {
+    const id = rec && rec.t && typeof rec.t[table] === "string" ? rec.t[table] : null;
+    if (!id && tourCtx === ctx) {
+      // Our room fell out of the record (two read-modify-writes crossed). Put it
+      // back: a table with no room is a table nobody came to, and gets closed.
+      return tourUpdate(key, cur => {
+        if (cur && cur.t && typeof cur.t[table] === "string") return null;
+        const tt = Object.assign({}, cur && cur.t); tt[table] = ctx.roomId;
+        return { v: 1, t: tt };
+      }, cur => !!cur && !!cur.t && typeof cur.t[table] === "string").catch(() => {});
+    }
     if (!id || id === ctx.roomId || tourCtx !== ctx || gameStarted || dealActive || roomAlreadyRunning()) return;
     ctx.moving = true;
     return tourRest("/games/rooms/" + encodeURIComponent(id) + "/join").then(j => {
@@ -5625,7 +5749,11 @@ function tourOpeningDealOk(d, fromId) {
 var tourDealAt = 0;
 function tourTableTick() {
   if (!tourCtx || !online) return;
-  if (gameStarted) { tourPublishLive(); return; }
+  if (gameStarted) {
+    tourPublishLive(); tourPublishWatch(false); tourReadViewers();
+    if (Date.now() < tourCtx.startAt + TOUR_GRACE_MS + 2 * TOUR_EMPTY_SETTLE_MS) tourCheckRoom(tourCtx);
+    return;
+  }
   if (dealActive) return;
   tourCheckRoom(tourCtx);
   renderLobby();
@@ -5639,9 +5767,13 @@ function tourTableTick() {
     if (!tourCtx.walkover && !roomAlreadyRunning()) {
       tourCtx.walkover = true;
       tourSkip[tourTableKey(tourCtx.stage, tourCtx.table)] = true;
-      tourReport(tourCtx.startsAt, tourCtx.stage, tourCtx.table, myId);
+      // A walkover is for whoever was here on time. Alone and late (2026-11-17:
+      // somebody sat down 18 minutes in and went through) = the table closes
+      // without a winner, exactly as if nobody had come.
+      const late = tourCtx.arrivedAt > tourCtx.startAt + TOUR_GRACE_MS;
+      tourReport(tourCtx.startsAt, tourCtx.stage, tourCtx.table, late ? null : myId, late ? tourCtx.startAt + TOUR_GRACE_MS : undefined);
       const s = document.getElementById("onlineStatus");
-      if (s) s.textContent = t("tourWalkover");
+      if (s) s.textContent = t(late ? "tourLateOut" : "tourWalkover");
       const h = document.getElementById("lobbyHint");
       if (h) h.textContent = "";
     }
@@ -5710,6 +5842,7 @@ function tourMatchOver(champSeat) {
   // This table is finished for us, even before its result reaches the board.
   tourSkip[tourTableKey(tourCtx.stage, tourCtx.table)] = true;
   tourReport(tourCtx.startsAt, tourCtx.stage, tourCtx.table, champId);
+  tourPublishWatch(true, champId);
   const iWon = champId === myId;
   const rs = document.getElementById("rematchStatus");
   if (rs) rs.textContent = iWon ? (tourCtx.isFinal ? t("tourChampionMsg") : t("tourQualifiedMsg")) : t("tourEliminatedMsg");
@@ -5721,7 +5854,8 @@ function tourBackToScreen() {
   try { if (window.Usion && Usion.game && Usion.game.leave) Usion.game.leave(); } catch (_) {}
   resetRoomState();
   online = false; openTable = false;
-  tourCtx = null; tourDealAt = 0;
+  tourCtx = null; tourDealAt = 0; tourViewReadAt = 0;
+  tourShowViewers(0);
   onlineOverlay.classList.remove("show");
   handOverlay.classList.remove("show");
   setupOverlay.classList.remove("show");
@@ -5740,6 +5874,13 @@ function tourBackToScreen() {
   on("menuTourBtn", openTournament);
   on("tourBackBtn", closeTournament);
   on("tourSecondary", tourWithdraw);
+  on("specExit", function () { tourStopWatch(); });
+  const tb = document.getElementById("tourBody");
+  if (tb) tb.addEventListener("click", function (e) {
+    let b = e.target;
+    while (b && b !== tb && !(b.dataset && b.dataset.watchTable)) b = b.parentNode;
+    if (b && b !== tb) tourStartWatch(Number(b.dataset.watchStage), Number(b.dataset.watchTable));
+  });
   on("lobbyTourBtn", function () {
     // Leaving the lobby on purpose: don't pull them straight back in.
     if (tourCtx) tourSkip[tourTableKey(tourCtx.stage, tourCtx.table)] = true;
@@ -5855,8 +5996,245 @@ function tourPublishLive() {
     return shared.set(key, { v: 1, t: tt });
   }).catch(() => { tourLiveSig = ""; });
 }
+// ── Watching another table, card by card ──
+// The relay admits only a room's players, and a table of four has no seat left
+// for a watcher (backend join_game_room: "Game room is full"). So watching goes
+// through shared storage instead: the table's lead client posts a small picture
+// of the table — scores, card counts, the current trick, whose turn — at most
+// every TOUR_WATCH_MS, and only when it changed (tl = seconds left on the turn clock):
+//   t13.v1.<startsAt>.w<stage>.<table>  {v, at, tl, r, deal, turn, w, ps:[{id,n,a,t,o,c}], tp:[{s,c:[wire…]}]}
+// A watcher polls that one key. One writer per key (set only, no read), so no
+// races; the record is removed a minute after the match ends to spare the
+// bucket's 200 keys.
+const TOUR_WATCH_MS = 2000;
+function tourWatchKey(startsAt, stage, table) { return TOUR_PREFIX + startsAt + ".w" + stage + "." + table; }
+let tourWatchSig = "", tourWatchPubAt = 0;
+function tourPublishWatch(final, champId) {
+  const shared = tourShared();
+  if (!shared || !tourCtx || !gameStarted || replayingSync || !isPrimaryAuthority()) return;
+  const now = Date.now();
+  if (!final && now - tourWatchPubAt < TOUR_WATCH_MS) return;
+  const ps = roomPlayerIds.map((id, i) => {
+    const p = players[i] || {};
+    const a = p.avatar && String(p.avatar).length <= 400 ? p.avatar : null;
+    return { id: id == null ? null : id, n: String(p.name || "").slice(0, 24), a, t: p.total | 0, o: !!p.out, c: (hands[i] || []).length };
+  });
+  const tp = trickPlays.slice(-4).map(x => ({ s: x.seat, c: x.combo.cards.map(cardWire) }));
+  const body = { r: tourLiveRound, deal: !!dealActive, turn: dealActive ? turn : -1, w: champId == null ? null : champId, ps, tp };
+  const sig = JSON.stringify(body);
+  if (sig === tourWatchSig) return;
+  tourWatchSig = sig; tourWatchPubAt = now;
+  const key = tourWatchKey(tourCtx.startsAt, tourCtx.stage, tourCtx.table);
+  Promise.resolve().then(() => shared.set(key, Object.assign({ v: 1, at: now, tl: turnLeft }, body))).catch(() => { tourWatchSig = ""; });
+  if (final && typeof shared.remove === "function") {
+    const vkey = tourViewKey(tourCtx.startsAt, tourCtx.stage, tourCtx.table);
+    setTimeout(() => {
+      Promise.resolve().then(() => shared.remove(key)).catch(() => {});
+      Promise.resolve().then(() => shared.remove(vkey)).catch(() => {});
+    }, 60000);
+  }
+}
+// Watching happens ON the game table, like Muushig: the same opponents, the
+// same trick in the middle, the bottom seat's hand face down, the turn ring
+// running — and a spectator bar with the way out. Nothing of the real match
+// state is touched: the renderers are pointed at the snapshot for the length of
+// one synchronous draw, then everything is put back.
+// ── Who is watching ──
+// Each watcher stamps its id into the table's viewers record every
+// TOUR_VIEW_BEAT_MS (read-modify-write; a stamp lost to a race comes back on the
+// next beat) and takes its id out on leaving. A stamp older than TOUR_VIEW_TTL_MS
+// no longer counts, so a closed app drops off by itself.
+//   t13.v1.<startsAt>.v<stage>.<table>  {v, ids:{<userId>: at}}
+// The players at the table read the same record every TOUR_VIEW_READ_MS.
+const TOUR_VIEW_BEAT_MS = 20000, TOUR_VIEW_TTL_MS = 45000, TOUR_VIEW_READ_MS = 15000;
+function tourViewKey(startsAt, stage, table) { return TOUR_PREFIX + startsAt + ".v" + stage + "." + table; }
+function tourViewCount(rec, now) {
+  const ids = rec && rec.ids && typeof rec.ids === "object" ? rec.ids : {};
+  return Object.keys(ids).filter(id => now - Number(ids[id]) < TOUR_VIEW_TTL_MS).length;
+}
+function tourViewStamp(startsAt, stage, table, present) {
+  const shared = tourShared();
+  if (!shared || !myId) return Promise.resolve(null);
+  const key = tourViewKey(startsAt, stage, table);
+  return Promise.resolve().then(() => shared.get(key)).then(cur => {
+    const now = Date.now();
+    const ids = {};
+    const old = cur && cur.ids && typeof cur.ids === "object" ? cur.ids : {};
+    Object.keys(old).forEach(id => { if (now - Number(old[id]) < TOUR_VIEW_TTL_MS) ids[id] = Number(old[id]); });
+    if (present) ids[myId] = now; else delete ids[myId];
+    const next = { v: 1, ids };
+    return Promise.resolve(shared.set(key, next)).then(() => next);
+  }).catch(() => null);
+}
+function tourShowViewers(n) {
+  const spec = document.getElementById("specViewers");
+  if (spec) spec.textContent = n > 0 ? t("tourViewers", n) : "";
+  const badge = document.getElementById("tableViewers");
+  if (badge) {
+    const on = !!tourCtx && gameStarted && n > 0;
+    badge.hidden = !on;
+    const num = document.getElementById("tableViewersN");
+    if (num) num.textContent = String(n);
+    badge.title = n > 0 ? t("tourViewers", n) : "";
+  }
+}
+// At the table: how many are watching us (shown as a small eye badge).
+let tourViewReadAt = 0;
+function tourReadViewers() {
+  const shared = tourShared();
+  if (!shared || !tourCtx || !gameStarted) return;
+  const now = Date.now();
+  if (now - tourViewReadAt < TOUR_VIEW_READ_MS) return;
+  tourViewReadAt = now;
+  const ctx = tourCtx;
+  Promise.resolve().then(() => shared.get(tourViewKey(ctx.startsAt, ctx.stage, ctx.table))).then(rec => {
+    if (tourCtx === ctx) tourShowViewers(tourViewCount(rec, Date.now()));
+  }).catch(() => {});
+}
+
+// A new play slides in from the seat that made it, like a card thrown on the table.
+function tourAnimatePlay(seat) {
+  const row = tableComboEl.querySelector(".tp-play.latest");
+  if (!row || typeof row.animate !== "function") return;
+  const from = seat === 0 ? document.querySelector(".me-bar .player-avatar")
+    : document.querySelector('.opp[data-seat="' + seat + '"] .player-avatar');
+  if (!from) return;
+  const a = from.getBoundingClientRect(), b = row.getBoundingClientRect();
+  if (!b.width) return;
+  const dx = (a.left + a.width / 2) - (b.left + b.width / 2);
+  const dy = (a.top + a.height / 2) - (b.top + b.height / 2);
+  try {
+    row.animate([
+      { transform: "translate(" + dx + "px," + dy + "px) scale(.35) rotate(-8deg)", opacity: 0.2 },
+      { transform: "translate(0,0) scale(1.06) rotate(0deg)", opacity: 1, offset: 0.8 },
+      { transform: "none", opacity: 1 },
+    ], { duration: 420, easing: "cubic-bezier(.2,.8,.25,1)" });
+  } catch (_) {}
+}
+
+let tourWatching = null;   // {startsAt, stage, table, timer, beat, snap, gotAt, playKey}
+function tourStartWatch(stage, table) {
+  if (!tourShared() || !stage || !table || tourCtx || gameStarted) return;
+  tourStopWatch(true);
+  tourWatching = { startsAt: tour.startsAt, stage, table, snap: null, gotAt: 0, timer: null };
+  document.getElementById("tourOverlay").classList.remove("show");
+  document.body.classList.remove("tour-open");
+  document.body.classList.add("spectating");
+  hideMenu();
+  const w = tourWatching;
+  const poll = () => {
+    if (tourWatching !== w) return;
+    Promise.resolve().then(() => tourShared().get(tourWatchKey(w.startsAt, w.stage, w.table))).then(rec => {
+      if (tourWatching !== w) return;
+      if (rec && Array.isArray(rec.ps) && rec.ps.length >= 2 && rec.ps.length <= 4 && (!w.snap || rec.at !== w.snap.at)) {
+        w.snap = rec; w.gotAt = Date.now();
+      }
+      tourRenderWatch();
+      // Finished: nothing more will change, stop polling.
+      if (w.snap && w.snap.w != null && w.timer) { clearInterval(w.timer); w.timer = null; }
+    }).catch(() => {});
+  };
+  w.timer = setInterval(poll, TOUR_WATCH_MS);
+  const beat = () => tourViewStamp(w.startsAt, w.stage, w.table, true).then(rec => {
+    if (tourWatching === w && rec) tourShowViewers(tourViewCount(rec, Date.now()));
+  });
+  w.beat = setInterval(beat, TOUR_VIEW_BEAT_MS);
+  tourRenderWatch();
+  poll();
+  beat();
+}
+function tourStopWatch(quiet) {
+  const w0 = tourWatching;
+  if (w0 && w0.timer) clearInterval(w0.timer);
+  if (w0 && w0.beat) clearInterval(w0.beat);
+  if (w0) tourViewStamp(w0.startsAt, w0.stage, w0.table, false);
+  tourShowViewers(0);
+  const was = !!w0;
+  tourWatching = null;
+  document.body.classList.remove("spectating");
+  if (!was) return;
+  // Clear the table we drew, so the next screen starts clean.
+  oppEl.innerHTML = ""; tableComboEl.innerHTML = ""; handEl.innerHTML = "";
+  turnLine.textContent = "—"; turnLine.className = "turn-line";
+  if (quiet !== true) openTournament();
+}
+// Watching while still in the event: the moment your own next table is drawn,
+// go back to the tournament screen, which sits you down (tourMaybeAutoEnter).
+function tourWatchCheckMine() {
+  const tt = tourDerive(tour.startsAt, tour.roster, tour.results, Date.now());
+  const st = tourMyStatus(tt, myId);
+  if (st !== "waiting" && st !== "playing") return;
+  const stage = tt.stages[tt.stages.length - 1];
+  if (stage && tourSkip[tourTableKey(stage.number, (stage.matches.find(m => m.playerIds.indexOf(myId) >= 0) || {}).number)]) return;
+  tourStopWatch();
+}
+// The turn ring keeps running between snapshots.
+function tourWatchClock() {
+  const w = tourWatching, snap = w && w.snap;
+  if (!snap || !snap.deal || snap.w != null || !Number.isFinite(Number(snap.tl))) return;
+  const left = Math.max(0, Math.round(Number(snap.tl) - (Date.now() - w.gotAt) / 1000));
+  const el = snap.turn === 0 ? document.getElementById("meTimer")
+    : document.querySelector('.opp[data-seat="' + (snap.turn | 0) + '"] .opp-timer');
+  setTimerEl(el, true, left);
+}
+function tourRenderWatch() {
+  const w = tourWatching;
+  if (!w) return;
+  const set = (id, txt) => { const e = document.getElementById(id); if (e) e.textContent = txt; };
+  const d = tourDerive(w.startsAt, tour.roster, tour.results, Date.now());
+  const st = d.stages[w.stage - 1];
+  set("specLabel", t("tourSpectator"));
+  set("specTable", t("tourLobbyTitle", st && st.isFinal ? t("tourFinal") : t("tourStage", w.stage), w.table));
+  set("specExit", t("tourSpecExit"));
+  const snap = w.snap;
+  if (!snap) {
+    oppEl.innerHTML = ""; tableComboEl.innerHTML = ""; handEl.innerHTML = "";
+    meNameEl.textContent = ""; if (meScoreEl) meScoreEl.textContent = "";
+    turnLine.textContent = t("tourWatchWaiting"); turnLine.className = "turn-line";
+    return;
+  }
+  const nameOf = p => !p ? "?" : p.id === myId ? t("you") : (p.n || (p.id ? tourPerson(p.id).name : "?"));
+  const champ = snap.w != null ? snap.ps.find(p => p.id === snap.w) : null;
+  // Point the renderers at the snapshot…
+  const saved = { players, hands, numPlayers, mySeat, turn, dealActive, trickPlays, roomPlayerIds, online, turnLeft };
+  try {
+    players = snap.ps.map((p, i) => ({ name: nameOf(p), avatar: p.a || null, isBot: p.id == null, total: p.t | 0, out: !!p.o, color: PLAYER_COLORS[i] }));
+    hands = snap.ps.map(p => new Array(Math.max(0, Math.min(13, p.c | 0))).fill(null));
+    numPlayers = players.length; mySeat = 0;
+    dealActive = !!snap.deal && !champ;
+    turn = dealActive ? snap.turn | 0 : -1;
+    trickPlays = (Array.isArray(snap.tp) ? snap.tp : []).filter(x => x && players[x.s]).map(x => ({
+      seat: x.s,
+      combo: { cards: (Array.isArray(x.c) ? x.c : []).map(Number).filter(n => Number.isInteger(n) && n >= 0 && n < 64).map(wireCard) },
+    }));
+    roomPlayerIds = snap.ps.map(p => p.id); online = false;
+    const tl = Number(snap.tl);
+    turnLeft = Number.isFinite(tl) ? Math.max(0, Math.round(tl - (Date.now() - w.gotAt) / 1000)) : TURN_SECONDS;
+    renderMyPlayer(); renderOpponents(); renderTable(); renderMyScore(); updateTimers();
+  } finally {
+    // …and put the real state back.
+    players = saved.players; hands = saved.hands; numPlayers = saved.numPlayers; mySeat = saved.mySeat;
+    turn = saved.turn; dealActive = saved.dealActive; trickPlays = saved.trickPlays;
+    roomPlayerIds = saved.roomPlayerIds; online = saved.online; turnLeft = saved.turnLeft;
+  }
+  // A play we have not shown yet flies in from its seat (not on the first draw).
+  const tps = Array.isArray(snap.tp) ? snap.tp : [];
+  const last = tps[tps.length - 1];
+  const playKey = last ? snap.r + ":" + tps.length + ":" + last.s + ":" + (last.c || []).join(",") : "";
+  if (w.playKey !== undefined && playKey && playKey !== w.playKey && !champ) tourAnimatePlay(last.s | 0);
+  w.playKey = playKey;
+  // The bottom seat is somebody else's hand: backs only, never faces.
+  const bottom = snap.ps[0];
+  handEl.innerHTML = '<div class="card spec-back"></div>'.repeat(Math.max(0, Math.min(13, bottom.c | 0)));
+  layoutHand();
+  if (champ) { turnLine.textContent = t("tourWatchWinner", shortName(nameOf(champ))); turnLine.className = "turn-line mine"; }
+  else if (!snap.deal) { turnLine.textContent = t("tourWatchDealing"); turnLine.className = "turn-line"; }
+  else if (snap.turn === 0) { turnLine.textContent = t("turnOf", shortName(nameOf(bottom))); turnLine.className = "turn-line"; }
+}
+
 // ── Coming back: straight to your table ──
 const tourSkip = {};   // tables the player deliberately left: no auto-entry
+const tourArrivedAt = {};   // table → when we first sat down (a late arrival gets no walkover)
 function tourTableKey(stage, table) { return tour.startsAt + ":" + stage + ":" + table; }
 let tourAutoAt = 0;
 function tourMaybeAutoEnter(tt, st) {
