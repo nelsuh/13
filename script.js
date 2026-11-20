@@ -206,6 +206,7 @@ const STR = {
     tourNoteEliminated: "Энэ удаа хасагдлаа. Бусад ширээг «Ширээ үзэх» товчоор үзэж болно.",
     tourWatch: "Ширээ үзэх",
     tourWatchWaiting: "Ширээний мэдээлэл ирэхийг хүлээж байна…",
+    tourWatchNone: "Энэ ширээнд тоглолт явахгүй байна",
     tourWatchDealing: "Хөзөр тарааж байна…",
     tourWatchTurn: n => "Ээлж: " + n,
     tourWatchWinner: n => "Ялагч: " + n,
@@ -409,6 +410,7 @@ const STR = {
     tourNoteEliminated: "You're out this time. Tap «Watch table» to follow the other tables.",
     tourWatch: "Watch table",
     tourWatchWaiting: "Waiting for this table's first update…",
+    tourWatchNone: "Nothing is being played at this table",
     tourWatchDealing: "Dealing…",
     tourWatchTurn: n => "Turn: " + n,
     tourWatchWinner: n => "Winner: " + n,
@@ -5500,7 +5502,10 @@ function tourRender() {
       top.appendChild(tourEl("span", "tour-table-no", t("tourTable", m.number)));
       if (live) top.appendChild(tourEl("span", "tour-live", t("tourLive", live.r || 1)));
       if (mine) top.appendChild(tourEl("span", "tour-tag", t("tourYours")));
-      else if (!m.done && s === tt.stages[tt.stages.length - 1] && tt.phase === "playing" && now >= s.startAt) {
+      // Only a table that is actually being played (its lead posts the live
+      // scores): an empty table, or one still waiting for its players, has no
+      // picture to show — 2026-11-19 «Ширээ үзэх» spun on "waiting" forever.
+      else if (live && now >= s.startAt) {
         const wb = tourEl("button", "tour-watch-btn");
         wb.type = "button";
         wb.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
@@ -5925,14 +5930,16 @@ function tourRenderFame(body) {
   });
 }
 // ── Live scores: the table's lead client publishes totals after each round ──
-let tourLiveSig = "", tourLiveAt = 0, tourLiveRound = 0;
+let tourLiveSig = "", tourLiveAt = 0, tourLiveRound = 0, tourLivePrevSig = "";
 function tourPublishLive() {
   const shared = tourShared();
   if (!shared || !tourCtx || !gameStarted || replayingSync || !isPrimaryAuthority()) return;
   const sig = JSON.stringify(players.map(p => [p.total, !!p.out]));
   const now = Date.now();
   if (sig === tourLiveSig || now - tourLiveAt < TOUR_LIVE_MS) return;
-  tourLiveSig = sig; tourLiveAt = now; tourLiveRound++;
+  // A rewrite of the same scores (a lost write) is not a new round.
+  if (sig !== tourLivePrevSig) tourLiveRound++;
+  tourLiveSig = sig; tourLivePrevSig = sig; tourLiveAt = now;
   const entry = { s: {}, o: [], r: tourLiveRound, at: now };
   roomPlayerIds.forEach((id, i) => {
     if (id == null || !players[i]) return;
@@ -5945,7 +5952,16 @@ function tourPublishLive() {
     const tt = Object.assign({}, cur && cur.t);
     tt[table] = entry;
     return shared.set(key, { v: 1, t: tt });
-  }).catch(() => { tourLiveSig = ""; });
+  }).then(() => new Promise(r => setTimeout(r, 1500 + Math.random() * 1500)))
+    .then(() => shared.get(key))
+    .then(cur => {
+      // Every table of the stage writes this one record, and they all start at
+      // once: an entry dropped by a concurrent write is written again (and
+      // without it the table would offer nobody «Ширээ үзэх»).
+      const got = cur && cur.t && cur.t[table];
+      if ((!got || got.at !== entry.at) && tourLiveAt === entry.at) tourLiveSig = "";
+    })
+    .catch(() => { tourLiveSig = ""; });
 }
 // ── Watching another table, card by card ──
 // The relay admits only a room's players, and a table of four has no seat left
@@ -5958,6 +5974,7 @@ function tourPublishLive() {
 // races; the record is removed a minute after the match ends to spare the
 // bucket's 200 keys.
 const TOUR_WATCH_MS = 2000;
+const TOUR_WATCH_GIVEUP_MS = 15000;
 function tourWatchKey(startsAt, stage, table) { return TOUR_PREFIX + startsAt + ".w" + stage + "." + table; }
 let tourWatchSig = "", tourWatchPubAt = 0;
 function tourPublishWatch(final, champId) {
@@ -6091,6 +6108,13 @@ function tourStartWatch(stage, table) {
     if (tourWatching === w && rec) tourShowViewers(tourViewCount(rec, Date.now()));
   });
   w.beat = setInterval(beat, TOUR_VIEW_BEAT_MS);
+  // Nobody is posting this table (it never started, or its players are gone):
+  // say so and go back, instead of a spinner that never ends.
+  w.giveUp = setTimeout(() => {
+    if (tourWatching !== w || w.snap) return;
+    toast(t("tourWatchNone"));
+    tourStopWatch();
+  }, TOUR_WATCH_GIVEUP_MS);
   tourRenderWatch();
   poll();
   beat();
@@ -6099,6 +6123,7 @@ function tourStopWatch(quiet) {
   const w0 = tourWatching;
   if (w0 && w0.timer) clearInterval(w0.timer);
   if (w0 && w0.beat) clearInterval(w0.beat);
+  if (w0 && w0.giveUp) clearTimeout(w0.giveUp);
   if (w0) tourViewStamp(w0.startsAt, w0.stage, w0.table, false);
   tourShowViewers(0);
   const was = !!w0;

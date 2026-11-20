@@ -222,16 +222,34 @@ class SDK {
     const later = (fn) => new Promise((res, rej) => {
       this.clock.setTimeout(self, () => { try { res(fn()); } catch (e) { rej(e); } }, srv.opts.latency);
     });
+    // Every shared-storage call is logged; with kvLimits the backend's limit
+    // applies: 60 ops per user per service per fixed minute (realtime/kv_handlers
+    // → redis check_rate_limit), over the limit = "Rate limit exceeded".
+    const kv = (op, key, fn) => {
+      const now = this.clock.now, win = Math.floor(now / 60000);
+      (srv.kvOps || (srv.kvOps = [])).push({ id: self.id, t: now, op, key });
+      if (srv.opts.kvLimits) {
+        const b = (srv.kvWin || (srv.kvWin = new Map()));
+        const k = self.id + ":" + win, n = (b.get(k) || 0) + 1;
+        b.set(k, n);
+        if (n > 60) { (srv.kvRefused || (srv.kvRefused = [])).push({ id: self.id, t: now, op, key }); return Promise.reject(new Error("Rate limit exceeded")); }
+      }
+      try { return Promise.resolve(fn()); } catch (e) { return Promise.reject(e); }
+    };
     return {
       init(cb) { self.initCb = cb; },
       getLanguage: () => "mn",
       getLaunchParams: () => Object.assign({}, self.launch),
       cloud: { get: () => Promise.resolve(null), set: () => Promise.resolve({}), shared: {
-        incr: () => Promise.resolve({}),
-        get: key => Promise.resolve(srv.sharedKV.has(key) ? JSON.parse(JSON.stringify(srv.sharedKV.get(key))) : null),
-        set: (key, value) => { srv.sharedKV.set(key, JSON.parse(JSON.stringify(value))); return Promise.resolve({success:true}); },
-        keys: () => Promise.resolve([...srv.sharedKV.keys()]),
-        remove: key => Promise.resolve({ success: true, removed: srv.sharedKV.delete(key) })
+        incr: () => kv("incr", null, () => ({})),
+        get: key => kv("get", key, () => srv.sharedKV.has(key) ? JSON.parse(JSON.stringify(srv.sharedKV.get(key))) : null),
+        set: (key, value) => kv("set", key, () => {
+          // backend services/cloud_kv.py: 200 keys per shared bucket.
+          if (srv.opts.kvLimits && !srv.sharedKV.has(key) && srv.sharedKV.size >= 200) throw new Error("Key quota exceeded (max 200 keys)");
+          srv.sharedKV.set(key, JSON.parse(JSON.stringify(value))); return { success: true };
+        }),
+        keys: () => kv("keys", null, () => [...srv.sharedKV.keys()]),
+        remove: key => kv("remove", key, () => ({ success: true, removed: srv.sharedKV.delete(key) }))
       } },
       leaderboard: { submit: (v) => { self.calls.leaderboard.push(v); return Promise.resolve({ success: true }); } },
       game: {

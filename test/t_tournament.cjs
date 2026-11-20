@@ -224,6 +224,56 @@ test("watching a table: «Ширээ үзэх» opens the real game table in spe
   eq(guest.read("tourViewCount(" + JSON.stringify(rec) + ", Date.now())"), 0, "leaving takes the watcher off the count");
 });
 
+test("«Ширээ үзэх» only on a table being played; a table with no picture sends the watcher back", async () => {
+  // 2026-11-19: a table nobody sat at (or still waiting for its players) offered
+  // «Ширээ үзэх», and the watcher sat on "waiting for this table" forever.
+  const { w, cs, startAt } = await registered(6, 15 * MIN);
+  const guest = launch(w, "g1", "Gan", startAt);
+  await w.advance(500);
+  guest.click("menuTourBtn");
+  const ms = cs[0].read("tourDerive(tour.startsAt, tour.roster, {}, tour.startsAt)").stages[0].matches;
+  eq(ms.length, 2, "two tables");
+  const t1 = ms[0].playerIds;
+  cs.filter(c => !t1.includes(c.id)).forEach(c => c.click("tourBackBtn"));   // table 2: registered, never came
+  await w.advance(startAt - OPEN - w.clock.now + 6000);   // past the draw
+  cs.filter(c => t1.includes(c.id)).forEach(c => { if (shown(c, "tourOverlay")) c.click("tourPrimary"); });   // table 1 sits down
+  await w.advance(startAt - w.clock.now + 4000);
+  const watchBtn = n => guest.sandbox.document.querySelector('.tour-watch-btn[data-watch-table="' + n + '"]');
+  await eventually(w, () => !!watchBtn(ms[0].number), 30000);
+  ok(!!watchBtn(ms[0].number), "the table being played offers «Ширээ үзэх»");
+  ok(!watchBtn(ms[1].number), "the table nobody sat at does not");
+  // Its players vanish mid-match: the picture stops. A watcher who opens a table
+  // with no picture at all goes back to the bracket instead of waiting forever.
+  guest.run("tourStartWatch(1, " + ms[1].number + ")");
+  ok(guest.sandbox.document.body.classList.contains("spectating"), "spectating");
+  await w.advance(16000);
+  ok(!guest.sandbox.document.body.classList.contains("spectating"), "no picture in 15 s → out of spectator mode");
+  ok(shown(guest, "tourOverlay"), "back on the bracket");
+  ok(/явахгүй/.test(guest.el("toast").textContent), "and told why: " + guest.el("toast").textContent);
+});
+
+test("a table's live entry lost to another table's write is written again", async () => {
+  const w = new World({ strictRooms: true });
+  const c = launch(w, "lv1", "Alice", w.clock.now + 30 * MIN);
+  await w.advance(500);
+  // Two tables publish at once; the shared record ends up with only the other one.
+  c.run(`tourCtx = { startsAt: 1, stage: 1, table: 2, roster: [myId] }; gameStarted = true; online = true;
+         roomPlayerIds = [myId, "b"]; players = [{ total: 0 }, { total: 0 }]; isPrimaryAuthority = () => true;`);
+  const shared = c.sandbox.Usion.cloud.shared, set0 = shared.set;
+  let clobber = true;
+  shared.set = (k, v) => set0(k, v).then(r => {
+    if (clobber && /\.l1$/.test(k)) { clobber = false; return set0(k, { v: 1, t: { 1: { s: {}, o: [], r: 1, at: 5 } } }).then(() => r); }
+    return r;
+  });
+  c.run("tourPublishLive()");
+  await w.advance(4000);
+  c.run("tourPublishLive()");
+  await w.advance(4000);
+  const rec = await shared.get(c.read("tourLiveKey(1, 1)"));
+  ok(rec && rec.t && rec.t[2] && rec.t[1], "both tables are in the record again: " + JSON.stringify(rec));
+  eq(rec.t[2].r, 1, "and the rewrite is not counted as a new round");
+});
+
 test("no bots at a tournament table, even when «Онлайн» falls back to its room", async () => {
   // 2026-11-17: «Бот …» seats at tournament tables. Players sit at their table
   // during the wait before 21:00; one walks away, and the reopened app is handed

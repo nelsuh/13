@@ -19,7 +19,8 @@ class World {
                                            bareJoinAck: !!opts.bareJoinAck,
                                            lingeringCount: !!opts.lingeringCount,
                                            strictRooms: !!opts.strictRooms,
-                                           worlds: !!opts.worlds });
+                                           worlds: !!opts.worlds,
+                                           kvLimits: !!opts.kvLimits });
     this.roomId = opts.roomId || "room1";
     this.clients = [];
     this.trace = [];
