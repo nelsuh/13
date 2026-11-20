@@ -9,6 +9,7 @@ const { SDK } = require("./net.cjs");
 
 const GAME_DIR = path.resolve(__dirname, "..", "..");
 const HTML = fs.readFileSync(path.join(GAME_DIR, "index.html"), "utf8");
+const RULES = fs.readFileSync(path.join(GAME_DIR, "rules.js"), "utf8");
 const SCRIPT = fs.readFileSync(path.join(GAME_DIR, "script.js"), "utf8");
 const BODY_HTML = /<body>([\s\S]*?)<\/body>/i.exec(HTML)[1].replace(/<script[\s\S]*?<\/script>/gi, "");
 
@@ -141,6 +142,7 @@ class Client {
     this.ctx = vm.createContext(sandbox);
     this.sandbox = sandbox;
 
+    vm.runInContext(RULES, this.ctx, { filename: "rules.js" });
     vm.runInContext(SCRIPT, this.ctx, { filename: "script.js" });
     vm.runInContext(UI_HELPERS, this.ctx, { filename: "__ui_helpers" });
   }

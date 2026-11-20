@@ -17,12 +17,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createIdentity, createNotifier } from './usion.mjs';
 import { memoryStore, mongoStore } from './store.mjs';
+import { attachSockets } from './sockets.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Only the game itself is public: never the server code, tests or .git.
 const STATIC = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/index.html': ['index.html', 'text/html; charset=utf-8'],
+  '/rules.js': ['rules.js', 'text/javascript; charset=utf-8'],
   '/script.js': ['script.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
 };
@@ -144,7 +146,10 @@ async function main() {
   const notifier = createNotifier({ serviceId, secret, apiUrl });
   const app = createApp({ store, identity, notifier, leadMs: Number(env.REMIND_LEAD_MS) || 180000 });
   const port = Number(env.PORT) || 3000;
-  createServer(app.handle).listen(port, () => console.log(
+  const http = createServer(app.handle);
+  // Live tables: the server deals, keeps every hand and runs the clock (sockets.mjs).
+  attachSockets(http, { identity });
+  http.listen(port, () => console.log(
     `13 on :${port} · store ${store.kind} · reminders ${notifier.enabled ? 'on' : 'off (service id or notify secret missing)'}`));
   if (store.kind === 'memory' && env.NODE_ENV === 'production') console.warn('MONGODB_URI is not set: reminder sign-ups are lost on every restart.');
   setInterval(() => app.runDue().catch(e => console.error('reminder tick', e.message)), 15000);

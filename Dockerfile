@@ -7,8 +7,8 @@ ENV NODE_OPTIONS=--max-old-space-size=96
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
-COPY index.html script.js style.css ./
-COPY server/index.mjs server/store.mjs server/usion.mjs ./server/
+COPY index.html rules.js script.js style.css ./
+COPY server/index.mjs server/store.mjs server/usion.mjs server/match.mjs server/rooms.mjs server/sockets.mjs ./server/
 USER node
 EXPOSE 8080
 CMD ["node", "server/index.mjs"]
