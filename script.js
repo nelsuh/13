@@ -230,7 +230,7 @@ const STR = {
       "Бүртгүүлсэн бүх хүнийг санамсаргүйгээр 2–4 хүнтэй ширээнд аль болох тэнцүү хуваарилна.",
       "Ширээ бүр 20 оноо хүртэл тоглож, ганц ялагч нь дараагийн шатанд гарна.",
       "Бүх ширээ дуусахаас өмнө дараагийн шат эхлэхгүй; шат хооронд 30 секунд. Ганц ширээ үлдвэл тэр нь финал.",
-      "Эхлэх цагаас 1 минутын дотор ширээндээ ороогүй хүн хасагдана. Бот нөхөхгүй.",
+      "Эхлэх цагаас 30 секундийн дотор ширээндээ ороогүй хүн хасагдана. Бот нөхөхгүй.",
       "Цагтаа ганцаараа ирвэл шууд шалгарна. Хоцорч ирсэн бол шалгарахгүй. Хэн ч ирээгүй ширээ ялагчгүй хаагдана.",
       "2-оос цөөн хүн бүртгүүлбэл тэмцээн цуцлагдана."
     ],
@@ -239,13 +239,13 @@ const STR = {
     tourLobbyWaiting: (a, b) => a + "/" + b + " ирсэн",
     tourLobbyGrace: s => "Ирээгүй хүнийг " + s + "-ын дараа хасна",
     tourLobbyAll: "Бүгд ирлээ — эхэлж байна…",
-    tourLobbyRule: "Эхлэх цагаас 1 минутын дотор ирээгүй хүн хасагдана.",
+    tourLobbyRule: "Эхлэх цагаас 30 секундийн дотор ирээгүй хүн хасагдана.",
     tourLobbyStarting: "Эхэлж байна…",
     tourHere: "ИРСЭН",
     tourAway: "ХҮЛЭЭЖ БАЙНА",
     tourBackToTour: "ТЭМЦЭЭН РҮҮ",
     tourWalkover: "Өөр хүн ирээгүй — та шалгарлаа!",
-    tourLateOut: "Эхлэх цагаас 1 минутын дотор ирээгүй тул хасагдлаа.",
+    tourLateOut: "Эхлэх цагаас 30 секундийн дотор ирээгүй тул хасагдлаа.",
     tourQualifiedMsg: "Та дараагийн шатанд шалгарлаа!",
     tourChampionMsg: "Та тэмцээнд түрүүллээ! 🏆",
     tourEliminatedMsg: "Та тэмцээнээс хасагдлаа.",
@@ -434,7 +434,7 @@ const STR = {
       "Everyone registered is seated at random at tables of 2–4, as evenly as possible.",
       "Each table plays to 20 points; its single winner moves on.",
       "The next stage waits for every table; 30 s break between stages. One table left is the final.",
-      "Not at your table within 1 minute of the start = out. No bots fill in.",
+      "Not at your table within 30 seconds of the start = out. No bots fill in.",
       "Alone at the table on time = you go through. Late = you don't. A table nobody came to closes without a winner.",
       "Fewer than 2 registrations cancels the tournament."
     ],
@@ -443,13 +443,13 @@ const STR = {
     tourLobbyWaiting: (a, b) => a + "/" + b + " here",
     tourLobbyGrace: s => "No-shows are removed in " + s,
     tourLobbyAll: "Everyone is here — starting…",
-    tourLobbyRule: "Anyone not here within 1 minute of the start is out.",
+    tourLobbyRule: "Anyone not here within 30 seconds of the start is out.",
     tourLobbyStarting: "Starting…",
     tourHere: "HERE",
     tourAway: "WAITING",
     tourBackToTour: "BACK TO TOURNAMENT",
     tourWalkover: "Nobody else showed up — you go through!",
-    tourLateOut: "You arrived after the first minute, so you're out.",
+    tourLateOut: "You arrived after the first 30 seconds, so you're out.",
     tourQualifiedMsg: "You're through to the next stage!",
     tourChampionMsg: "You won the tournament! 🏆",
     tourEliminatedMsg: "You're out of the tournament.",
@@ -5038,7 +5038,7 @@ const TOUR_PREFIX = "t13.v1.";
 const TOUR_UTC_HOUR = 13;                 // 21:00 Asia/Ulaanbaatar (UTC+8, no DST)
 const TOUR_OPEN_MS = 10 * 60 * 1000;      // registration closes / tables drawn at 20:50
 const TOUR_BREAK_MS = 30 * 1000;          // between stages
-const TOUR_GRACE_MS = 60 * 1000;          // no-show cut-off after a table's start
+const TOUR_GRACE_MS = 30 * 1000;          // no-show cut-off after a table's start, every stage (was 60 s until 2026-11-20)
 const TOUR_EMPTY_SETTLE_MS = 30 * 1000;   // after the grace: a table that never got a room had nobody — close it
 const TOUR_STALL_MS = 50 * 60 * 1000;     // a table nobody ever reports is closed without a winner
 const TOUR_TABLE_MAX = 4;
@@ -5311,7 +5311,7 @@ function tourCleanup() {
 // 2026-11-17: 13 of 26 first-stage tables had nobody at all. Nobody filed their
 // result, so they closed only by the 50-minute stall and the second stage waited
 // until 21:50. The first person to sit down at a table publishes its room
-// (tourTableRoom), before the start. So once the grace minute is over (plus a
+// (tourTableRoom), before the start. So once the 30 s grace is over (plus a
 // settle), a table with no room in the record had nobody: any client looking at
 // the event files it closed without a winner, at the moment the grace ended, so
 // every client derives the same next-stage time. It only adds entries, never

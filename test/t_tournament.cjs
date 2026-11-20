@@ -335,16 +335,16 @@ test("polling stays well under Usion's 60 shared-storage ops a minute", async ()
   ok(ops <= 30, "at the table mid-match: " + ops + " ops/min");
 });
 
-test("a no-show is cut after the grace minute; alone at the table = walkover", async () => {
+test("a no-show is cut after the 30 s grace; alone at the table = walkover", async () => {
   const { w, cs, startAt } = await registered(2, 11 * MIN);
   cs[1].click("tourBackBtn");                   // Bob wanders off to the menu and never comes back
   await w.advance(startAt - w.clock.now + 2000);
   const [a] = cs;
   eq(status(a), "playing");
   a.click("tourPrimary");                       // only Alice turns up
+  await w.advance(20000);
+  ok(!a.snap().dealActive, "still waiting inside the 30 s grace");
   await w.advance(30000);
-  ok(!a.snap().dealActive, "still waiting inside the grace minute");
-  await w.advance(40000);
   await eventually(w, () => derived(a).phase === "complete", 20000);
   eq(derived(a).championId, "p1", "Alice goes through on a walkover (and it was the final)");
   cs[1].click("menuTourBtn");                   // Bob looks later
@@ -352,7 +352,7 @@ test("a no-show is cut after the grace minute; alone at the table = walkover", a
   eq(derived(cs[1]).championId, "p1", "Bob's client agrees");
 });
 
-test("a table nobody came to closes after the grace minute — the next stage does not wait 50 minutes", async () => {
+test("a table nobody came to closes after the 30 s grace — the next stage does not wait 50 minutes", async () => {
   // 2026-11-17: 13 of 26 tables had nobody; they closed only by the 50-minute
   // stall and the second stage started at 21:50.
   const { w, cs, startAt } = await registered(6, 15 * MIN);
@@ -373,7 +373,7 @@ test("a table nobody came to closes after the grace minute — the next stage do
   ok(derived(t1[0]).stages[0].matches[1].done, "the empty table is closed");
   const m2 = derived(t1[0]).stages[0].matches[1];
   eq(m2.winnerId, null, "the empty table closed without a winner");
-  eq(m2.at, startAt + MIN, "…at the moment the grace minute ended");
+  eq(m2.at, startAt + 30000, "…at the moment the 30 s grace ended");
   const d = derived(t1[0]);
   ok(w.clock.now < startAt + 20 * MIN, "decided long before the 50-minute stall");
   ok(d.phase === "complete" || d.phase === "between" || d.phase === "playing", "the event moves on: " + d.phase);
@@ -403,7 +403,7 @@ test("arriving late and alone is not a walkover: the table closes without a winn
   // 2026-11-17: somebody sat down 18 minutes in, alone, and went through.
   const { w, cs, startAt } = await registered(2, 11 * MIN);
   cs.forEach(c => c.click("tourBackBtn"));                // nobody is there at the start
-  await w.advance(startAt - w.clock.now + 65000);        // the grace minute is over
+  await w.advance(startAt - w.clock.now + 65000);        // the 30 s grace is over
   const a = cs[0];
   a.click("menuTourBtn");
   await w.advance(500);
@@ -411,7 +411,7 @@ test("arriving late and alone is not a walkover: the table closes without a winn
   await w.advance(30000);
   await eventually(w, () => derived(a).stages[0].matches[0].done, 30000);
   eq(derived(a).stages[0].matches[0].winnerId, null, "no winner");
-  ok(/1 минутын дотор ирээгүй/.test(a.el("onlineStatus").textContent), "and she is told why: " + a.el("onlineStatus").textContent);
+  ok(/30 секундийн дотор ирээгүй/.test(a.el("onlineStatus").textContent), "and she is told why: " + a.el("onlineStatus").textContent);
   eq(status(a), "eliminated");
 });
 
