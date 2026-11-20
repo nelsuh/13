@@ -1,0 +1,8 @@
+{
+  "slug": "13",
+  "kind": "server",
+  "port": 8080,
+  "health": "/health",
+  "memory_mb": 160,
+  "static_dir": null
+}

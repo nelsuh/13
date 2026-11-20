@@ -298,24 +298,77 @@ modified client could forge a registration or a result — same trust model as t
 rest of 13; real stakes would need a server. The bucket's 200-key cap is why
 events older than three days are pruned.
 
-**Daily reminder (20:40).** The game itself cannot notify anyone at 20:40:
-`Usion.notify` reaches only the current user and only while the app runs. Usion's
-platform daily reminder does it with no server of ours:
+**Reminder 3 minutes before the start (20:57).** `Usion.notify` reaches only the
+current user and only while the app runs, so the push comes from 13's own small
+server ([server/](server/index.mjs), on the Amazon game host):
 
-1. *Once, by the owner:* add [daily-reminder.json](daily-reminder.json) to the 13
-   service (`PUT /services/<service-id>` with the creator token, never from game
-   code). 12:40 UTC = 20:40 Ulaanbaatar; tapping it opens `/tournament`.
-2. *Each player:* after registering, the tournament screen offers «Өдөр бүр
-   20:40-д тэмцээний сануулга авах уу? Асаах / Дараа». «Асаах» asks Usion's
-   notification permission on that tap and subscribes only if granted
-   (`PUT {apiUrl}/services/{serviceId}/reminders/daily {enabled:true}` with the
-   live iframe token); «Дараа» saves `enabled:false`. Afterwards a one-line switch
-   turns it off or on again. The card stays hidden until the service is
-   configured (`configured:false`).
+- *Each player:* after registering, the tournament screen offers «Тэмцээн
+  эхлэхээс 3 минутын өмнө (20:57) сануулга авах уу? Асаах / Дараа». «Асаах» asks
+  Usion's notification permission on that tap, unmutes the app, and only then
+  saves `PUT /api/reminder {enabled:true}`; «Дараа» saves `enabled:false`. A
+  one-line switch stays afterwards; it says so when the permission was revoked.
+- *Registering* tells the server the event (`POST /api/reminder/event
+  {startsAt}`), withdrawing takes it back (`DELETE`). Opening the tournament
+  re-sends it if the server doesn't have it (registered on another phone).
+- *The server* checks every 15 s and pushes once, signed with the service secret
+  (`POST {USION_API_URL}/services/{id}/notify`, `X-Usion-Signature`), to every
+  player who both allowed it and registered — «Тэмцээн 3 минутын дараа эхэлнэ! 🏆»,
+  tapping it opens `/tournament`. Each send is claimed in MongoDB first, so a
+  restart never sends twice; a failed push retries each minute until the start.
+- Every `/api` call carries the iframe token; the player id comes from Usion's
+  `/iframe/verify-token`, never from the client. Without the server (opened as
+  a static file) the card never appears.
 
-The reminder repeats every day until the player turns it off, so it reaches
-yesterday's registrants too — its text is neutral («Өдрийн тэмцээн 21:00-д
-эхэлнэ!»). The service must be published and public.
+The old platform daily reminder ([daily-reminder.json](daily-reminder.json),
+20:40) is no longer used by the game.
+
+The server is dependency-light (`mongodb` only) and serves only `index.html`,
+`script.js` and `style.css` — not `server/`, `test/` or `.git`. It runs on the
+Amazon game host (below); `/health` shows `{"store":"mongo","notify":true}` once
+the service id, notify secret and `MONGODB_URI` are all set.
+
+Local: `npm install && npm start` (port 3000, or `PORT`). Without
+`USION_SERVICE_ID` the API accepts `Bearer dev:<id>` for testing. Tests:
+`npm test` (server + all game suites). `REMIND_LEAD_MS` changes the 3 minutes.
+
+### Amazon game host (`usion-game deploy`)
+
+13 runs on the game host since 2026-11-20: `iframe_url` is
+`https://13.games.usions.com/` (the old `https://13-phi-ten.vercel.app/` is in the
+host's `releases.log`; switching back is one `iframe_url` change).
+
+**Deploys are automatic: push to `master`.**
+[.github/workflows/deploy.yml](.github/workflows/deploy.yml) runs the server tests,
+builds the image for linux/amd64 and publishes `ghcr.io/nelsuh/13:latest`. Within a
+minute the server's `usion-autodeploy@13.timer` runs
+[deploy/autodeploy.sh](deploy/autodeploy.sh): pull, `compose up`, `/health` inside
+the container must answer within 90 s, otherwise the previous image goes back and
+that revision is never retried (`autodeploy/13.failed`). GitHub never holds a server
+key; the server only pulls. The ghcr package must be **public** (the repo is).
+Watch it: `ssh usion-games 'sudo journalctl -u usion-autodeploy@13 -n 20 -o cat'`.
+Other games can reuse it: `autodeploy/<slug>.conf` (`IMAGE=`, `HEALTH=`, `PORT=`)
+plus `systemctl enable --now usion-autodeploy@<slug>.timer`.
+
+- [usion.game.json](usion.game.json): slug `13` → `https://13.games.usions.com`,
+  `kind: server`, port 8080, health `/health`, `memory_mb: 160`.
+- [Dockerfile](Dockerfile): `node:22-alpine`, `npm ci --omit=dev`, `USER node`,
+  heap capped at 96 MB. It copies only the page and `server/*.mjs`, and
+  writes nothing at runtime, so `read_only: true` + tmpfs `/tmp` is fine.
+- Memory, measured on Windows (Linux usually uses less): 66 MB idle. A burst of
+  800 simultaneous requests ×10 (far more than 200 real players) peaked at
+  130–154 MB. After deploy, `usion-game status` shows the real peak; the guide says
+  `memory_mb` = 2 × that.
+- `env/13.env` on the server: `SERVICE_ID` (or `USION_SERVICE_ID`), `API_URL`,
+  `NOTIFY_SECRET` (or `USION_NOTIFY_SECRET`), `MONGODB_URI`, `MONGODB_DB=t13`.
+  The file is mode 600 and lives only on the server.
+- **Not stateless:** the reminder list is in MongoDB (external Atlas, db `t13`),
+  not a database on the game host.
+- Already registered: never run `usion-game register`. `iframe_url` is changed with
+  the owner's usions.com login (`PUT /registry/services/my/13-60ea2ce9`); the
+  Service Creator game token refuses non-Usion-hosted URLs. Realtime stays
+  `platform` (the relay), so there is no `ws_url`.
+- Voice is the native app API only (no web `getUserMedia`), so `web/middleware.ts`
+  needs no entry.
 
 **The prize is recognition.** The champion gets a 1200×630 banner drawn on a
 canvas (`tourChampionBanner()`) and a «Мэдээнд хуваалцах» button that calls

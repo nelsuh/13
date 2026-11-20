@@ -1,0 +1,9 @@
+[Unit]
+Description=Usion game auto-deploy for %i
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/usion-games/bin/autodeploy.sh %i
+TimeoutStartSec=300

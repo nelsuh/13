@@ -397,22 +397,26 @@ test("a forged opening deal (stranger, or seats off the list) is refused", async
   eq(a.read('tourOpeningDealOk({order:["p2","p1"],open:false,loseAt:20}, "p2")'), true, "the real thing");
 });
 
-// A fake Usion reminder endpoint + permission prompt on one client.
+// A fake 13 reminder server (13/server, same origin) + permission prompt on one client.
 function withReminder(c, opts = {}) {
-  const calls = [], perms = [];
-  let state = { configured: opts.configured !== false, decided: false, enabled: false, next_run_at: null,
-                schedule: { hour_utc: 12, minute_utc: 40 } };
+  const calls = [], perms = [], muted = [];
+  let state = { configured: opts.configured !== false, decided: false, enabled: false, events: [], lead_ms: 180000 };
   c.sandbox.Usion.config = { apiUrl: "https://api.test/", serviceId: "svc13", authToken: "tok-1" };
   c.sandbox.Usion.user = { getToken: () => "tok-live" };
-  c.sandbox.Usion.permissions = { request: (list, o) => { perms.push({ list, o }); return Promise.resolve({ granted: opts.grant !== false }); } };
+  c.sandbox.Usion.permissions = {
+    request: (list, o) => { perms.push({ list, o }); return Promise.resolve({ granted: opts.grant !== false }); },
+    has: () => Promise.resolve(opts.revoked ? false : perms.length > 0 || !!opts.hasPermission),
+  };
+  c.sandbox.Usion.notify = { setMuted: v => { muted.push(v); return Promise.resolve(); }, isMuted: () => Promise.resolve(false) };
   c.sandbox.fetch = (url, init) => {
     const body = init.body ? JSON.parse(init.body) : null;
     calls.push({ url, method: init.method, auth: init.headers.Authorization, body });
-    if (init.method === "PUT") state = Object.assign({}, state, { decided: true, enabled: body.enabled,
-      next_run_at: body.enabled ? "2026-11-16T12:40:00Z" : null });
+    if (url === "/api/reminder" && init.method === "PUT") state = Object.assign({}, state, { decided: true, enabled: body.enabled });
+    if (url === "/api/reminder/event" && init.method === "POST") state = Object.assign({}, state, { events: state.events.concat([body.startsAt]) });
+    if (url === "/api/reminder/event" && init.method === "DELETE") state = Object.assign({}, state, { events: state.events.filter(x => x !== body.startsAt) });
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(Object.assign({}, state)) });
   };
-  return { calls, perms };
+  return { calls, perms, muted, state: () => state };
 }
 const remindText = c => c.el("tourRemind").style.display === "none" ? "" : c.el("tourRemind").textContent;
 const remindBtn = (c, label) => {
@@ -421,7 +425,7 @@ const remindBtn = (c, label) => {
   return find(c.el("tourRemind"));
 };
 
-test("daily reminder: offered after registering, subscribed only after the permission is granted", async () => {
+test("reminder: offered after registering, 3 min before the start, on only after the permission is granted", async () => {
   const w = new World({ strictRooms: true });
   const startAt = w.clock.now + 30 * MIN;
   const c = launch(w, "r1", "Alice", startAt);
@@ -432,13 +436,17 @@ test("daily reminder: offered after registering, subscribed only after the permi
   eq(remindText(c), "", "nothing offered before registering");
   c.click("tourPrimary");                                    // register
   await eventually(w, () => remindText(c).indexOf("сануулга авах уу") >= 0, 15000);
-  ok(remindText(c).indexOf("20:") >= 0 || remindText(c).length > 0, "the offer names the time: " + remindText(c));
+  ok(remindText(c).indexOf("3 минутын өмнө") >= 0, "the offer says 3 minutes: " + remindText(c));
+  const hm = c.read("tourFmtClock(" + (startAt - 3 * MIN) + ")");
+  ok(remindText(c).indexOf(hm) >= 0, "and names the clock time " + hm + ": " + remindText(c));
+  ok(fake.state().events.includes(startAt), "the server was told about the registration");
   remindBtn(c, "Асаах").dispatch("click");
   await w.advance(2000);
   eq(fake.perms.length, 1, "Usion's own permission prompt, on the tap");
+  eq(fake.muted.join(), "false", "and the app unmuted");
   const put = fake.calls.find(x => x.method === "PUT");
   ok(put && put.body.enabled === true, "subscribed");
-  eq(put.url, "https://api.test/services/svc13/reminders/daily");
+  eq(put.url, "/api/reminder", "on 13's own server");
   eq(put.auth, "Bearer tok-live", "with the live token, not the boot copy");
   ok(remindText(c).indexOf("асаалттай") >= 0, "the card turns into the on/off line: " + remindText(c));
   remindBtn(c, "Унтраах").dispatch("click");
@@ -447,7 +455,36 @@ test("daily reminder: offered after registering, subscribed only after the permi
   ok(remindText(c).indexOf("унтраалттай") >= 0, remindText(c));
 });
 
-test("daily reminder: a denied permission subscribes nothing; Later records the choice", async () => {
+test("reminder: withdrawing takes the event back from the server", async () => {
+  const w = new World({ strictRooms: true });
+  const startAt = w.clock.now + 30 * MIN;
+  const c = launch(w, "r5", "Erin", startAt);
+  const fake = withReminder(c);
+  await w.advance(500);
+  c.click("menuTourBtn");
+  await w.advance(1000);
+  c.click("tourPrimary");
+  await eventually(w, () => fake.state().events.includes(startAt), 15000);
+  c.click("tourSecondary");                                  // withdraw
+  await eventually(w, () => !fake.state().events.includes(startAt), 15000);
+  ok(fake.calls.some(x => x.method === "DELETE" && x.url === "/api/reminder/event" && x.body.startsAt === startAt), "DELETE sent");
+});
+
+test("reminder: on, but the permission was revoked since → says so", async () => {
+  const w = new World({ strictRooms: true });
+  const startAt = w.clock.now + 30 * MIN;
+  const c = launch(w, "r6", "Fay", startAt);
+  const fake = withReminder(c, { revoked: true });
+  fake.state().decided = true;
+  await w.advance(500);
+  c.sandbox.fetch("/api/reminder", { method: "PUT", headers: {}, body: JSON.stringify({ enabled: true }) });
+  c.click("menuTourBtn");
+  await w.advance(1000);
+  c.click("tourPrimary");
+  await eventually(w, () => remindText(c).indexOf("Usion-д") >= 0, 15000);
+});
+
+test("reminder: a denied permission subscribes nothing; Later records the choice", async () => {
   const w = new World({ strictRooms: true });
   const startAt = w.clock.now + 30 * MIN;
   const a = launch(w, "r2", "Bob", startAt), b = launch(w, "r3", "Chuck", startAt);
@@ -467,7 +504,7 @@ test("daily reminder: a denied permission subscribes nothing; Later records the 
   ok(remindText(b).indexOf("унтраалттай") >= 0, "a one-line switch remains: " + remindText(b));
 });
 
-test("daily reminder: hidden when the service has no reminder configured", async () => {
+test("reminder: hidden when the service has no reminder configured", async () => {
   const w = new World({ strictRooms: true });
   const c = launch(w, "r4", "Dana", w.clock.now + 30 * MIN);
   withReminder(c, { configured: false });

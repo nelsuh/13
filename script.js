@@ -258,15 +258,15 @@ const STR = {
     tourInviteYes: "ОРОЛЦОЁ",
     tourInviteNo: "Үгүй",
     tourJoinFail: "Ширээнд холбогдож чадсангүй. «Ширээндээ орох» дээр дахин дарна уу.",
-    tourRemindOffer: hm => "Өдөр бүр " + hm + "-д тэмцээний сануулга авах уу?",
-    tourRemindOn: hm => "Сануулга асаалттай · өдөр бүр " + hm,
+    tourRemindOffer: (hm, min) => "Тэмцээн эхлэхээс " + min + " минутын өмнө (" + hm + ") сануулга авах уу?",
+    tourRemindOn: (hm, min) => "Сануулга асаалттай · эхлэхээс " + min + " минутын өмнө",
     tourRemindOff: "Тэмцээний сануулга унтраалттай",
     tourRemindBlocked: "Сануулга ирэхгүй байна — Usion-д энэ аппын мэдэгдлийг асаана уу",
     tourRemindYes: "Асаах",
     tourRemindLater: "Дараа",
     tourRemindTurnOff: "Унтраах",
     tourRemindTurnOn: "Асаах",
-    tourRemindReason: "Өдөр бүр тэмцээн эхлэхээс өмнө сануулга илгээхийн тулд",
+    tourRemindReason: "Тэмцээн эхлэхээс 3 минутын өмнө сануулга илгээхийн тулд",
     tourRemindDenied: "Мэдэгдлийн зөвшөөрөл өгөөгүй тул сануулга асаасангүй.",
     tourRemindOnToast: "Сануулга асаалаа!",
     tourRemindFail: "Сануулгыг тохируулж чадсангүй.",
@@ -461,15 +461,15 @@ const STR = {
     tourInviteYes: "COUNT ME IN",
     tourInviteNo: "No thanks",
     tourJoinFail: "Couldn't connect to your table. Tap «Go to my table» again.",
-    tourRemindOffer: hm => "Get a tournament reminder every day at " + hm + "?",
-    tourRemindOn: hm => "Reminder on · daily at " + hm,
+    tourRemindOffer: (hm, min) => "Get a reminder " + min + " minutes before the start (" + hm + ")?",
+    tourRemindOn: (hm, min) => "Reminder on · " + min + " min before the start",
     tourRemindOff: "Tournament reminder is off",
     tourRemindBlocked: "Reminders can't reach you — allow notifications for this app in Usion",
     tourRemindYes: "Turn on",
     tourRemindLater: "Later",
     tourRemindTurnOff: "Turn off",
     tourRemindTurnOn: "Turn on",
-    tourRemindReason: "To remind you before the tournament starts each day",
+    tourRemindReason: "To remind you 3 minutes before the tournament starts",
     tourRemindDenied: "Notifications weren't allowed, so the reminder is off.",
     tourRemindOnToast: "Reminder on!",
     tourRemindFail: "Couldn't change the reminder.",
@@ -5291,6 +5291,7 @@ async function tourWithdraw() {
       return { v: 1, list: tourListOf(cur).filter(x => x.id !== myId) };
     }, gone);
     tour.roster = tour.roster.filter(x => x.id !== myId);
+    tourRemindWithdrawn(tour.startsAt);
     await tourLoad();
   } catch (e) { console.warn(e); toast(t("tourRegFail")); }
   tour.busy = false; tourRender();
@@ -6607,20 +6608,17 @@ function tourRenderShareButtons() {
   on("menuChampStrip", openTournament);
 })();
 
-// ── Daily reminder ──────────────────────────────────────────────────────
-// The game cannot notify anybody at 20:40 by itself: Usion.notify only reaches
-// the current user, and only while the app is running. Usion's daily reminder
-// does it for us: the service is configured once (13/daily-reminder.json, 20:40
-// Ulaanbaatar), and each player who agrees is subscribed with
-//   GET|PUT {apiUrl}/services/{serviceId}/reminders/daily
-// The platform then sends it every day, app closed or not, until they turn it off.
-// It goes to every subscriber, registered today or not, so its text is neutral.
-const tourRemind = { state: null, loadedAt: 0, busy: false };
-function tourRemindUrl() {
-  const cfg = (window.Usion && Usion.config) || {};
-  if (!cfg.apiUrl || !cfg.serviceId) return null;
-  return String(cfg.apiUrl).replace(/\/+$/, "") + "/services/" + encodeURIComponent(cfg.serviceId) + "/reminders/daily";
-}
+// ── Tournament reminder (3 minutes before the start) ────────────────────
+// Usion.notify only reaches the current user while the app is running, so the
+// push comes from 13's own server (13/server, on the Usion game host): a player who allowed
+// notifications and registered for an event gets it lead_ms (3 min) before the
+// start, app closed or not. Same origin as the game, Usion iframe token as auth:
+//   GET|PUT /api/reminder            on/off, decided, upcoming registered events
+//   POST|DELETE /api/reminder/event  {startsAt}  registered / withdrew
+// Served from anywhere else (file:, an old static host) the calls fail and the
+// card simply never appears.
+const tourRemind = { state: null, loadedAt: 0, busy: false, blocked: false };
+const TOUR_REMIND_API = "/api/reminder";
 function tourAuthToken() {
   try {
     return (Usion.user && typeof Usion.user.getToken === "function" && Usion.user.getToken()) ||
@@ -6628,9 +6626,9 @@ function tourAuthToken() {
   } catch (_) { return null; }
 }
 // Token read per request (it is re-minted hourly); one retry after a 401.
-async function tourRemindCall(method, body) {
-  const url = tourRemindUrl(), f = window.fetch, who = myId;
-  if (!url || typeof f !== "function") return null;
+async function tourRemindCall(method, body, path) {
+  const url = TOUR_REMIND_API + (path || ""), f = window.fetch, who = myId;
+  if (typeof f !== "function" || !window.Usion) return null;
   for (let attempt = 0; attempt < 2; attempt++) {
     const token = tourAuthToken();
     if (!token) { await new Promise(r => setTimeout(r, 1500)); continue; }
@@ -6647,12 +6645,38 @@ async function tourRemindCall(method, body) {
   }
   return null;
 }
+function tourRemindRegistered() {
+  const tt = tourDerive(tour.startsAt || tourCurrentStart(Date.now()), tour.roster, tour.results, Date.now());
+  return tt.people.some(p => p.id === myId);
+}
+// Chose "on", but Usion's permission was revoked or the app muted since.
+async function tourRemindCheckBlocked() {
+  let blocked = false;
+  try {
+    const P = Usion.permissions, N = Usion.notify;
+    if (P && typeof P.has === "function" && !(await P.has("notifications"))) blocked = true;
+    else if (N && typeof N.isMuted === "function" && await N.isMuted()) blocked = true;
+  } catch (_) {}
+  tourRemind.blocked = blocked;
+}
+// The server reminds about the events it was told of: registered here, on
+// another phone, or before the server existed — tell it whenever it's missing.
+function tourRemindNeedsEvent(d) {
+  const at = tour.startsAt;
+  return !!(d && d.configured && at > Date.now() && tourRemindRegistered() && !(d.events || []).includes(at));
+}
 async function tourRemindLoad(force) {
   if (!force && Date.now() - tourRemind.loadedAt < 60000) return;
   tourRemind.loadedAt = Date.now();
-  const d = await tourRemindCall("GET");
-  if (d) tourRemind.state = d;
+  let d = await tourRemindCall("GET");
+  if (tourRemindNeedsEvent(d)) d = (await tourRemindCall("POST", { startsAt: tour.startsAt }, "/event")) || d;
+  if (d) { tourRemind.state = d; if (d.enabled) await tourRemindCheckBlocked(); }
   tourRenderRemind();
+}
+// Withdrawing takes the event back, so a player who left gets no push.
+function tourRemindWithdrawn(startsAt) {
+  if (!tourRemind.state || !tourRemind.state.configured) return;
+  tourRemindCall("DELETE", { startsAt }, "/event").then(d => { if (d) { tourRemind.state = d; tourRenderRemind(); } });
 }
 async function tourRemindSet(on) {
   if (tourRemind.busy) return;
@@ -6666,19 +6690,23 @@ async function tourRemindSet(on) {
         granted = !!(r && (r.granted || (r.permissions && r.permissions.notifications)));
       } catch (_) {}
       if (!granted) { toast(t("tourRemindDenied")); return; }
+      // A muted app gets nothing even with the permission (Muushig does the same).
+      try { if (Usion.notify && typeof Usion.notify.setMuted === "function") await Usion.notify.setMuted(false); } catch (_) {}
     }
-    const d = await tourRemindCall("PUT", { enabled: !!on, locale: LANG });
-    if (d) { tourRemind.state = d; if (on) toast(t("tourRemindOnToast")); }
+    let d = await tourRemindCall("PUT", { enabled: !!on, locale: LANG });
+    if (d && tourRemindNeedsEvent(d)) d = (await tourRemindCall("POST", { startsAt: tour.startsAt }, "/event")) || d;
+    if (d) { tourRemind.state = d; tourRemind.blocked = false; if (on) toast(t("tourRemindOnToast")); }
     else toast(t("tourRemindFail"));
   } finally {
     tourRemind.busy = false; tourRenderRemind();
   }
 }
+function tourRemindMinutes() {
+  const ms = tourRemind.state && tourRemind.state.lead_ms;
+  return Math.max(1, Math.round((Number.isFinite(ms) ? ms : 180000) / 60000));
+}
 function tourRemindClock() {
-  const sc = tourRemind.state && tourRemind.state.schedule;
-  if (!sc || !Number.isFinite(sc.hour_utc)) return "20:40";
-  const d = new Date(Date.UTC(2026, 0, 1, sc.hour_utc, sc.minute_utc || 0));
-  return tourFmtClock(d.getTime());
+  return tourFmtClock((tour.startsAt || tourCurrentStart(Date.now())) - tourRemindMinutes() * 60000);
 }
 // The card under the main button: offered once a player has registered, then a
 // one-line on/off switch for as long as they have decided.
@@ -6686,13 +6714,11 @@ function tourRenderRemind() {
   const box = document.getElementById("tourRemind");
   if (!box) return;
   const s = tourRemind.state;
-  const tt = tourDerive(tour.startsAt || tourCurrentStart(Date.now()), tour.roster, tour.results, Date.now());
-  const registered = tt.people.some(p => p.id === myId);
+  const registered = tourRemindRegistered();
   let mode = "";
   if (s && s.configured) {
     if (!s.decided) mode = registered ? "offer" : "";
-    else if (s.enabled && s.next_run_at) mode = "on";
-    else if (s.enabled) mode = "blocked";            // chosen, but permission revoked or muted
+    else if (s.enabled) mode = tourRemind.blocked ? "blocked" : "on";   // blocked: permission revoked or muted
     else mode = registered ? "off" : "";
   }
   box.style.display = mode ? "flex" : "none";
@@ -6702,8 +6728,8 @@ function tourRenderRemind() {
   box.innerHTML = "";
   box.appendChild(tourEl("span", "tour-remind-ico", mode === "on" ? "🔔" : mode === "offer" ? "🔔" : "🔕"));
   const txt = tourEl("span", "tour-remind-text",
-    mode === "offer" ? t("tourRemindOffer", tourRemindClock()) :
-    mode === "on" ? t("tourRemindOn", tourRemindClock()) :
+    mode === "offer" ? t("tourRemindOffer", tourRemindClock(), tourRemindMinutes()) :
+    mode === "on" ? t("tourRemindOn", tourRemindClock(), tourRemindMinutes()) :
     mode === "blocked" ? t("tourRemindBlocked") : t("tourRemindOff"));
   box.appendChild(txt);
   const btn = (label, cls, fn) => {

@@ -1,0 +1,16 @@
+{
+  "name": "t13",
+  "version": "1.0.0",
+  "private": true,
+  "description": "13 — card game (Usion mini-app): static game + tournament reminder server",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server/index.mjs",
+    "test": "node --test server/server.test.mjs && node test/run_all.cjs",
+    "test:server": "node --test server/server.test.mjs"
+  },
+  "engines": { "node": ">=20.12" },
+  "license": "MIT",
+  "dependencies": {
+    "mongodb": "^7.7.0"
+  }
+}
