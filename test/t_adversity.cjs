@@ -166,7 +166,7 @@ test("tapping Play while disconnected leaves no stuck 'Sending…' latch", async
 
 // ── players walking out ───────────────────────────────────────────────────
 
-test("invite 4p: a player leaves for good — 20s grace, then a fold, and three play on", async () => {
+test("invite 4p: a player leaves for good — 15s grace, then a fold, and three play on", async () => {
   const w = await onlineWorld(4);
   await startMatch(w);
   await driveUntil(w, () => w.clients[0].snap().roundMoveNo >= 2);
@@ -181,7 +181,7 @@ test("invite 4p: a player leaves for good — 20s grace, then a fold, and three 
   eq(w.server.reports.length, 1, "still exactly one result card");
 });
 
-test("open 4p: a player leaves for good — 20s grace, then a bot takes the seat", async () => {
+test("open 4p: a player leaves for good — 15s grace, then a bot takes the seat", async () => {
   const w = await openWorld(4);
   await startMatch(w);
   await driveUntil(w, () => w.clients[0].snap().roundMoveNo >= 2);
@@ -202,7 +202,7 @@ test("a player who rejoins inside the grace window is NOT folded", async () => {
   const victim = w.clients[2];
   const countsBefore = w.clients[0].snap().counts;
   victim.leaveRoom();
-  await w.advance(8000);                        // well inside FORFEIT_GRACE_MS = 20s
+  await w.advance(8000);                        // well inside FORFEIT_GRACE_MS = 15s
   eq(w.clients[0].snap().outs[2], false, "not folded yet");
   await rejoin(w, victim);
   await w.advance(40 * 1000);                   // past what would have been the deadline

@@ -3096,6 +3096,7 @@ function registerNetHandlers() {
   Usion.game.onJoined(onJoined);
   Usion.game.onPlayerJoined(onPlayerJoined);
   Usion.game.onPlayerLeft(onPlayerLeft);
+  if (Usion.game.onPlayerConnection) Usion.game.onPlayerConnection(onPlayerConnection);
   Usion.game.onAction(onNetAction);
   Usion.game.onRealtime(onNetRealtime);
   Usion.game.onSync(onNetSync);
@@ -3694,7 +3695,12 @@ let forfeitTimer = null;
 // More than one player can disappear inside the same grace window. Track each
 // departure independently instead of letting the latest one overwrite the first.
 const pendingLeaves = new Map();   // player id → { seat, deadline }
-const FORFEIT_GRACE_MS = 20000;
+// 15 s from the moment a player is gone to their seat being settled, whichever
+// way they went. An explicit leave (player_left) waits the full window here. A
+// dropped socket has ALREADY waited it on the relay ("reconnecting" → "gone"
+// after 15 s), so "gone" and a heartbeat prune settle on the next tick.
+const FORFEIT_GRACE_MS = 15000;
+const RELAY_WAITED = { gone: true, timeout: true };
 
 function clearForfeitGrace(playerId) {
   if (playerId != null) pendingLeaves.delete(playerId);
@@ -3760,9 +3766,10 @@ function sendHostLeaveOutcome(seat, endMatch) {
     });
 }
 
-function startForfeitGrace(seat, playerId) {
+function startForfeitGrace(seat, playerId, graceMs) {
   if (seat < 0 || playerId == null) return;
-  pendingLeaves.set(playerId, { seat, deadline: Date.now() + FORFEIT_GRACE_MS });
+  const ms = graceMs == null ? FORFEIT_GRACE_MS : graceMs;
+  pendingLeaves.set(playerId, { seat, deadline: Date.now() + ms });
   renderForfeitGrace();
   if (forfeitTimer) return;
   forfeitTimer = setInterval(() => {
@@ -3801,7 +3808,24 @@ function startForfeitGrace(seat, playerId) {
   }, 1000);
 }
 
+// A socket that DROPS (app swiped away, phone locked, network gone, the WebView
+// killed for another game) never produces game:player_left. The relay says
+// "reconnecting" at once and "gone" 15 s later (backend server.py
+// _game_disconnect_grace); only an explicit game:leave or a heartbeat prune
+// sends player_left. Listening to player_left alone left every dropped player
+// seated forever: avatar on the table, the turn stopping on them each round.
+// "gone" is a departure like any other — same grace, same fold/release.
+function onPlayerConnection(data) {
+  if (!data || data.state !== "gone" || data.player_id == null || data.player_id === myId) return;
+  const current = window.Usion && Usion.game && Usion.game.roomId;
+  if (data.room_id && current && data.room_id !== current) return;   // a room we already left
+  onPlayerLeft({ room_id: data.room_id, player_id: data.player_id, reason: "gone" });
+}
+
 function onPlayerLeft(data) {
+  // "gone" and a later player_left (heartbeat prune) can both name the same
+  // departure: the grace already running for them is the answer to both.
+  if (gameStarted && data && data.player_id != null && pendingLeaves.has(data.player_id)) return;
   connectedCount = Math.max(0, connectedCount - 1);
   lastPlayerLeftAt = Date.now();   // give them the grace window before calling the room dead
   if (!gameStarted) {
@@ -3836,9 +3860,9 @@ function onPlayerLeft(data) {
   // resumes the hand exactly where it was. Only if they're still gone when the
   // window expires is the outcome recorded:
   //   activeAfter ≤ 1 → match-ending forfeit;  else → plain fold, play continues.
-  // EVERY client runs the countdown (it's also the on-screen "left — 20s" line);
+  // EVERY client runs the countdown (it's also the on-screen "left — 15s" line);
   // exactly one elected live client writes each expired outcome.
-  startForfeitGrace(seat, data.player_id);
+  startForfeitGrace(seat, data.player_id, RELAY_WAITED[data.reason] ? 0 : FORFEIT_GRACE_MS);
 }
 // number of seats this online match has: an open room is always 4; a chat-invite
 // match seats exactly the people who were invited (2–4).

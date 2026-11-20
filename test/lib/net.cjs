@@ -169,11 +169,29 @@ class SDK {
     if (!this.connected) return;
     this.connected = false;
     this.fire("disconnect");
-    if (notifyLeft && this.room) {
-      const ids = this.room.roster.filter(x => x !== this.id);
-      this.room.peers(this.id).forEach(p => this.server.push(p, "playerLeft",
-        { player_id: this.id, player_ids: this.room.started ? this.room.roster.slice() : ids, connected_count: this.room.connectedCount() }));
+    if (!notifyLeft || !this.room) return;
+    // What the real relay does with a dropped socket (backend server.py
+    // disconnect + _game_disconnect_grace): "reconnecting" now, then "gone"
+    // 15 s later unless the player rejoined. It NEVER sends player_left for a
+    // drop — only game:leave and a heartbeat prune do. This fake used to send
+    // player_left, which is how a game that ignored "gone" passed here and left
+    // dropped players seated forever in production.
+    // dropModel "left" keeps the old shortcut for a test that wants it.
+    const room = this.room;
+    if (this.server.opts.dropModel === "left") {
+      const ids = room.roster.filter(x => x !== this.id);
+      room.peers(this.id).forEach(p => this.server.push(p, "playerLeft",
+        { player_id: this.id, player_ids: room.started ? room.roster.slice() : ids, connected_count: room.connectedCount() }));
+      return;
     }
+    const drop = this.dropEpoch = (this.dropEpoch || 0) + 1;
+    room.peers(this.id).forEach(p => this.server.push(p, "playerConnection",
+      { room_id: room.id, player_id: this.id, state: "reconnecting" }));
+    this.clock.setTimeout(null, () => {
+      if (this.connected || this.dropEpoch !== drop || this.room !== room) return;
+      room.peers(this.id).forEach(p => this.server.push(p, "playerConnection",
+        { room_id: room.id, player_id: this.id, state: "gone" }));
+    }, Server.DISCONNECT_GRACE_MS);
   }
   netRestore(notifyJoin = true) {
     if (this.connected || this.left) return;
@@ -251,6 +269,8 @@ class SDK {
             { player_id: self.id, player_ids: room.roster.slice(), connected_count: room.connectedCount() }));
           return { room_id: roomId, player_id: self.id, sequence: room.seq };
         }),
+        // The real SDK keeps the room it last joined on game.roomId.
+        get roomId() { return self.room ? self.room.id : null; },
         leave: () => { self.leaveRoom(); return Promise.resolve({ success: true }); },
         // Only on a world-tagged service (opts.worlds); otherwise the SDK call
         // fails with NOT_WORLD_SERVICE, as 13 does until it carries the tag.
@@ -314,6 +334,7 @@ class SDK {
         onJoined: (cb) => { self.handlers.joined = cb; },
         onPlayerJoined: (cb) => { self.handlers.playerJoined = cb; },
         onPlayerLeft: (cb) => { self.handlers.playerLeft = cb; },
+        onPlayerConnection: (cb) => { self.handlers.playerConnection = cb; },
         onAction: (cb) => { self.handlers.action = cb; },
         onRealtime: (cb) => { self.handlers.realtime = cb; },
         onSync: (cb) => { self.handlers.sync = cb; },
@@ -340,5 +361,8 @@ class SDK {
     };
   }
 }
+
+// backend realtime/server.py GAME_DISCONNECT_GRACE_S
+Server.DISCONNECT_GRACE_MS = 15000;
 
 module.exports = { Server, SDK, SYNC_MODELS };

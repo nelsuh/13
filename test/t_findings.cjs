@@ -255,7 +255,7 @@ test("FINDING 4: a player released while offline must rejoin the room's round, n
   await driveUntil(w, () => w.clients[0].snap().roundMoveNo >= 3);
   const victim = w.clients[2];
   victim.netDrop();
-  // Stay away well past the 20 s forfeit grace, so the seat is genuinely released.
+  // Stay away well past the 15 s forfeit grace, so the seat is genuinely released.
   await driveUntil(w, () => w.clients[0].snap().order[2] === null, { budget: 10 * 60 * 1000 });
   eq(w.clients[0].snap().order[2], null, "the table gave the seat to a bot\n" + dump(w));
   victim.netRestore();
