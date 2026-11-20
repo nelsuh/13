@@ -5189,6 +5189,7 @@ async function tourLoad() {
       tour.live[stage.number] = live && live.t && typeof live.t === "object" ? live.t : {};
     }
     tour.loaded = true;
+    tourForceClose(startsAt);
     tourReassert();
     tourCloseEmptyTables();
     if (d.phase === "complete") tourRecordChampion(d);
@@ -5196,6 +5197,19 @@ async function tourLoad() {
     console.warn("tournament load failed", e);
     tour.loaded = true;   // a dead, silent button is worse: a tap now retries and explains a failure
   }
+}
+// Tables closed by hand, without a winner — exactly what the 50-minute stall
+// would do, only sooner. Whoever loads the event first files the close in the
+// stage record, so every client (old builds too) sees the table done.
+//   2026-11-20 21:00 stage 1 table 3: the last table, holding up stage 2.
+const TOUR_FORCE_CLOSE = [{ startsAt: 1795179600000, stage: 1, table: 3 }];
+function tourForceClose(startsAt) {
+  TOUR_FORCE_CLOSE.forEach(f => {
+    if (f.startsAt !== startsAt) return;
+    const res = tour.results[f.stage];
+    if (!res || res[f.table] !== undefined) return;
+    tourReport(startsAt, f.stage, f.table, null);
+  });
 }
 // Read-modify-write with a check afterwards. Two writers landing together can
 // drop one entry; whoever was dropped notices on the re-read and writes again.
