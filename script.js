@@ -5502,10 +5502,12 @@ function tourRender() {
       top.appendChild(tourEl("span", "tour-table-no", t("tourTable", m.number)));
       if (live) top.appendChild(tourEl("span", "tour-live", t("tourLive", live.r || 1)));
       if (mine) top.appendChild(tourEl("span", "tour-tag", t("tourYours")));
-      // Only a table that is actually being played (its lead posts the live
-      // scores): an empty table, or one still waiting for its players, has no
-      // picture to show — 2026-11-19 «Ширээ үзэх» spun on "waiting" forever.
-      else if (live && now >= s.startAt) {
+      // Every unfinished table of the stage in play. Not only those with live
+      // scores: 2026-11-20 the last table of stage 1 was playing with its live
+      // entry lost, and everyone waiting on it had no way to look. A table with
+      // no picture (nobody came, still in its lobby) sends the watcher back
+      // after TOUR_WATCH_GIVEUP_MS instead of "waiting" forever (2026-11-19).
+      else if (!m.done && s === tt.stages[tt.stages.length - 1] && tt.phase === "playing" && now >= s.startAt) {
         const wb = tourEl("button", "tour-watch-btn");
         wb.type = "button";
         wb.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';

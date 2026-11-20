@@ -224,7 +224,7 @@ test("watching a table: «Ширээ үзэх» opens the real game table in spe
   eq(guest.read("tourViewCount(" + JSON.stringify(rec) + ", Date.now())"), 0, "leaving takes the watcher off the count");
 });
 
-test("«Ширээ үзэх» only on a table being played; a table with no picture sends the watcher back", async () => {
+test("«Ширээ үзэх» on a table with no picture sends the watcher back with a word, not a spinner", async () => {
   // 2026-11-19: a table nobody sat at (or still waiting for its players) offered
   // «Ширээ үзэх», and the watcher sat on "waiting for this table" forever.
   const { w, cs, startAt } = await registered(6, 15 * MIN);
@@ -241,10 +241,11 @@ test("«Ширээ үзэх» only on a table being played; a table with no pict
   const watchBtn = n => guest.sandbox.document.querySelector('.tour-watch-btn[data-watch-table="' + n + '"]');
   await eventually(w, () => !!watchBtn(ms[0].number), 30000);
   ok(!!watchBtn(ms[0].number), "the table being played offers «Ширээ үзэх»");
-  ok(!watchBtn(ms[1].number), "the table nobody sat at does not");
-  // Its players vanish mid-match: the picture stops. A watcher who opens a table
-  // with no picture at all goes back to the bracket instead of waiting forever.
-  guest.run("tourStartWatch(1, " + ms[1].number + ")");
+  // A table with no live scores may still be at play (its entry lost), so it
+  // keeps the button — but with no picture the watcher goes back to the bracket
+  // instead of waiting forever.
+  ok(!!watchBtn(ms[1].number), "so does the table with no live scores");
+  guest.el("tourBody").dispatch("click", { target: watchBtn(ms[1].number) });
   ok(guest.sandbox.document.body.classList.contains("spectating"), "spectating");
   await w.advance(16000);
   ok(!guest.sandbox.document.body.classList.contains("spectating"), "no picture in 15 s → out of spectator mode");
