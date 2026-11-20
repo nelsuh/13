@@ -773,6 +773,7 @@ function resumeTurnTimer() {
 const PROXY_GRACE_MS = 10000;
 const PROXY_STAGGER_MS = 8000;   // each further seat in line waits this much longer
 function onTurnTimeout() {
+  if (srvMode) return;                    // the 13 server runs the clock
   if (!dealActive || netPaused) return;   // never resolve a timeout while our link is down
   if (!online) {
     if (players[turn].isBot) return;      // local bots act via botTimer, never time out
@@ -1124,12 +1125,14 @@ function humanPlay() {
   if (turn !== mySeat) return;
   const combo = classify(selectedCards());
   if (!isLegalPlay(combo)) { toast(t("invalidPlay")); return; }
+  if (srvMode) { srvMove({ kind: "play", cards: combo.cards.map(cardWire) }); return; }
   selected.clear();
   if (online) sendMove({ kind: "play", cards: combo.cards.map(cardWire) });
   else doPlay(mySeat, combo);
 }
 function humanPass() {
   if (turn !== mySeat || !table) return;
+  if (srvMode) { srvMove({ kind: "pass" }); return; }
   selected.clear();
   if (online) sendMove({ kind: "pass" });
   else doPass(mySeat);
@@ -1455,6 +1458,7 @@ function isPrimaryAuthority() {
   return seats[0] === mySeat;
 }
 function scheduleNextDeal() {
+  if (srvMode) return;                    // the server deals the next hand
   if (dealTimer) { clearTimeout(dealTimer); dealTimer = null; }
   if (!online || dealActive) return;
   awaitingDeal = true;
@@ -1527,6 +1531,7 @@ function showGameOver() {
 // it just brings the restart forward.
 let openRestartTimer = null;
 function scheduleOpenRestart() {
+  if (srvMode) { const rs = document.getElementById("rematchStatus"); if (rs) rs.textContent = t("openRestarting"); return; }
   if (openRestartTimer) { clearTimeout(openRestartTimer); openRestartTimer = null; }
   if (!online || !openTable) return;   // a chat-invite match ends on PLAY AGAIN, not a timer
   const rank = authorityRank();
@@ -1546,6 +1551,7 @@ function scheduleOpenRestart() {
 // other players' onRematchRequest fires, so the host sees who wants a rematch).
 document.getElementById("playAgainBtn").addEventListener("click", () => {
   if (tourCtx) { tourBackToScreen(); return; }
+  if (srvMode) { srvPlayAgain(); return; }
   if (online) {
     if (isPrimaryAuthority()) { hostDeal(true); return; }   // reset deal → every client restarts
     try { if (window.Usion && Usion.game && Usion.game.requestRematch) Usion.game.requestRematch(); } catch (_) {}
@@ -1672,6 +1678,7 @@ function sendReaction(kind, value) {
   closeChatPicker();
   const seat = (typeof mySeat === "number" && mySeat >= 0) ? mySeat : 0;
   showReaction(seat, kind, cleanValue);
+  if (srvMode) { if (srv) srv.emit("react", { kind: kind, value: cleanValue }); return true; }
   if (online && window.Usion && Usion.game && Usion.game.realtime) {
     try { Usion.game.realtime("reaction", { kind: kind, value: cleanValue }); } catch (e) {}
   }
@@ -1945,6 +1952,193 @@ let appliedSequences = new Set();
 // duplicate cards on the table. Replay only what is PROVABLY new.
 let appliedBaseSeq = 0;
 let pendingAction = false;
+
+// ── Server tables ────────────────────────────────────────
+// On the Usion game host (13.games.usions.com) the online table is run by the
+// 13 server (server/rooms.mjs): it shuffles, holds every hand, runs the turn
+// clock and settles whoever leaves. This client only draws what it is sent and
+// sends taps. The relay code above stays for the old static host and as the
+// fallback when the server cannot be reached.
+let srv = null;               // socket.io connection
+let srvMode = false;          // the table on screen is a server table
+let srvView = null;           // last { room, game } from the server
+let srvWant = null;           // what to (re)ask for on every connect: { ev, data }
+let srvHandNo = -1;
+let srvShown = "";            // "handNo:phase" whose results screen is already up
+let srvOverTimer = null;
+let srvFallbackTimer = null;
+let srvFailed = false;        // could not reach the server this session → relay
+
+function srvAvailable() {
+  return !srvFailed && !window.T13_NO_SERVER && typeof window.io === "function" && !!tourAuthToken();
+}
+function srvConnect() {
+  if (srv) return srv;
+  srv = window.io({
+    // Read on every (re)connect: the Usion token is re-minted hourly.
+    auth: function (cb) { cb({ token: tourAuthToken(), name: myName || "", avatar: myAvatar || "" }); },
+    transports: ["websocket", "polling"],
+  });
+  srv.on("state", srvApply);
+  srv.on("react", function (d) {
+    if (!srvMode || !srvView || !srvView.game || !d) return;
+    const seat = srvView.game.players.findIndex(p => p.id === d.from);
+    if (seat >= 0) showReaction(seat, d.kind, d.value);
+  });
+  // The server keeps our seat for 15 s; on every connect ask for the table again
+  // (a no-op when we still have it, a fresh seat after a server restart).
+  srv.on("connect", function () {
+    netPaused = false;
+    if (srvMode && srvWant) srv.emit(srvWant.ev, srvWant.data || {});
+  });
+  srv.on("disconnect", function () { if (srvMode) { netPaused = true; stopTurnTimer(); } });
+  srv.on("connect_error", function () { if (srvMode && !srvView) srvArmFallback(4000); });
+  return srv;
+}
+function srvArmFallback(ms) {
+  if (srvFallbackTimer) clearTimeout(srvFallbackTimer);
+  srvFallbackTimer = setTimeout(function () {
+    srvFallbackTimer = null;
+    if (srvMode && !(srvView && srvView.game)) srvGiveUp();
+  }, ms);
+}
+// The server never answered: play over the relay like before.
+function srvGiveUp() {
+  srvFailed = true;
+  srvMode = false; srvWant = null;
+  if (srv) { try { srv.close(); } catch (_) {} srv = null; }
+  online = false; openTable = false;
+  onlineOverlay.classList.remove("show");
+  menuPlayOnline();
+}
+function srvStartOpen() {
+  hideMenu();
+  stopLocalRound();
+  setupOverlay.classList.remove("show");
+  handOverlay.classList.remove("show");
+  document.getElementById("winnerOverlay").classList.remove("show");
+  online = true; openTable = true; srvMode = true;
+  gameStarted = false; dealActive = false;
+  srvView = null; srvHandNo = -1; srvShown = "";
+  srvWant = { ev: "open:join" };
+  const s = document.getElementById("onlineStatus");
+  if (s) s.textContent = t("connecting");
+  onlineOverlay.classList.add("show");
+  const c = srvConnect();
+  if (c.connected) c.emit("open:join", {});
+  srvArmFallback(10000);
+}
+
+// Keep the player's own drag order across updates of the same hand.
+function srvKeepOrder(prev, next) {
+  const want = new Set(next.map(cardKey));
+  const kept = (prev || []).filter(c => c && want.has(cardKey(c)));
+  const have = new Set(kept.map(cardKey));
+  return kept.concat(next.filter(c => !have.has(cardKey(c))));
+}
+
+function srvApply(st) {
+  if (!srvMode || !st) return;
+  const g = st.game;
+  if (!g) return;                      // between tables; the connect handler asks again
+  srvView = st;
+  if (srvFallbackTimer) { clearTimeout(srvFallbackTimer); srvFallbackTimer = null; }
+  onlineOverlay.classList.remove("show");
+  gameStarted = true;
+
+  const newHand = g.handNo !== srvHandNo;
+  if (newHand) {
+    if (g.handNo === 1) { statsRecordedThisGame = false; resultReportedThisGame = false; }
+    selected.clear();
+    if (handCdInterval) { clearInterval(handCdInterval); handCdInterval = null; }
+    if (handCdTimeout) { clearTimeout(handCdTimeout); handCdTimeout = null; }
+    if (srvOverTimer) { clearTimeout(srvOverTimer); srvOverTimer = null; }
+    handOverlay.classList.remove("show");
+    if (g.phase === "playing") document.getElementById("winnerOverlay").classList.remove("show");
+  }
+  const sameHand = !newHand;
+  srvHandNo = g.handNo;
+
+  numPlayers = g.players.length;
+  mySeat = g.mySeat >= 0 ? g.mySeat : 0;
+  loseAt = g.loseAt;
+  roomPlayerIds = g.players.map(p => (p.isBot ? null : p.id));
+  players = g.players.map((p, i) => ({
+    name: p.isBot ? botSeatName(i) : (p.name || t("playerN", i + 1)),
+    avatar: p.isBot ? null : normalizeAvatar(p.avatar),
+    isBot: !!p.isBot, total: p.total, out: !!p.out, color: PLAYER_COLORS[i],
+  }));
+  hands = g.players.map((p, i) => {
+    if (g.reveal) return g.reveal[i].map(wireCard);
+    if (i === g.mySeat) { const mine = g.myHand.map(wireCard); return sameHand ? srvKeepOrder(hands[i], mine) : mine; }
+    return Array.from({ length: p.count }, () => ({ r: 0, s: 0 }));
+  });
+  const mineKeys = new Set((hands[mySeat] || []).map(cardKey));
+  [...selected].forEach(k => { if (!mineKeys.has(k)) selected.delete(k); });
+
+  table = g.table ? { seat: g.table.seat, combo: classify(g.table.cards.map(wireCard)) } : null;
+  trickPlays = (g.trickPlays || []).map(tp => ({ seat: tp.seat, combo: classify(tp.cards.map(wireCard)) }));
+  lastAction = {};
+  Object.keys(g.lastAction || {}).forEach(k => {
+    const a = g.lastAction[k];
+    lastAction[k] = a.kind === "play" ? { kind: "play", text: comboName(classify(a.cards.map(wireCard))) }
+      : a.kind === "pass" ? { kind: "pass", text: t("pass") }
+      : a.kind === "win" ? { kind: "win", text: t("finished") }
+      : { kind: "pass", text: t("leftGame") };
+  });
+  turn = g.turn;
+  firstPlay = false; lowCard = null;
+  dealActive = g.phase === "playing";
+
+  stopTurnTimer();
+  if (dealActive && !netPaused) {
+    turnDeadline = Date.now() + Math.max(0, Number(st.room && st.room.deadline) || 0);
+    turnTrusted = true;
+    resumeTurnTimer();
+  } else {
+    turnDeadline = 0;
+  }
+  render();
+
+  // Results: the last trick stays on the table a moment, then the screen comes
+  // up. The server deals the next hand (or restarts the table) on its own clock.
+  const key = g.handNo + ":" + g.phase;
+  if ((g.phase === "hand" || g.phase === "over") && srvShown !== key) {
+    srvShown = key;
+    const lh = g.lastHand, handNo = g.handNo;
+    if (srvOverTimer) clearTimeout(srvOverTimer);
+    srvOverTimer = setTimeout(function () {
+      srvOverTimer = null;
+      const now = srvView && srvView.game;
+      if (!srvMode || !now || now.handNo !== handNo) return;
+      if (now.phase === "over") showGameOver();
+      else if (lh) showHandOver(lh.winner, lh.deltas, lh.newlyOut);
+    }, 2400);
+  }
+}
+
+function srvMove(mv) {
+  if (!srv || !srv.connected || !srvView || !srvView.game || pendingAction) return;
+  mv.moveNo = srvView.game.moveNo;
+  pendingAction = true; renderControls();
+  srv.timeout(8000).emit("move", mv, function (err, r) {
+    pendingAction = false;
+    if (err || !r || r.error) {
+      // "stale": the clock moved for us a moment ago; the new state is on its way.
+      if (!(r && r.error === "stale")) toast(t("moveFail"));
+      renderControls();
+      return;
+    }
+    selected.clear();
+    render();
+  });
+}
+// An open table restarts by itself a few seconds after the champion screen.
+function srvPlayAgain() {
+  const rs = document.getElementById("rematchStatus");
+  if (rs) rs.textContent = t("openRestarting");
+}
+
 // Moves we have already played on our own board but the relay has not echoed
 // back yet. Waiting for that echo costs a full round trip on EVERY tap, which is
 // what makes a two-player game feel sluggish — so we apply our own move (and any
@@ -2029,7 +2223,7 @@ function recordOutcome(iWon) {
 // originating group chat or to the players' DMs automatically.
 let resultReportedThisGame = false;
 function reportMatchResult(champSeat, rankedSeats) {
-  if (resultReportedThisGame) return;
+  if (resultReportedThisGame || srvMode) return;   // no Usion room behind a server table
   // Primary authority, not strictly the host: while the host is present that IS
   // the host (seat 0), but an eliminated host who walked away must not take the
   // result card with them.
@@ -2510,7 +2704,7 @@ if (typeof document !== "undefined" && document.addEventListener) {
     var now = Date.now();
     var gap = now - lastBeat;
     lastBeat = now;
-    if (gap > 3000 && online && gameStarted) {
+    if (gap > 3000 && online && gameStarted && !srvMode) {
       beginResync("gap=" + Math.round(gap / 1000) + "s");
     }
   }, 1000);
@@ -2780,6 +2974,7 @@ function requestCatchUp() {
 }
 (function netWatchdog() {
   setInterval(function () {
+    if (srvMode) return;                  // a server table needs none of this upkeep
     if (!online || netPaused) { pendingSince = 0; return; }
     const now = Date.now();
     // Open-room upkeep runs BEFORE the gameStarted gate, because the client that
@@ -3238,6 +3433,7 @@ function showMenu() {
 }
 function hideMenu() { if (menuOverlay) menuOverlay.classList.remove("show"); }
 function menuPlayOnline() {
+  if (srvAvailable()) { srvStartOpen(); return; }
   if (!(window.Usion && Usion.game)) { hideMenu(); startBotsGame(); return; }
   hideMenu();
   openTable = true;

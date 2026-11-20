@@ -18,11 +18,11 @@ import { createRooms } from './rooms.mjs';
 
 const ROOM_ID = /^[A-Za-z0-9_\-:.]{1,120}$/;
 
-export function attachSockets(httpServer, { identity, log = console, clock, onMatchOver } = {}) {
+export function attachSockets(httpServer, { identity, log = console, clock, onMatchOver, timing } = {}) {
   const io = new Server(httpServer, { serveClient: true, pingInterval: 10000, pingTimeout: 8000, maxHttpBufferSize: 16 * 1024 });
   const sockets = new Map();     // userId → Set<socket>
   const send = (id, ev, data) => { const set = sockets.get(id); if (set) for (const s of set) s.emit(ev, data); };
-  const rooms = createRooms({ send, clock, log, onMatchOver });
+  const rooms = createRooms({ send, clock, log, onMatchOver, timing });
 
   io.use(async (socket, next) => {
     const auth = socket.handshake.auth || {};

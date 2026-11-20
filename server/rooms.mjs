@@ -21,7 +21,9 @@ export const OPEN_LOSE_AT = 20;
 export const OPEN_SEATS = 4;
 const LOSE_AT_CHOICES = [20, 30, 50];
 
-export function createRooms({ send, clock = { now: () => Date.now(), setTimeout, clearTimeout }, log = console, onMatchOver = () => {} } = {}) {
+export function createRooms({ send, clock = { now: () => Date.now(), setTimeout, clearTimeout }, log = console, onMatchOver = () => {}, timing = {} } = {}) {
+  // Tests shorten these; production uses the exported values.
+  const T = Object.assign({ TURN_MS, AFK_TURN_MS, GONE_MS, BOT_MS, HAND_PAUSE_MS, OPEN_RESTART_MS }, timing);
   const rooms = new Map();             // key → room
   const users = new Map();             // userId → { profile, connected, roomKey, goneTimer }
   let openSeq = 0;
@@ -67,13 +69,13 @@ export function createRooms({ send, clock = { now: () => Date.now(), setTimeout,
     const g = room.match;
     if (!g) { clearTurn(room); return; }
     const m = g.m;
-    if (m.phase === 'hand') { later(room, HAND_PAUSE_MS, () => { g.deal(); afterMove(room); }); return; }
+    if (m.phase === 'hand') { later(room, T.HAND_PAUSE_MS, () => { g.deal(); afterMove(room); }); return; }
     if (m.phase === 'over') { clearTurn(room); matchOver(room); return; }
     if (m.phase !== 'playing') { clearTurn(room); return; }
     const p = m.players[m.turn];
-    if (p.isBot) { later(room, BOT_MS, () => { g.act(m.turn, g.botDecision(m.turn)); afterMove(room); }); return; }
+    if (p.isBot) { later(room, T.BOT_MS, () => { g.act(m.turn, g.botDecision(m.turn)); afterMove(room); }); return; }
     const u = user(p.id);
-    const ms = (room.missed.get(p.id) || 0) >= 2 ? AFK_TURN_MS : TURN_MS;
+    const ms = (room.missed.get(p.id) || 0) >= 2 ? T.AFK_TURN_MS : T.TURN_MS;
     const seat = m.turn, moveNo = m.moveNo, handNo = m.handNo;
     later(room, ms, () => {
       if (m.turn !== seat || m.moveNo !== moveNo || m.handNo !== handNo || m.phase !== 'playing') return;
@@ -89,8 +91,8 @@ export function createRooms({ send, clock = { now: () => Date.now(), setTimeout,
     const g = room.match;
     try { onMatchOver(room, g); } catch (e) { log.error('onMatchOver', e); }
     if (room.mode === 'open') {
-      room.restartAt = clock.now() + OPEN_RESTART_MS;
-      room.restartTimer = clock.setTimeout(() => { room.restartTimer = null; room.restartAt = 0; restartOpen(room); }, OPEN_RESTART_MS);
+      room.restartAt = clock.now() + T.OPEN_RESTART_MS;
+      room.restartTimer = clock.setTimeout(() => { room.restartTimer = null; room.restartAt = 0; restartOpen(room); }, T.OPEN_RESTART_MS);
     }
   }
 
@@ -217,7 +219,7 @@ export function createRooms({ send, clock = { now: () => Date.now(), setTimeout,
     const room = roomOf(id);
     if (room) broadcast(room);
     if (u.goneTimer) clock.clearTimeout(u.goneTimer);
-    u.goneTimer = clock.setTimeout(() => { u.goneTimer = null; if (!u.connected) leave(id); }, GONE_MS);
+    u.goneTimer = clock.setTimeout(() => { u.goneTimer = null; if (!u.connected) leave(id); }, T.GONE_MS);
   }
 
   /** Off the table for good: an open seat goes to a bot, an invite seat folds. */
