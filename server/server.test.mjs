@@ -57,6 +57,19 @@ test('serves the game, and nothing but the game', async () => {
   } finally { await s.close(); }
 });
 
+test('the server clock is public and uncached, for the tournament', async () => {
+  const s = await setup();
+  try {
+    const r = await s.call('GET', '/api/time');
+    assert.equal(r.status, 200, 'no token needed');
+    assert.equal(r.data.now, s.clock);
+    assert.equal(r.headers.get('cache-control'), 'no-store');
+    s.setClock(s.clock + 12345);
+    assert.equal((await s.call('GET', '/api/time')).data.now, s.clock);
+    assert.equal((await s.call('POST', '/api/time')).status, 401, 'only GET is the clock');
+  } finally { await s.close(); }
+});
+
 test('the api needs a real Usion token', async () => {
   const s = await setup();
   try {

@@ -29,7 +29,14 @@ const SUIT_RANK = [3, 1, 0, 2];
 const RANK_LABEL = { 11: "J", 12: "Q", 13: "K", 14: "A", 15: "2" };
 const PLAYER_COLORS = ["#2ed573", "#ff4757", "#1e90ff", "#ffa502"];
 const HAND_OVER_SECONDS = 5;
-const TURN_SECONDS = 90;   // each player gets 2:00 to act; on expiry they auto-pass (auto-lead if leading)
+const TURN_SECONDS = 90;   // each player gets 1:30 to act; on expiry they auto-pass (auto-lead if leading)
+const TOUR_TURN_SECONDS = 60;   // …1:00 at a tournament table (2026-11-23), so a whole stage keeps moving
+// Every client at a table agrees on it: all of them are at the same tournament
+// table (tourCtx) or none is. A spectator of a tournament table shows the same.
+// (tourWatching is a `let` further down: read before the script got there → plain games.)
+function turnSeconds() {
+  try { return tourCtx || tourWatching ? TOUR_TURN_SECONDS : TURN_SECONDS; } catch (_) { return TURN_SECONDS; }
+}
 
 // ── The two online modes ─────────────────────────────────
 // A room is run one of two ways, decided entirely by HOW THE GAME WAS LAUNCHED:
@@ -198,16 +205,18 @@ const STR = {
     tourStCancelled: "Цуцлагдсан",
     tourNoteReg: hm => "Бүртгэл " + hm + "-д хаагдаж, ширээ хуваарилагдана.",
     tourNoteRegDone: hm => "Та бүртгэгдсэн. " + hm + "-д ширээ тань нээгдэнэ.",
-    tourNoteClosed: "Бүртгэл хаагдсан. Дараагийн тэмцээн маргааш 21:00.",
+    tourNoteClosed: when => "Бүртгэл хаагдсан. Дараагийн тэмцээн: " + when + ".",
     tourNoteWaiting: "Ширээ тань нээгдлээ. Эхлэх цагт хөзөр тарна.",
     tourNotePlaying: "Таны ширээ эхэлсэн — одоо орно уу.",
-    tourNoteQualified: (a, b) => "Дараагийн шатыг хүлээж байна: " + a + "/" + b + " ширээ дууссан.",
+    tourNoteQualified: (a, b, rest) => "Дараагийн шатыг хүлээж байна: " + a + "/" + b + " ширээ дууссан." + (rest ? " Тоглож байгаа: " + rest + "." : ""),
     tourNoteNextIn: s => "Дараагийн шат " + s + "-ын дараа эхэлнэ.",
     tourNoteEliminated: "Энэ удаа хасагдлаа. Бусад ширээг «Ширээ үзэх» товчоор үзэж болно.",
     tourWatch: "Ширээ үзэх",
     tourWatchWaiting: "Ширээний мэдээлэл ирэхийг хүлээж байна…",
     tourWatchNone: "Энэ ширээнд тоглолт явахгүй байна",
     tourWatchDealing: "Хөзөр тарааж байна…",
+    tourWatchLobby: (a, b) => "Тоглогчид цугларч байна: " + a + "/" + b,
+    tourTableClosed: "Ширээ тань хаагдсан: 3 минутын турш ширээнд хэн ч идэвхгүй байсан.",
     tourWatchTurn: n => "Ээлж: " + n,
     tourWatchWinner: n => "Ялагч: " + n,
     tourViewers: n => n + " үзэгч",
@@ -215,7 +224,11 @@ const STR = {
     tourNoteChampion: "Та тэмцээнд түрүүллээ!",
     tourNoteFew: "Бүртгүүлсэн тоглогч 2 хүрээгүй тул тэмцээн цуцлагдлаа.",
     tourNoteEmpty: "Бүх ширээ ялагчгүй дууссан тул тэмцээн дууслаа.",
-    tourNoteLive: "Тэмцээн явагдаж байна. Дараагийнх нь маргааш 21:00.",
+    tourNoteLive: when => "Тэмцээн явагдаж байна. Дараагийнх нь: " + when + ".",
+    // day: 0 today, 1 tomorrow, 2 later
+    tourMoveNext: (day, hm, old) => "Анхаар! " + (day === 0 ? "Өнөөдрөөс" : day === 1 ? "Маргаашаас" : "Удахгүй") +
+      " эхлэн тэмцээн өдөр бүр " + hm + "-д болно (одоо " + old + ").",
+    tourMoveNow: (hm, old) => "Анхаар! Тэмцээн өнөөдрөөс эхлэн өдөр бүр " + hm + "-д болно (өмнө нь " + old + ").",
     tourEntrants: "БҮРТГҮҮЛСЭН ТОГЛОГЧИД",
     tourNoEntrants: "Одоогоор хэн ч бүртгүүлээгүй байна. Хамгийн түрүүнд бүртгүүлээрэй!",
     tourStage: n => n + "-р шат",
@@ -226,12 +239,12 @@ const STR = {
     tourChampion: "АВАРГА",
     tourRules: "ДҮРЭМ",
     tourRulesList: [
-      "Өдөр бүр 21:00-д эхэлнэ. Бүртгэл 20:50-д хаагдаж, ширээ хуваарилагдана.",
+      (hm, close) => "Өдөр бүр " + hm + "-д эхэлнэ. Бүртгэл " + close + "-д хаагдаж, ширээ хуваарилагдана.",
       "Бүртгүүлсэн бүх хүнийг санамсаргүйгээр 2–4 хүнтэй ширээнд аль болох тэнцүү хуваарилна.",
-      "Ширээ бүр 20 оноо хүртэл тоглож, ганц ялагч нь дараагийн шатанд гарна.",
-      "Бүх ширээ дуусахаас өмнө дараагийн шат эхлэхгүй; шат хооронд 30 секунд. Ганц ширээ үлдвэл тэр нь финал.",
+      "Ширээ бүр 20 оноо хүртэл тоглож, ганц ялагч нь дараагийн шатанд гарна. Нэг нүүдэлд 60 секунд.",
+      "Бүх ширээ дуусахаас өмнө дараагийн шат эхлэхгүй; шат хооронд 20 секунд. Ганц ширээ үлдвэл тэр нь финал.",
       "Эхлэх цагаас 30 секундийн дотор ширээндээ ороогүй хүн хасагдана. Бот нөхөхгүй.",
-      "Цагтаа ганцаараа ирвэл шууд шалгарна. Хоцорч ирсэн бол шалгарахгүй. Хэн ч ирээгүй ширээ ялагчгүй хаагдана.",
+      "Цагтаа ганцаараа ирвэл шууд шалгарна. Хоцорч ирсэн бол шалгарахгүй. Хэн ч ирээгүй, эсвэл 3 минут хэн ч идэвхгүй ширээ ялагчгүй хаагдана.",
       "2-оос цөөн хүн бүртгүүлбэл тэмцээн цуцлагдана."
     ],
     tourLobbyTitle: (st, k) => st + " · Ширээ " + k,
@@ -402,16 +415,18 @@ const STR = {
     tourStCancelled: "Cancelled",
     tourNoteReg: hm => "Registration closes and tables are drawn at " + hm + ".",
     tourNoteRegDone: hm => "You're in. Your table opens at " + hm + ".",
-    tourNoteClosed: "Registration is closed. Next tournament: tomorrow 21:00.",
+    tourNoteClosed: when => "Registration is closed. Next tournament: " + when + ".",
     tourNoteWaiting: "Your table is open. Cards are dealt at the start time.",
     tourNotePlaying: "Your table has started — join now.",
-    tourNoteQualified: (a, b) => "Waiting for the next stage: " + a + "/" + b + " tables finished.",
+    tourNoteQualified: (a, b, rest) => "Waiting for the next stage: " + a + "/" + b + " tables finished." + (rest ? " Still playing: " + rest + "." : ""),
     tourNoteNextIn: s => "Next stage starts in " + s + ".",
     tourNoteEliminated: "You're out this time. Tap «Watch table» to follow the other tables.",
     tourWatch: "Watch table",
     tourWatchWaiting: "Waiting for this table's first update…",
     tourWatchNone: "Nothing is being played at this table",
     tourWatchDealing: "Dealing…",
+    tourWatchLobby: (a, b) => "Players gathering: " + a + "/" + b,
+    tourTableClosed: "Your table was closed: nobody at it was active for 3 minutes.",
     tourWatchTurn: n => "Turn: " + n,
     tourWatchWinner: n => "Winner: " + n,
     tourViewers: n => n + " watching",
@@ -419,7 +434,10 @@ const STR = {
     tourNoteChampion: "You won the tournament!",
     tourNoteFew: "Fewer than 2 players registered, so the tournament was cancelled.",
     tourNoteEmpty: "Every table ended without a winner.",
-    tourNoteLive: "A tournament is under way. The next one is tomorrow at 21:00.",
+    tourNoteLive: when => "A tournament is under way. Next one: " + when + ".",
+    tourMoveNext: (day, hm, old) => "Heads up! " + (day === 0 ? "From today" : day === 1 ? "From tomorrow" : "Soon") +
+      " the tournament starts at " + hm + " every day (now " + old + ").",
+    tourMoveNow: (hm, old) => "Heads up! From today the tournament starts at " + hm + " every day (it was " + old + ").",
     tourEntrants: "REGISTERED PLAYERS",
     tourNoEntrants: "Nobody has registered yet. Be the first!",
     tourStage: n => "Stage " + n,
@@ -430,12 +448,12 @@ const STR = {
     tourChampion: "CHAMPION",
     tourRules: "RULES",
     tourRulesList: [
-      "Starts every day at 21:00. Registration closes and tables are drawn at 20:50.",
+      (hm, close) => "Starts every day at " + hm + ". Registration closes and tables are drawn at " + close + ".",
       "Everyone registered is seated at random at tables of 2–4, as evenly as possible.",
-      "Each table plays to 20 points; its single winner moves on.",
-      "The next stage waits for every table; 30 s break between stages. One table left is the final.",
+      "Each table plays to 20 points; its single winner moves on. 60 seconds a turn.",
+      "The next stage waits for every table; 20 s break between stages. One table left is the final.",
       "Not at your table within 30 seconds of the start = out. No bots fill in.",
-      "Alone at the table on time = you go through. Late = you don't. A table nobody came to closes without a winner.",
+      "Alone at the table on time = you go through. Late = you don't. A table nobody came to, or nobody was active at for 3 minutes, closes without a winner.",
       "Fewer than 2 registrations cancels the tournament."
     ],
     tourLobbyTitle: (st, k) => st + " · Table " + k,
@@ -627,6 +645,7 @@ function applyLang(lang) {
   set("startGameBtn", "startGame"); set("lobbyBotsBtn", "playBots");
   set("menuTitle", "title"); set("menuOnlineLabel", "menuOnline");
   set("menuBotsLabel", "menuBots"); set("menuInviteLabel", "menuInvite"); set("menuTourLabel", "tourMenu"); set("tourPrizeTitle", "tourPrizeTitle"); set("tourBackLabel", "tourBack"); set("tourTitle", "tourTitle"); set("lobbyTourBtn", "tourBackToTour");
+  tourRenderMenuNotice();   // its text is in the language too
   set("lobbyLoseLabel", "loseLabel");
   set("winnerLabel", "winnerLabel"); set("playAgainBtn", "playAgain");
   set("passBtn", "pass"); set("playBtn", "play");
@@ -724,7 +743,7 @@ function setTimerEl(el, live, secs) {
   if (!el) return;
   el.classList.toggle("live", live);
   el.classList.toggle("warn", live && secs <= 10);
-  const frac = Math.max(0, Math.min(1, secs / TURN_SECONDS));
+  const frac = Math.max(0, Math.min(1, secs / turnSeconds()));
   const fg = el.querySelector(".ring-fg");
   if (fg) fg.style.strokeDashoffset = (100 * (1 - frac)).toFixed(2);
 }
@@ -733,10 +752,10 @@ function updateTimers() {
   document.querySelectorAll(".opp").forEach(div => {
     const seat = +div.dataset.seat;
     const live = dealActive && turn === seat;
-    setTimerEl(div.querySelector(".opp-timer"), live, live ? turnLeft : TURN_SECONDS);
+    setTimerEl(div.querySelector(".opp-timer"), live, live ? turnLeft : turnSeconds());
   });
   const live = dealActive && turn === mySeat;
-  setTimerEl(document.getElementById("meTimer"), live, live ? turnLeft : TURN_SECONDS);
+  setTimerEl(document.getElementById("meTimer"), live, live ? turnLeft : turnSeconds());
 }
 function stopTurnTimer() {
   if (turnTimer) { clearInterval(turnTimer); turnTimer = null; }
@@ -748,12 +767,12 @@ function stopTurnTimer() {
 // forever by toggling out and back. With a deadline, time passes whether we're
 // running or not, and a resume just re-attaches the interval (resumeTurnTimer).
 function startTurnTimer() {
-  turnDeadline = Date.now() + TURN_SECONDS * 1000;
+  turnDeadline = Date.now() + turnSeconds() * 1000;
   resumeTurnTimer();
 }
 function resumeTurnTimer() {
   stopTurnTimer();
-  if (!turnDeadline) turnDeadline = Date.now() + TURN_SECONDS * 1000;
+  if (!turnDeadline) turnDeadline = Date.now() + turnSeconds() * 1000;
   turnLeft = Math.max(0, Math.ceil((turnDeadline - Date.now()) / 1000));
   // Frozen while disconnected: keep the clock displayed but don't tick (a dropped
   // player must not be auto-passed). The reconnect handler restarts it.
@@ -805,7 +824,7 @@ function scheduleProxyMove(seat) {
   // whole extra turn and let the clients that DID see it go first. We still act
   // eventually: if every client rebuilt during this turn, somebody has to, or the
   // table is frozen again — which is the exact failure we're removing.
-  const extra = turnTrusted ? 0 : TURN_SECONDS * 1000;
+  const extra = turnTrusted ? 0 : turnSeconds() * 1000;
   const epoch = dealEpoch, moveNo = roundMoveNo;
   proxyTimer = setTimeout(() => {
     proxyTimer = null;
@@ -2587,6 +2606,7 @@ if (window.Usion && Usion.init) {
       playerMeta[myId] = { name: myName || t("you"), avatar: myAvatar };
       presentIds.add(myId);
       loadStats(); // fire-and-forget; never block init/render
+      syncClock(); // the tournament's clock offset (fire-and-forget)
       // Registered up front REGARDLESS of launch mode: a solo launch can be
       // promoted into a live room mid-session via the host's Share button.
       try {
@@ -3431,6 +3451,7 @@ function showMenu() {
   onlineOverlay.classList.remove("show");
   setupOverlay.classList.remove("show");
   if (menuOverlay) menuOverlay.classList.add("show");
+  tourRenderMenuNotice();   // "from tomorrow at 19:00" while the time is moving
   tourLoadFame();   // who won lately → the strip under the title
 }
 function hideMenu() { if (menuOverlay) menuOverlay.classList.remove("show"); }
@@ -5035,9 +5056,13 @@ function refreshNames() {
 // shared.* is writable by every user of the app, so like the rest of 13 this is
 // a trust-the-clients design (see the README's Tournament section).
 const TOUR_PREFIX = "t13.v1.";
-const TOUR_UTC_HOUR = 13;                 // 21:00 Asia/Ulaanbaatar (UTC+8, no DST)
-const TOUR_OPEN_MS = 10 * 60 * 1000;      // registration closes / tables drawn at 20:50
-const TOUR_BREAK_MS = 30 * 1000;          // between stages
+const TOUR_UTC_HOUR = 13;                 // 21:00 Asia/Ulaanbaatar (UTC+8, no DST) — until the schedule below says otherwise
+// From this UTC day on, the event starts at this UTC hour. 2026-11-24 → 19:00 UB.
+// Never rewrite a past entry: every phone derives an event's key (t13.v1.<startsAt>)
+// from it, so a change to a day that already happened orphans that event's records.
+const TOUR_SCHEDULE = [{ from: Date.UTC(2026, 10, 24), hour: 11 }];
+const TOUR_OPEN_MS = 10 * 60 * 1000;      // registration closes / tables drawn 10 min before the start
+const TOUR_BREAK_MS = 20 * 1000;          // between stages (30 s until 2026-11-23)
 const TOUR_GRACE_MS = 30 * 1000;          // no-show cut-off after a table's start, every stage (was 60 s until 2026-11-20)
 const TOUR_EMPTY_SETTLE_MS = 30 * 1000;   // after the grace: a table that never got a room had nobody — close it
 const TOUR_STALL_MS = 50 * 60 * 1000;     // a table nobody ever reports is closed without a winner
@@ -5048,6 +5073,63 @@ const TOUR_REG_SETTLE_MS = 20 * 1000;     // after the draw + this, the roster c
 const TOUR_LIVE_MS = 4000;                // a table publishes its scores at most this often
 const TOUR_KEEP_MS = 3 * 24 * 3600 * 1000;
 const TOUR_REG_GUARD_MS = 10 * 1000;      // no (de)registration in the last seconds before the draw
+const TOUR_REG_UNSYNCED_GUARD_MS = 5 * 60 * 1000;   // …or minutes, when the server clock could not be read
+// Unsynced, a phone's stamp is only as good as its clock: close earlier rather
+// than let a phone that is behind write itself in after the others froze the list.
+function tourRegGuardMs() {
+  return clockSync.synced || typeof window.fetch !== "function" ? TOUR_REG_GUARD_MS : TOUR_REG_UNSYNCED_GUARD_MS;
+}
+
+// ── The tournament's clock ──
+// The event runs on absolute times (20:50 draw, 21:00 deal, the grace, the next
+// stage's start = last result's `at` + break), compared on every phone. A phone
+// whose clock was set by hand can be minutes off: behind, it registered after the
+// draw (so phones that froze the roster and phones that read it later derived two
+// different brackets, and a table's result was invalid on half of them); ahead,
+// it dealt and called walkovers before the others arrived and stamped results in
+// the future, holding the next stage back. So all tournament timing reads
+// tourNow(): Date.now() corrected by the offset measured against 13's own server
+// (GET /api/time, same origin). No server (file:, QA) → offset 0, as before.
+const CLOCK_RESYNC_MS = 10 * 60 * 1000;
+const clockSync = { offset: 0, synced: false, tried: false, at: 0, busy: null };
+function tourNow() { return Date.now() + clockSync.offset; }
+function syncClock(force) {
+  const f = window.fetch;
+  if (typeof f !== "function") { clockSync.tried = true; return Promise.resolve(false); }
+  if (clockSync.busy) return clockSync.busy;
+  if (!force && clockSync.tried && Date.now() - clockSync.at < CLOCK_RESYNC_MS) return Promise.resolve(clockSync.synced);
+  const run = (async () => {
+    let best = null;
+    for (let i = 0; i < 3; i++) {
+      try {
+        const t0 = Date.now();
+        const res = await f("/api/time", { method: "GET", cache: "no-store" });
+        const t1 = Date.now();
+        if (!res || !res.ok) break;
+        const srv = Number((await res.json() || {}).now);
+        if (!Number.isFinite(srv)) break;
+        const rtt = t1 - t0;
+        // The server read its clock somewhere in the round trip: assume the middle.
+        if (rtt <= 5000 && (!best || rtt < best.rtt)) best = { rtt, off: Math.round(srv + rtt / 2 - t1) };
+        if (rtt < 300) break;   // good enough
+      } catch (_) { break; }
+    }
+    clockSync.tried = true; clockSync.at = Date.now();
+    if (best) {
+      // A jump spoils the "unchanged for 3 minutes" bookkeeping kept on the old clock.
+      if (Math.abs(best.off - clockSync.offset) > 2000) Object.keys(tourDeadSeen).forEach(k => { delete tourDeadSeen[k]; });
+      if (Math.abs(best.off) > 2000) console.warn("tournament clock: this phone is " + Math.round(best.off / 1000) + " s off the server");
+      clockSync.offset = best.off; clockSync.synced = true;
+    }
+    return clockSync.synced;
+  })();
+  clockSync.busy = run.then(v => { clockSync.busy = null; return v; }, () => { clockSync.busy = null; return false; });
+  return clockSync.busy;
+}
+// Waits for the first measurement, but never longer than `ms`.
+function syncClockSoon(ms, force) {
+  return Promise.race([syncClock(force), new Promise(r => setTimeout(() => r(clockSync.synced), ms || 3000))]);
+}
 
 // QA: ?tourStart=<ISO or epoch ms> (or window.T13_TOUR_START_AT) moves today's event.
 function tourOverrideStart() {
@@ -5061,16 +5143,39 @@ function tourOverrideStart() {
   const n = /^\d+$/.test(String(v)) ? Number(v) : Date.parse(String(v));
   return Number.isFinite(n) ? n : null;
 }
-// The event that is "today's": the next 21:00, or tonight's for a few hours
+const TOUR_DAY_MS = 24 * 3600 * 1000;
+// The start of the event held on the UTC day containing `ms`.
+function tourStartOn(ms) {
+  const day = Math.floor(ms / TOUR_DAY_MS) * TOUR_DAY_MS;
+  let hour = TOUR_UTC_HOUR;
+  TOUR_SCHEDULE.forEach(e => { if (day >= e.from) hour = e.hour; });
+  return day + hour * 3600 * 1000;
+}
+// The event that is "today's": the next one, or tonight's for a few hours
 // after it started, while it may still be running (tourDerive tells which).
 function tourCurrentStart(now) {
   const o = tourOverrideStart();
   if (o != null) return o;
-  const d = new Date(now);
-  d.setUTCHours(TOUR_UTC_HOUR, 0, 0, 0);
-  let start = d.getTime();
-  if (start <= now - 6 * 3600 * 1000) start += 24 * 3600 * 1000;   // long finished → tomorrow's
-  return start;
+  const start = tourStartOn(now);
+  return start <= now - 6 * 3600 * 1000 ? tourStartOn(start + TOUR_DAY_MS) : start;   // long finished → tomorrow's
+}
+// The event after `startsAt` (a schedule change can move its hour).
+function tourNextStart(startsAt) {
+  return tourOverrideStart() != null ? startsAt + TOUR_DAY_MS : tourStartOn(startsAt + TOUR_DAY_MS);
+}
+// The time is moving: say so — before the first event at the new time, and on its day.
+function tourScheduleNotice(now) {
+  if (tourOverrideStart() != null) return "";
+  const cur = tour.startsAt || tourCurrentStart(now);
+  const next = tourStartOn(cur + TOUR_DAY_MS), prev = tourStartOn(cur - TOUR_DAY_MS);
+  const hm = tourFmtClock;
+  if (hm(next) !== hm(cur)) return t("tourMoveNext", tourSameDay(next, now) ? 0 : tourSameDay(next, now + TOUR_DAY_MS) ? 1 : 2, hm(next), hm(cur));
+  if (hm(prev) !== hm(cur) && now < cur + 3 * 3600 * 1000) return t("tourMoveNow", hm(cur), hm(prev));
+  return "";
+}
+function tourSameDay(a, b) {
+  const x = new Date(a), y = new Date(b);
+  return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate();
 }
 function tourTableSizes(count) {
   if (count < 2) return count ? [count] : [];
@@ -5093,7 +5198,11 @@ function tourShuffle(ids, seed) {
 // roster: [{id, n, a}] · results: {stageNo: {tableNo: {w, at}}} → the whole event.
 function tourDerive(startsAt, roster, results, now) {
   const seen = new Set();
-  const people = (roster || []).filter(p => p && typeof p.id === "string" && !seen.has(p.id) && seen.add(p.id))
+  // A row stamped at or after the draw came from a phone whose clock let it in
+  // late; phones that froze the roster at the draw never saw it, so nobody counts
+  // it (rows from older builds carry no stamp and count, as before).
+  const people = (roster || []).filter(p => p && typeof p.id === "string" &&
+      !(Number.isFinite(p.t) && p.t >= startsAt - TOUR_OPEN_MS) && !seen.has(p.id) && seen.add(p.id))
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const tt = { startsAt, closesAt: startsAt - TOUR_OPEN_MS, phase: "registration", people,
                stages: [], championId: null, reason: null, nextStageAt: null };
@@ -5159,7 +5268,9 @@ function tourListOf(rec) { return rec && Array.isArray(rec.list) ? rec.list.filt
 // draw, the stages not yet finished, and the live scores of the stage in play.
 async function tourLoad() {
   const shared = tourShared();
-  const now = Date.now();
+  if (!clockSync.tried) await syncClockSoon(3000);
+  else syncClock();          // every 10 minutes, in the background
+  const now = tourNow();
   const startsAt = tourCurrentStart(now);
   if (startsAt !== tour.startsAt) {
     tour.startsAt = startsAt; tour.roster = []; tour.results = {}; tour.live = {};
@@ -5174,15 +5285,15 @@ async function tourLoad() {
       if (now >= startsAt - TOUR_OPEN_MS + TOUR_REG_SETTLE_MS) tour.rosterFinal = true;
     }
     for (let n = 1; n <= 12; n++) {
-      const d = tourDerive(startsAt, tour.roster, tour.results, Date.now());
+      const d = tourDerive(startsAt, tour.roster, tour.results, tourNow());
       if (d.stages.length < n) break;
       if (tour.stageFinal[n]) continue;
       const rec = await shared.get(tourStageKey(startsAt, n));
       tour.results[n] = rec && rec.t && typeof rec.t === "object" ? rec.t : {};
-      const after = tourDerive(startsAt, tour.roster, tour.results, Date.now()).stages[n - 1];
+      const after = tourDerive(startsAt, tour.roster, tour.results, tourNow()).stages[n - 1];
       if (after && after.matches.every(m => m.done)) tour.stageFinal[n] = true;
     }
-    const d = tourDerive(startsAt, tour.roster, tour.results, Date.now());
+    const d = tourDerive(startsAt, tour.roster, tour.results, tourNow());
     const stage = d.stages[d.stages.length - 1];
     if (d.phase === "playing" && stage) {
       const live = await shared.get(tourLiveKey(startsAt, stage.number)).catch(() => null);
@@ -5192,6 +5303,7 @@ async function tourLoad() {
     tourForceClose(startsAt);
     tourReassert();
     tourCloseEmptyTables();
+    tourCloseDeadTables();
     if (d.phase === "complete") tourRecordChampion(d);
   } catch (e) {
     console.warn("tournament load failed", e);
@@ -5232,14 +5344,16 @@ function tourMe() {
 }
 async function tourRegister() {
   if (!tourShared() || !myId) { toast(t("tourNoCloud")); return; }
-  if (Date.now() >= tour.startsAt - TOUR_OPEN_MS - TOUR_REG_GUARD_MS) { tourRender(); return; }
+  if (tour.busy) return;
   tour.busy = true; tourRender();
+  await syncClockSoon(4000, true);   // a fresh reading: this is the write the draw depends on
+  if (tourNow() >= tour.startsAt - TOUR_OPEN_MS - tourRegGuardMs()) { tour.busy = false; tourRender(); return; }
   try {
     const has = rec => !!rec && Array.isArray(rec.list) && rec.list.some(p => p && p.id === myId);
     await tourUpdate(tourRegKey(tour.startsAt), cur => {
       if (has(cur)) return null;
       const list = tourListOf(cur);
-      list.push(tourMe());
+      list.push(Object.assign(tourMe(), { t: tourNow() }));
       return { v: 1, list };
     }, has);
     tour.roster = tour.roster.filter(x => x.id !== myId).concat([tourMe()]);
@@ -5250,8 +5364,10 @@ async function tourRegister() {
   tour.busy = false; tourRender();
 }
 async function tourWithdraw() {
-  if (Date.now() >= tour.startsAt - TOUR_OPEN_MS - TOUR_REG_GUARD_MS) { tourRender(); return; }
+  if (tour.busy) return;
   tour.busy = true; tourRender();
+  await syncClockSoon(4000, true);
+  if (tourNow() >= tour.startsAt - TOUR_OPEN_MS - tourRegGuardMs()) { tour.busy = false; tourRender(); return; }
   try {
     const gone = rec => !rec || !Array.isArray(rec.list) || !rec.list.some(p => p && p.id === myId);
     await tourUpdate(tourRegKey(tour.startsAt), cur => {
@@ -5272,7 +5388,7 @@ function tourReport(startsAt, stage, table, winnerId, fixedAt) {
   if (tour.reported[id] && tour.reported[id].inFlight) return;
   const entry = { stage, table, w: winnerId, at: fixedAt, inFlight: true };
   tour.reported[id] = entry;
-  const at = Number.isFinite(fixedAt) ? fixedAt : Date.now();
+  const at = Number.isFinite(fixedAt) ? fixedAt : tourNow();
   const filed = rec => !!rec && !!rec.t && rec.t[table] !== undefined;
   tourUpdate(key, cur => {
     if (filed(cur)) return null;
@@ -5302,7 +5418,7 @@ function tourCleanup() {
   Promise.resolve().then(() => shared.keys()).then(keys => {
     (keys || []).forEach(k => {
       const m = /^t13\.v1\.(\d+)\./.exec(k);
-      if (m && Number(m[1]) < Date.now() - TOUR_KEEP_MS) Promise.resolve(shared.remove(k)).catch(() => {});
+      if (m && Number(m[1]) < tourNow() - TOUR_KEEP_MS) Promise.resolve(shared.remove(k)).catch(() => {});
     });
   }).catch(() => {});
 }
@@ -5320,7 +5436,7 @@ let tourEmptyDone = {};
 function tourCloseEmptyTables() {
   const shared = tourShared();
   if (!shared || !tourRestBase()) return;           // local preview: tables have no published rooms
-  const now = Date.now();
+  const now = tourNow();
   const tt = tourDerive(tour.startsAt, tour.roster, tour.results, now);
   const stage = tt.stages[tt.stages.length - 1];
   if (!stage || tt.phase !== "playing" || now < stage.startAt + TOUR_GRACE_MS + TOUR_EMPTY_SETTLE_MS) return;
@@ -5345,6 +5461,50 @@ function tourCloseEmptyTables() {
       tourRender();
     });
   }).catch(e => { delete tourEmptyDone[doneKey]; console.warn("closing empty tables failed", e); });
+}
+// ── Tables nobody is running ──
+// The table that held up the event every evening (2026-11-20, -21, -22): its
+// players sat down early (auto-entry after the draw), so it HAS a room and the
+// empty-table close above skips it, and then they were gone by the start: app
+// closed, phone locked, back to the menu. Nobody at the table runs anything, so
+// nobody files a result, and the next stage waited for the 50-minute stall.
+// Every client at a table re-posts its picture every TOUR_BEAT_MS (lobby
+// included), so a picture that stays unchanged, or missing, for TOUR_DEAD_MS
+// on OUR clock (phone clocks disagree; what we saw change does not) means
+// nobody is there. Two open tables are looked at per load, round-robin, and the
+// table is filed closed now, without a winner, unless its last picture already
+// shows one. The first result filed stands, so a race with a real result is
+// harmless.
+const tourDeadSeen = {};   // "startsAt:stage:table" → {sig, since}
+let tourDeadCursor = 0;
+function tourCloseDeadTables() {
+  const shared = tourShared();
+  if (!shared || !tourRestBase()) return;            // local preview: no heartbeats to read
+  const now = tourNow();
+  const startsAt = tour.startsAt;
+  const tt = tourDerive(startsAt, tour.roster, tour.results, now);
+  const stage = tt.stages[tt.stages.length - 1];
+  if (!stage || tt.phase !== "playing" || now < stage.startAt + TOUR_GRACE_MS + TOUR_EMPTY_SETTLE_MS) return;
+  const open = stage.matches.filter(m => !m.done && !(tourCtx && tourCtx.stage === stage.number && tourCtx.table === m.number));
+  if (!open.length) return;
+  const pick = [];
+  for (let i = 0; i < Math.min(2, open.length); i++) pick.push(open[(tourDeadCursor + i) % open.length]);
+  tourDeadCursor = (tourDeadCursor + pick.length) % open.length;
+  pick.forEach(m => {
+    Promise.resolve().then(() => shared.get(tourWatchKey(startsAt, stage.number, m.number))).then(rec => {
+      if (tour.startsAt !== startsAt) return;
+      const k = startsAt + ":" + stage.number + ":" + m.number;
+      const sig = rec && rec.at != null ? String(rec.at) : "none";
+      const seen = tourDeadSeen[k], t0 = tourNow();
+      if (!seen || seen.sig !== sig) { tourDeadSeen[k] = { sig, since: t0 }; return; }
+      if (t0 - seen.since < TOUR_DEAD_MS) return;
+      const res = tour.results[stage.number];
+      if (res && res[m.number] !== undefined) return;
+      const w = rec && rec.w != null && m.playerIds.indexOf(rec.w) >= 0 ? rec.w : null;
+      console.warn("tournament: closing table " + stage.number + "/" + m.number + ", no sign of life for " + Math.round((t0 - seen.since) / 1000) + " s");
+      tourReport(startsAt, stage.number, m.number, w);
+    }).catch(() => {});
+  });
 }
 // ── Screen ──
 var tourCtx = null;   // while at a tournament table: {startsAt, stage, table, roster, startAt, isFinal, walkover}
@@ -5373,7 +5533,7 @@ function openTournament() {
   const ov = document.getElementById("tourOverlay");
   if (ov) ov.classList.add("show");
   document.body.classList.add("tour-open");
-  if (!tour.startsAt) tour.startsAt = tourCurrentStart(Date.now());
+  if (!tour.startsAt) tour.startsAt = tourCurrentStart(tourNow());
   tourFillRules();
   tourRender();
   tourLoad().then(tourRender);
@@ -5413,13 +5573,15 @@ function tourEl(tag, cls, text) {
 function tourRender() {
   const ov = document.getElementById("tourOverlay");
   if (!ov || !ov.classList.contains("show")) return;
-  const now = Date.now();
+  const now = tourNow();
   const tt = tourDerive(tour.startsAt || tourCurrentStart(now), tour.roster, tour.results, now);
   const st = tourMyStatus(tt, myId);
   const stLabel = { guest: "tourStGuest", registered: "tourStRegistered", waiting: "tourStWaiting", playing: "tourStPlaying",
                     qualified: "tourStQualified", eliminated: "tourStEliminated", champion: "tourStChampion" };
   const set = (id, txt) => { const e = document.getElementById(id); if (e) e.textContent = txt; };
   set("tourWhen", tourWhen(tt.startsAt, now));
+  const notice = document.getElementById("tourNotice");
+  if (notice) { const txt = tourScheduleNotice(now); notice.textContent = txt; notice.hidden = !txt; }
   set("tourCountdown", now < tt.startsAt ? t("tourStartsIn", tourFmtLeft(tt.startsAt - now)) : "");
   set("tourCount", t("tourRegistered", tt.people.length));
   const pill = document.getElementById("tourStatus");
@@ -5433,20 +5595,22 @@ function tourRender() {
   const primary = document.getElementById("tourPrimary");
   const secondary = document.getElementById("tourSecondary");
   let note = "", act = null, sec = null;
-  const regOpen = now < tt.closesAt - TOUR_REG_GUARD_MS;
+  const regOpen = now < tt.closesAt - tourRegGuardMs();
   const stage = tt.stages[tt.stages.length - 1];
   if (tt.phase === "registration") {
-    if (st === "guest") { act = regOpen ? "register" : null; note = regOpen ? t("tourNoteReg", tourFmtClock(tt.closesAt)) : t("tourNoteClosed"); }
+    if (st === "guest") { act = regOpen ? "register" : null; note = regOpen ? t("tourNoteReg", tourFmtClock(tt.closesAt)) : t("tourNoteClosed", tourWhen(tourNextStart(tt.startsAt), now)); }
     else { note = t("tourNoteRegDone", tourFmtClock(tt.closesAt)); sec = regOpen ? "withdraw" : null; }
   } else if (tt.phase === "cancelled") {
     note = tt.reason === "few" ? t("tourNoteFew") : t("tourNoteEmpty"); act = "menu";
-  } else if (st === "guest") { note = tt.phase === "complete" ? "" : t("tourNoteLive"); act = "menu"; }
+  } else if (st === "guest") { note = tt.phase === "complete" ? "" : t("tourNoteLive", tourWhen(tourNextStart(tt.startsAt), now)); act = "menu"; }
   else if (st === "waiting") {
     note = tt.phase === "between" ? t("tourNoteNextIn", tourFmtLeft(tt.nextStageAt - now)) : t("tourNoteWaiting");
     act = "enter";
   } else if (st === "playing") { note = t("tourNotePlaying"); act = "enter"; }
   else if (st === "qualified") {
-    note = t("tourNoteQualified", stage.matches.filter(m => m.done).length, stage.matches.length);
+    const rest = stage.matches.filter(m => !m.done);
+    note = t("tourNoteQualified", stage.matches.length - rest.length, stage.matches.length,
+             rest.length && rest.length <= 3 ? rest.map(m => t("tourTable", m.number)).join(", ") : "");
   } else if (st === "eliminated") { note = t("tourNoteEliminated"); act = "menu"; }
   else if (st === "champion") { note = t("tourNoteChampion"); act = null; }   // the share button is their next step
   if (!tourShared() || !myId) note = t("tourNoCloud");
@@ -5554,16 +5718,18 @@ function tourRender() {
 function tourFillRules() {
   const title = document.getElementById("tourRulesTitle");
   const list = document.getElementById("tourRulesList");
-  if (!title || !list || list.dataset.lang === LANG) return;
-  list.dataset.lang = LANG;
+  const at = tour.startsAt || tourCurrentStart(tourNow()), sig = LANG + ":" + at;
+  if (!title || !list || list.dataset.lang === sig) return;
+  list.dataset.lang = sig;
   title.textContent = t("tourRules");
   list.innerHTML = "";
-  t("tourRulesList").forEach(line => list.appendChild(tourEl("li", null, line)));
+  t("tourRulesList").forEach(line => list.appendChild(tourEl("li", null,
+    typeof line === "function" ? line(tourFmtClock(at), tourFmtClock(at - TOUR_OPEN_MS)) : line)));
 }
 
 // ── At the table ──
 function tourEnterTable() {
-  const now = Date.now();
+  const now = tourNow();
   const tt = tourDerive(tour.startsAt, tour.roster, tour.results, now);
   const stage = tt.stages[tt.stages.length - 1];
   const m = stage && stage.matches.find(x => x.playerIds.indexOf(myId) >= 0 && !x.done);
@@ -5679,7 +5845,7 @@ async function tourTableRoom(ctx) {
 function tourCheckRoom(ctx) {
   const shared = tourShared();
   if (!shared || !ctx.roomId || !tourRestBase() || ctx.moving) return;
-  const now = Date.now();
+  const now = tourNow();
   if (now - (ctx.roomCheckAt || 0) < 5000) return;
   ctx.roomCheckAt = now;
   const key = tourRoomKey(ctx.startsAt, ctx.stage), table = ctx.table;
@@ -5719,17 +5885,31 @@ function tourOpeningDealOk(d, fromId) {
   return d.open === false && d.loseAt === TOUR_LOSE_AT && !d.reset;
 }
 var tourDealAt = 0;
+// Our table was filed while we were still at it, and not by us: closed as dead
+// while this phone slept, or finished while we were away. Back to the bracket.
+function tourClosedUnderUs() {
+  const ctx = tourCtx;
+  if (ctx.over || ctx.startsAt !== tour.startsAt) return false;
+  const res = (tour.results[ctx.stage] || {})[ctx.table];
+  if (res === undefined || (ctx.walkover && res && res.w === ctx.filedW)) return false;
+  tourSkip[tourTableKey(ctx.stage, ctx.table)] = true;
+  tourBackToScreen();
+  if (!res || res.w == null) toast(t("tourTableClosed"));
+  return true;
+}
 function tourTableTick() {
   if (!tourCtx || !online) return;
+  if (tourClosedUnderUs()) return;
+  if (!gameStarted) tourPublishWatch(false);          // the lobby's heartbeat
   if (gameStarted) {
     tourPublishLive(); tourPublishWatch(false); tourReadViewers();
-    if (Date.now() < tourCtx.startAt + TOUR_GRACE_MS + 2 * TOUR_EMPTY_SETTLE_MS) tourCheckRoom(tourCtx);
+    if (tourNow() < tourCtx.startAt + TOUR_GRACE_MS + 2 * TOUR_EMPTY_SETTLE_MS) tourCheckRoom(tourCtx);
     return;
   }
   if (dealActive) return;
   tourCheckRoom(tourCtx);
   renderLobby();
-  const now = Date.now();
+  const now = tourNow();
   const present = tourCtx.roster.filter(id => presentIds.has(id));
   if (present.indexOf(myId) < 0 || pendingAction) return;
   const all = present.length === tourCtx.roster.length;
@@ -5743,6 +5923,7 @@ function tourTableTick() {
       // somebody sat down 18 minutes in and went through) = the table closes
       // without a winner, exactly as if nobody had come.
       const late = tourCtx.arrivedAt > tourCtx.startAt + TOUR_GRACE_MS;
+      tourCtx.filedW = late ? null : myId;
       tourReport(tourCtx.startsAt, tourCtx.stage, tourCtx.table, late ? null : myId, late ? tourCtx.startAt + TOUR_GRACE_MS : undefined);
       const s = document.getElementById("onlineStatus");
       if (s) s.textContent = t(late ? "tourLateOut" : "tourWalkover");
@@ -5754,7 +5935,7 @@ function tourTableTick() {
   // Staggered by position on the list, so a sleeping first player can't hold the table.
   const rank = present.indexOf(myId);
   if (now < trigger + rank * DEAL_STAGGER_MS || now - tourDealAt < SEAT_RETRY_MS) return;
-  if (roomAlreadyRunning() && now - lastRoomActivityAt < OPEN_REVIVE_MS) return;
+  if (roomAlreadyRunning() && Date.now() - lastRoomActivityAt < OPEN_REVIVE_MS) return;
   tourDealAt = now;
   roomPlayerIds = present;
   numPlayers = present.length;
@@ -5769,7 +5950,7 @@ function tourShowLobbyBack(on) {
 }
 function renderTourLobby() {
   const list = document.getElementById("lobbyList");
-  const now = Date.now();
+  const now = tourNow();
   const title = document.getElementById("lobbyTitle");
   if (title) title.textContent = t("tourLobbyTitle", tourCtx.isFinal ? t("tourFinal") : t("tourStage", tourCtx.stage), tourCtx.table);
   const spinner = document.getElementById("lobbySpinner");
@@ -5811,6 +5992,7 @@ function tourMatchOver(champSeat) {
   if (!tourCtx) return;
   const champId = roomPlayerIds[champSeat];
   if (champId == null) return;
+  tourCtx.over = true;
   // This table is finished for us, even before its result reaches the board.
   tourSkip[tourTableKey(tourCtx.stage, tourCtx.table)] = true;
   tourReport(tourCtx.startsAt, tourCtx.stage, tourCtx.table, champId);
@@ -5896,8 +6078,8 @@ function tourChampRecord(tt) {
 }
 async function tourLoadFame(force) {
   const shared = tourShared();
-  if (!shared || (!force && Date.now() - tourFameAt < 60000)) { tourRenderChampStrip(); return; }
-  tourFameAt = Date.now();
+  if (!shared || (!force && tourNow() - tourFameAt < 60000)) { tourRenderChampStrip(); return; }
+  tourFameAt = tourNow();
   try { const f = await shared.get(TOUR_FAME_KEY); if (tourFameValid(f)) tourFame = f; } catch (_) {}
   tourRenderChampStrip();
   tourRender();
@@ -5927,7 +6109,7 @@ async function tourRecordChampion(tt) {
       f.list = f.list.slice(0, 100);
       return f;
     }, counted);
-    tourFameAt = Date.now();
+    tourFameAt = tourNow();
   } catch (_) { tourFameDone[rec.startsAt] = false; }
   tourRenderChampStrip();
   tourRender();
@@ -5947,12 +6129,24 @@ function tourRenderFame(body) {
 }
 // ── Live scores: the table's lead client publishes totals after each round ──
 let tourLiveSig = "", tourLiveAt = 0, tourLiveRound = 0, tourLivePrevSig = "";
+let tourLiveSeenSig = "", tourLiveChangedAt = 0;
+// Not the lead: post the scores only when the lead's post has not shown up this
+// long after they changed. A locked phone stays "present" and stays the lead, so
+// tables played on with their scores frozen on the bracket (2026-11).
+const TOUR_LIVE_COVER_MS = 10000;
+function tourSameScores(a, b) {
+  const norm = e => JSON.stringify([Object.keys(e.s || {}).sort().map(k => [k, e.s[k]]), (e.o || []).slice().sort()]);
+  return !!a && !!b && norm(a) === norm(b);
+}
 function tourPublishLive() {
   const shared = tourShared();
-  if (!shared || !tourCtx || !gameStarted || replayingSync || !isPrimaryAuthority()) return;
+  if (!shared || !tourCtx || !gameStarted || replayingSync) return;
   const sig = JSON.stringify(players.map(p => [p.total, !!p.out]));
-  const now = Date.now();
+  const now = tourNow();
+  if (sig !== tourLiveSeenSig) { tourLiveSeenSig = sig; tourLiveChangedAt = now; }
   if (sig === tourLiveSig || now - tourLiveAt < TOUR_LIVE_MS) return;
+  const primary = isPrimaryAuthority();
+  if (!primary && now - tourLiveChangedAt < TOUR_LIVE_COVER_MS) return;
   // A rewrite of the same scores (a lost write) is not a new round.
   if (sig !== tourLivePrevSig) tourLiveRound++;
   tourLiveSig = sig; tourLivePrevSig = sig; tourLiveAt = now;
@@ -5963,20 +6157,24 @@ function tourPublishLive() {
     if (players[i].out) entry.o.push(id);
   });
   const key = tourLiveKey(tourCtx.startsAt, tourCtx.stage), table = tourCtx.table;
+  let covered = false;
   // Cosmetic: a write lost in a race is simply replaced by the next round's.
   Promise.resolve().then(() => shared.get(key)).then(cur => {
+    const prev = cur && cur.t && cur.t[table];
+    if (!primary && tourSameScores(prev, entry)) { covered = true; return; }   // the lead posted it
+    if (prev && !tourSameScores(prev, entry)) entry.r = Math.max(entry.r, (prev.r | 0) + 1);
     const tt = Object.assign({}, cur && cur.t);
     tt[table] = entry;
     return shared.set(key, { v: 1, t: tt });
-  }).then(() => new Promise(r => setTimeout(r, 1500 + Math.random() * 1500)))
-    .then(() => shared.get(key))
-    .then(cur => {
-      // Every table of the stage writes this one record, and they all start at
-      // once: an entry dropped by a concurrent write is written again (and
-      // without it the table would offer nobody «Ширээ үзэх»).
-      const got = cur && cur.t && cur.t[table];
-      if ((!got || got.at !== entry.at) && tourLiveAt === entry.at) tourLiveSig = "";
-    })
+  }).then(() => covered ? null : new Promise(r => setTimeout(r, 1500 + Math.random() * 1500))
+      .then(() => shared.get(key))
+      .then(cur => {
+        // Every table of the stage writes this one record, and they all start at
+        // once: an entry dropped by a concurrent write is written again (and
+        // without it the table would offer nobody «Ширээ үзэх»).
+        const got = cur && cur.t && cur.t[table];
+        if ((!got || got.at !== entry.at) && tourLiveAt === entry.at) tourLiveSig = "";
+      }))
     .catch(() => { tourLiveSig = ""; });
 }
 // ── Watching another table, card by card ──
@@ -5986,27 +6184,53 @@ function tourPublishLive() {
 // of the table — scores, card counts, the current trick, whose turn — at most
 // every TOUR_WATCH_MS, and only when it changed (tl = seconds left on the turn clock):
 //   t13.v1.<startsAt>.w<stage>.<table>  {v, at, tl, r, deal, turn, w, ps:[{id,n,a,t,o,c}], tp:[{s,c:[wire…]}]}
-// A watcher polls that one key. One writer per key (set only, no read), so no
-// races; the record is removed a minute after the match ends to spare the
-// bucket's 200 keys.
+// Before the deal it is the lobby instead: {v, at, lobby:1, ps:[{id,n,a,h}]} (h = here).
+// A watcher polls that one key. Set only, no read, so no races; the record is
+// removed a minute after the match ends to spare the bucket's 200 keys.
+//
+// The picture is also the table's HEARTBEAT (2026-11-23). Every client at the
+// table re-posts it at least every TOUR_BEAT_MS, lead or not, in the lobby too.
+// A locked phone stays "present" and stays the lead, and with only the lead
+// posting, a table played on with no picture and no scores. A table whose
+// picture has not changed for TOUR_DEAD_MS has nobody running it, and anybody
+// looking at the event closes it (tourCloseDeadTables).
 const TOUR_WATCH_MS = 2000;
 const TOUR_WATCH_GIVEUP_MS = 15000;
+const TOUR_BEAT_MS = 15000;
+const TOUR_DEAD_MS = 3 * 60 * 1000;
 function tourWatchKey(startsAt, stage, table) { return TOUR_PREFIX + startsAt + ".w" + stage + "." + table; }
 let tourWatchSig = "", tourWatchPubAt = 0;
+function tourLobbyPicture() {
+  return { lobby: 1, ps: tourCtx.roster.map(id => {
+    const meta = playerMeta[id] || {}, p = tourPerson(id);
+    const nm = id === myId ? (myName || p.name) : (meta.name || p.name);
+    const av = id === myId ? myAvatar : (meta.avatar || p.avatar);
+    return { id, n: String(nm || "").slice(0, 24), a: av && String(av).length <= 400 ? av : null,
+             h: id === myId || presentIds.has(id) ? 1 : 0 };
+  }) };
+}
 function tourPublishWatch(final, champId) {
   const shared = tourShared();
-  if (!shared || !tourCtx || !gameStarted || replayingSync || !isPrimaryAuthority()) return;
-  const now = Date.now();
-  if (!final && now - tourWatchPubAt < TOUR_WATCH_MS) return;
-  const ps = roomPlayerIds.map((id, i) => {
-    const p = players[i] || {};
-    const a = p.avatar && String(p.avatar).length <= 400 ? p.avatar : null;
-    return { id: id == null ? null : id, n: String(p.name || "").slice(0, 24), a, t: p.total | 0, o: !!p.out, c: (hands[i] || []).length };
-  });
-  const tp = trickPlays.slice(-4).map(x => ({ s: x.seat, c: x.combo.cards.map(cardWire) }));
-  const body = { r: tourLiveRound, deal: !!dealActive, turn: dealActive ? turn : -1, w: champId == null ? null : champId, ps, tp };
+  if (!shared || !tourCtx || replayingSync) return;
+  if (!final && tourCtx.over) return;                 // the winner's picture stands until it is removed
+  const now = tourNow();
+  let body;
+  if (!gameStarted) {
+    if (final || tourCtx.walkover || now - tourWatchPubAt < TOUR_BEAT_MS) return;
+    body = tourLobbyPicture();
+  } else {
+    const primary = isPrimaryAuthority();
+    if (!final && now - tourWatchPubAt < (primary ? TOUR_WATCH_MS : TOUR_BEAT_MS)) return;
+    const ps = roomPlayerIds.map((id, i) => {
+      const p = players[i] || {};
+      const a = p.avatar && String(p.avatar).length <= 400 ? p.avatar : null;
+      return { id: id == null ? null : id, n: String(p.name || "").slice(0, 24), a, t: p.total | 0, o: !!p.out, c: (hands[i] || []).length };
+    });
+    const tp = trickPlays.slice(-4).map(x => ({ s: x.seat, c: x.combo.cards.map(cardWire) }));
+    body = { r: tourLiveRound, deal: !!dealActive, turn: dealActive ? turn : -1, w: champId == null ? null : champId, ps, tp };
+  }
   const sig = JSON.stringify(body);
-  if (sig === tourWatchSig) return;
+  if (sig === tourWatchSig && !final && now - tourWatchPubAt < TOUR_BEAT_MS) return;
   tourWatchSig = sig; tourWatchPubAt = now;
   const key = tourWatchKey(tourCtx.startsAt, tourCtx.stage, tourCtx.table);
   Promise.resolve().then(() => shared.set(key, Object.assign({ v: 1, at: now, tl: turnLeft }, body))).catch(() => { tourWatchSig = ""; });
@@ -6041,7 +6265,7 @@ function tourViewStamp(startsAt, stage, table, present) {
   if (!shared || !myId) return Promise.resolve(null);
   const key = tourViewKey(startsAt, stage, table);
   return Promise.resolve().then(() => shared.get(key)).then(cur => {
-    const now = Date.now();
+    const now = tourNow();
     const ids = {};
     const old = cur && cur.ids && typeof cur.ids === "object" ? cur.ids : {};
     Object.keys(old).forEach(id => { if (now - Number(old[id]) < TOUR_VIEW_TTL_MS) ids[id] = Number(old[id]); });
@@ -6068,12 +6292,12 @@ let tourViewReadAt = 0;
 function tourReadViewers() {
   const shared = tourShared();
   if (!shared || !tourCtx || !gameStarted) return;
-  const now = Date.now();
+  const now = tourNow();
   if (now - tourViewReadAt < TOUR_VIEW_READ_MS) return;
   tourViewReadAt = now;
   const ctx = tourCtx;
   Promise.resolve().then(() => shared.get(tourViewKey(ctx.startsAt, ctx.stage, ctx.table))).then(rec => {
-    if (tourCtx === ctx) tourShowViewers(tourViewCount(rec, Date.now()));
+    if (tourCtx === ctx) tourShowViewers(tourViewCount(rec, tourNow()));
   }).catch(() => {});
 }
 
@@ -6112,7 +6336,13 @@ function tourStartWatch(stage, table) {
     Promise.resolve().then(() => tourShared().get(tourWatchKey(w.startsAt, w.stage, w.table))).then(rec => {
       if (tourWatching !== w) return;
       if (rec && Array.isArray(rec.ps) && rec.ps.length >= 2 && rec.ps.length <= 4 && (!w.snap || rec.at !== w.snap.at)) {
-        w.snap = rec; w.gotAt = Date.now();
+        w.snap = rec; w.gotAt = tourNow();
+      }
+      // A picture that stopped changing: nobody is at that table any more.
+      if (w.snap && w.snap.w == null && tourNow() - w.gotAt > TOUR_DEAD_MS) {
+        toast(t("tourWatchNone"));
+        tourStopWatch();
+        return;
       }
       tourRenderWatch();
       // Finished: nothing more will change, stop polling.
@@ -6121,7 +6351,7 @@ function tourStartWatch(stage, table) {
   };
   w.timer = setInterval(poll, TOUR_WATCH_MS);
   const beat = () => tourViewStamp(w.startsAt, w.stage, w.table, true).then(rec => {
-    if (tourWatching === w && rec) tourShowViewers(tourViewCount(rec, Date.now()));
+    if (tourWatching === w && rec) tourShowViewers(tourViewCount(rec, tourNow()));
   });
   w.beat = setInterval(beat, TOUR_VIEW_BEAT_MS);
   // Nobody is posting this table (it never started, or its players are gone):
@@ -6154,7 +6384,7 @@ function tourStopWatch(quiet) {
 // Watching while still in the event: the moment your own next table is drawn,
 // go back to the tournament screen, which sits you down (tourMaybeAutoEnter).
 function tourWatchCheckMine() {
-  const tt = tourDerive(tour.startsAt, tour.roster, tour.results, Date.now());
+  const tt = tourDerive(tour.startsAt, tour.roster, tour.results, tourNow());
   const st = tourMyStatus(tt, myId);
   if (st !== "waiting" && st !== "playing") return;
   const stage = tt.stages[tt.stages.length - 1];
@@ -6165,7 +6395,7 @@ function tourWatchCheckMine() {
 function tourWatchClock() {
   const w = tourWatching, snap = w && w.snap;
   if (!snap || !snap.deal || snap.w != null || !Number.isFinite(Number(snap.tl))) return;
-  const left = Math.max(0, Math.round(Number(snap.tl) - (Date.now() - w.gotAt) / 1000));
+  const left = Math.max(0, Math.round(Number(snap.tl) - (tourNow() - w.gotAt) / 1000));
   const el = snap.turn === 0 ? document.getElementById("meTimer")
     : document.querySelector('.opp[data-seat="' + (snap.turn | 0) + '"] .opp-timer');
   setTimerEl(el, true, left);
@@ -6174,7 +6404,7 @@ function tourRenderWatch() {
   const w = tourWatching;
   if (!w) return;
   const set = (id, txt) => { const e = document.getElementById(id); if (e) e.textContent = txt; };
-  const d = tourDerive(w.startsAt, tour.roster, tour.results, Date.now());
+  const d = tourDerive(w.startsAt, tour.roster, tour.results, tourNow());
   const st = d.stages[w.stage - 1];
   set("specExitLabel", t("tourSpecExit"));
   document.getElementById("specViewersBox").title = t("tourLobbyTitle", st && st.isFinal ? t("tourFinal") : t("tourStage", w.stage), w.table);
@@ -6201,7 +6431,7 @@ function tourRenderWatch() {
     }));
     roomPlayerIds = snap.ps.map(p => p.id); online = false;
     const tl = Number(snap.tl);
-    turnLeft = Number.isFinite(tl) ? Math.max(0, Math.round(tl - (Date.now() - w.gotAt) / 1000)) : TURN_SECONDS;
+    turnLeft = Number.isFinite(tl) ? Math.max(0, Math.round(tl - (tourNow() - w.gotAt) / 1000)) : TOUR_TURN_SECONDS;
     renderMyPlayer(); renderOpponents(); renderTable(); renderMyScore(); updateTimers();
   } finally {
     // …and put the real state back.
@@ -6220,6 +6450,7 @@ function tourRenderWatch() {
   handEl.innerHTML = '<div class="card spec-back"></div>'.repeat(Math.max(0, Math.min(13, bottom.c | 0)));
   layoutHand();
   if (champ) { turnLine.textContent = t("tourWatchWinner", shortName(nameOf(champ))); turnLine.className = "turn-line mine"; }
+  else if (snap.lobby) { turnLine.textContent = t("tourWatchLobby", snap.ps.filter(p => p.h).length, snap.ps.length); turnLine.className = "turn-line"; }
   else if (!snap.deal) { turnLine.textContent = t("tourWatchDealing"); turnLine.className = "turn-line"; }
   else if (snap.turn === 0) { turnLine.textContent = t("turnOf", shortName(nameOf(bottom))); turnLine.className = "turn-line"; }
 }
@@ -6233,22 +6464,22 @@ function tourMaybeAutoEnter(tt, st) {
   if (tourCtx || tour.busy || !tour.loaded || (st !== "playing" && st !== "waiting")) return;
   const stage = tt.stages[tt.stages.length - 1];
   const m = stage && stage.matches.find(x => x.playerIds.indexOf(myId) >= 0 && !x.done);
-  if (!m || tourSkip[tourTableKey(stage.number, m.number)] || Date.now() - tourAutoAt < 3000) return;
-  tourAutoAt = Date.now();
+  if (!m || tourSkip[tourTableKey(stage.number, m.number)] || tourNow() - tourAutoAt < 3000) return;
+  tourAutoAt = tourNow();
   setTimeout(() => { if (!tourCtx) tourEnterTable(); }, 0);
 }
 // On launch: someone with a live table (app closed mid-match, a phone that
 // restarted) lands back on it without tapping through the menu.
 async function tourResumeOnLaunch(forceScreen) {
   await tourLoad();
-  const tt = tourDerive(tour.startsAt, tour.roster, tour.results, Date.now());
+  const tt = tourDerive(tour.startsAt, tour.roster, tour.results, tourNow());
   const st = tourMyStatus(tt, myId);
   const menuUp = menuOverlay && menuOverlay.classList.contains("show");
   if (!menuUp || online) return;
   if (forceScreen || st === "playing" || st === "waiting") { openTournament(); return; }
   // Registration is open and they are not in yet: invite them, once a day.
   if (tt.phase === "registration" && st === "guest" && tourShared() && myId &&
-      Date.now() < tt.closesAt - TOUR_REG_GUARD_MS && !tourInviteDismissed(tt.startsAt)) showTourInvite(tt);
+      tourNow() < tt.closesAt - tourRegGuardMs() && !tourInviteDismissed(tt.startsAt)) showTourInvite(tt);
 }
 // ── The invitation on opening the app ──
 // «Оролцоё» registers and opens the tournament; «Үгүй» leaves them on the home
@@ -6262,16 +6493,18 @@ function showTourInvite(tt) {
   const set = (id, txt) => { const e = document.getElementById(id); if (e) e.textContent = txt; };
   set("tourInviteTitle", t("tourInviteTitle"));
   set("tourInviteWhen", t("tourInviteWhen", tourFmtClock(tt.startsAt)));
+  const inv = document.getElementById("tourInviteNotice");
+  if (inv) { const txt = tourScheduleNotice(tourNow()); inv.textContent = txt; inv.hidden = !txt; }
   set("tourInviteCount", tt.people.length ? t("tourRegistered", tt.people.length) : t("tourInviteFirst"));
   set("tourInviteClose", t("tourInviteClose", tourFmtClock(tt.closesAt)));
   set("tourInviteYes", t("tourInviteYes"));
   set("tourInviteNo", t("tourInviteNo"));
-  const tick = () => set("tourInviteLeft", t("tourStartsIn", tourFmtLeft(tt.startsAt - Date.now())));
+  const tick = () => set("tourInviteLeft", t("tourStartsIn", tourFmtLeft(tt.startsAt - tourNow())));
   tick();
   if (tourInviteTimer) clearInterval(tourInviteTimer);
   tourInviteTimer = setInterval(() => {
     // Registration closed while it sat there, or they went elsewhere: drop it.
-    if (Date.now() >= tt.closesAt - TOUR_REG_GUARD_MS || online) { hideTourInvite(); return; }
+    if (tourNow() >= tt.closesAt - tourRegGuardMs() || online) { hideTourInvite(); return; }
     tick();
   }, 1000);
   ov.classList.add("show");
@@ -6290,18 +6523,27 @@ function hideTourInvite() {
   });
   if (no) no.addEventListener("click", () => {
     hideTourInvite();
-    try { localStorage.setItem(tourInviteKey(tour.startsAt || tourCurrentStart(Date.now())), "no"); } catch (_) {}
+    try { localStorage.setItem(tourInviteKey(tour.startsAt || tourCurrentStart(tourNow())), "no"); } catch (_) {}
   });
 })();
 function tourDateLabel(ms) {
   const d = new Date(ms);
   return d.getFullYear() + "." + String(d.getMonth() + 1).padStart(2, "0") + "." + String(d.getDate()).padStart(2, "0");
 }
+function tourRenderMenuNotice(retried) {
+  const n = document.getElementById("menuTourNotice");
+  if (!n) return;
+  let txt = "";
+  // applyLang runs before the tournament code below has loaded: once more right after.
+  try { txt = tourScheduleNotice(tourNow()); } catch (_) { if (!retried) setTimeout(() => tourRenderMenuNotice(true), 0); return; }
+  n.textContent = txt; n.hidden = !txt;
+}
 function tourRenderChampStrip() {
+  tourRenderMenuNotice();
   const el = document.getElementById("menuChampStrip");
   if (!el) return;
   const c = tourFame && tourFame.latest;
-  const show = !!c && Date.now() - Number(c.startsAt) < TOUR_CHAMP_SHOW_MS;
+  const show = !!c && tourNow() - Number(c.startsAt) < TOUR_CHAMP_SHOW_MS;
   el.hidden = !show;
   if (!show) return;
   el.innerHTML = "";
@@ -6538,7 +6780,7 @@ function tourSharedKey(startsAt) { return "t13:tourShared:" + startsAt; }
 function tourWasShared(startsAt) { try { return localStorage.getItem(tourSharedKey(startsAt)) === "1"; } catch (_) { return false; } }
 let tourSharing = false;
 async function tourShareChampion() {
-  const tt = tourDerive(tour.startsAt, tour.roster, tour.results, Date.now());
+  const tt = tourDerive(tour.startsAt, tour.roster, tour.results, tourNow());
   const rec = tourChampRecord(tt);
   if (!rec || rec.id !== myId || tourSharing || !tourCanShare()) return;
   tourSharing = true; tourRender(); tourRenderShareButtons();
@@ -6583,7 +6825,7 @@ function tourRenderShareButtons() {
     const b = document.getElementById(id);
     if (!b) return;
     if (id === "winnerShareBtn") {
-      const tt = tourDerive(tour.startsAt, tour.roster, tour.results, Date.now());
+      const tt = tourDerive(tour.startsAt, tour.roster, tour.results, tourNow());
       const rec = tourChampRecord(tt);
       if (!(tourCtx && tourCtx.isFinal && rec && rec.id === myId)) { b.style.display = "none"; return; }
     }
@@ -6639,7 +6881,7 @@ async function tourRemindCall(method, body, path) {
   return null;
 }
 function tourRemindRegistered() {
-  const tt = tourDerive(tour.startsAt || tourCurrentStart(Date.now()), tour.roster, tour.results, Date.now());
+  const tt = tourDerive(tour.startsAt || tourCurrentStart(tourNow()), tour.roster, tour.results, tourNow());
   return tt.people.some(p => p.id === myId);
 }
 // Chose "on", but Usion's permission was revoked or the app muted since.
@@ -6656,11 +6898,11 @@ async function tourRemindCheckBlocked() {
 // another phone, or before the server existed — tell it whenever it's missing.
 function tourRemindNeedsEvent(d) {
   const at = tour.startsAt;
-  return !!(d && d.configured && at > Date.now() && tourRemindRegistered() && !(d.events || []).includes(at));
+  return !!(d && d.configured && at > tourNow() && tourRemindRegistered() && !(d.events || []).includes(at));
 }
 async function tourRemindLoad(force) {
-  if (!force && Date.now() - tourRemind.loadedAt < 60000) return;
-  tourRemind.loadedAt = Date.now();
+  if (!force && tourNow() - tourRemind.loadedAt < 60000) return;
+  tourRemind.loadedAt = tourNow();
   let d = await tourRemindCall("GET");
   if (tourRemindNeedsEvent(d)) d = (await tourRemindCall("POST", { startsAt: tour.startsAt }, "/event")) || d;
   if (d) { tourRemind.state = d; if (d.enabled) await tourRemindCheckBlocked(); }
@@ -6699,7 +6941,7 @@ function tourRemindMinutes() {
   return Math.max(1, Math.round((Number.isFinite(ms) ? ms : 180000) / 60000));
 }
 function tourRemindClock() {
-  return tourFmtClock((tour.startsAt || tourCurrentStart(Date.now())) - tourRemindMinutes() * 60000);
+  return tourFmtClock((tour.startsAt || tourCurrentStart(tourNow())) - tourRemindMinutes() * 60000);
 }
 // The card under the main button: offered once a player has registered, then a
 // one-line on/off switch for as long as they have decided.

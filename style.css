@@ -903,3 +903,13 @@ body.spectating .skin-toggle, body.spectating .chat-toggle, body.spectating .voi
 .tour-invite-meta { font-size: 12.5px; color: var(--text-dim); margin: 2px 0 16px; }
 .tour-invite-card .btn-confirm { margin-bottom: 0; }
 .tour-invite-card .tour-secondary { margin-top: 6px; text-decoration: none; font-size: 14px; }
+
+/* The tournament time is moving (TOUR_SCHEDULE): a gold notice on the menu, the
+   tournament screen and the invitation until the first event at the new time is over. */
+.tour-notice, .menu-notice {
+  margin: 10px 0 0; padding: 9px 12px; border-radius: 12px;
+  background: rgba(255, 200, 61, .12); border: 1px solid rgba(255, 200, 61, .38);
+  color: #ffd45e; font-size: 13px; font-weight: 700; line-height: 1.4; text-align: center;
+}
+.tour-notice { margin: 0 0 12px; }
+.tour-notice[hidden], .menu-notice[hidden] { display: none; }

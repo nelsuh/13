@@ -190,17 +190,21 @@ nearly over anyway; a room two people can close is worse.
 
 Цэсний **Тэмцээн** товчоор орно. Муушигийн өдөр тутмын тэмцээнтэй ижил дүрэмтэй:
 
-- Өдөр бүр Улаанбаатарын **21:00**-д эхэлнэ. Бүртгэл **20:50**-д хаагдаж, ширээ
-  хуваарилагдана; тоглогчид ширээндээ орж хүлээнэ, 21:00 хүртэл хөзөр тарахгүй.
+- Өдөр бүр Улаанбаатарын **19:00**-д эхэлнэ (2026-11-23 хүртэл 21:00). Бүртгэл
+  **18:50**-д хаагдаж, ширээ хуваарилагдана; тоглогчид ширээндээ орж хүлээнэ,
+  19:00 хүртэл хөзөр тарахгүй.
 - Бүртгүүлсэн бүх хүнийг санамсаргүйгээр **2–4 хүнтэй** ширээнд аль болох тэнцүү
   хуваарилна (5 → 3+2, 7 → 4+3, 9 → 3+3+3). Ширээ бүр **20 оноо** хүртэл тоглоно.
+  Нэг нүүдэлд **60 секунд** (энгийн тоглолтод 90); хугацаа дуусвал автоматаар pass.
+  Утас нь түгжигдсэн хүний нүүдлийг 60 + 10 секундын дараа өөр тоглогч орлож хийнэ.
 - Ширээ бүрээс нэг ялагч гарна. Бүх ширээ дуусахаас өмнө дараагийн шат эхлэхгүй;
-  шат хооронд 30 секунд. Ганц ширээ үлдвэл тэр нь финал, ялагч нь аварга.
-- Эхлэх цагаас **1 минутын** дотор ширээндээ ороогүй хүн хасагдана, бот нөхөхгүй.
+  шат хооронд **20 секунд** (2026-11-23 хүртэл 30). Ганц ширээ үлдвэл тэр нь финал, ялагч нь аварга.
+- Эхлэх цагаас **30 секундын** дотор ширээндээ ороогүй хүн хасагдана, бот нөхөхгүй.
   Цагтаа ганцаараа ирсэн бол шууд шалгарна; **хоцорч** ганцаараа ирвэл шалгарахгүй,
   ширээ ялагчгүй хаагдана. Тоглолтын дундаас гарсан хүн fold болно.
-- **Хэн ч ирээгүй ширээ** 1 минут + 30 секундын дараа ялагчгүй хаагдана, дараагийн
-  шат түүнийг 50 минут хүлээхгүй.
+- **Хэн ч ирээгүй ширээ** 30 + 30 секундын дараа ялагчгүй хаагдана. **Хүмүүс эрт
+  суугаад дараа нь алга болсон ширээ** (апп хаасан, утас түгжигдсэн) 3 минут ямар ч
+  идэвхгүй бол ялагчгүй хаагдана. Дараагийн шат 50 минут хүлээхгүй.
 - 2-оос цөөн хүн бүртгүүлбэл цуцлагдана.
 
 **How it works without a server.** 13 has no backend of its own, so unlike
@@ -253,8 +257,54 @@ can never hang.
   room if a crossed write dropped it (`tourCheckRoom`). And a walkover needs an
   on-time arrival: somebody who sits down alone after the grace minute closes the
   table without a winner (one player arrived 18 minutes late and went through).
-  Still open: a table whose players all sat down early and then *left* before the
-  start keeps its room, so it still waits for the stall.
+- **Tables nobody is running (2026-11-23).** One table held up every evening's
+  event (2026-11-20, -21, -22): no scores on the bracket, «Ширээ үзэх» stuck on
+  "waiting", and everybody who had finished waited without knowing for how long.
+  Its players had sat down early (auto-entry after the draw), so it had a room and
+  the empty-table close skipped it; then they were gone by the start (app closed,
+  phone locked, back to the menu) and nobody filed anything until the 50-minute
+  stall. Now the table's watch picture (`.w<stage>.<table>`) is its heartbeat:
+  every client at the table re-posts it at least every 15 s, in the lobby too
+  (`{lobby:1, ps:[{id,n,a,h}]}`), not only the lead. Anybody looking at the
+  event reads two open tables per load, round-robin (`tourCloseDeadTables`), and a
+  picture that stays unchanged or missing for 3 minutes *on the reader's own
+  clock* (phone clocks disagree) closes the table without a winner, or with the
+  winner its last picture shows. A player whose table was closed while their phone
+  slept is sent back to the bracket and told why (`tourClosedUnderUs`).
+- **A sleeping lead (2026-11-23).** Only the table's lead posted scores and the
+  picture, and a locked phone stays "present" and stays the lead, so a table could
+  play on with frozen scores and nothing to watch. Now the others post the
+  picture every 15 s, and the live scores 10 s after they change if the lead's
+  post has not shown up (`TOUR_LIVE_COVER_MS`; a read first, no write when it has).
+- **Start time (2026-11-24).** The event moved from 21:00 to 19:00 UB.
+  `TOUR_SCHEDULE` lists the UTC day each start hour applies from;
+  `tourCurrentStart` reads it per day, so 2026-11-23 stayed at 21:00 and every
+  past event keeps its key (`t13.v1.<startsAt>`). Never edit an entry for a day
+  that has passed: that would orphan the event's records. To move the time again,
+  add an entry from a future day. While the time is moving, the menu, the
+  tournament screen and the invitation show a gold notice (`tourScheduleNotice`):
+  "from tomorrow at 19:00 (now 21:00)" before, "from today at 19:00 (was 21:00)"
+  on the first day. The rules line and the "next tournament" notes read the time
+  from the schedule instead of a hard-coded 21:00. The server's reminder goes
+  3 minutes before whatever `startsAt` the client registered, so it moves along.
+- **Phone clocks (2026-11-23).** Every absolute time in the event (the draw, the
+  deal at 21:00, the grace, the next stage = last result's `at` + break) was read
+  off each phone's own `Date.now()`. A phone whose clock was set by hand could be
+  minutes off. Behind, it could still register after the draw, so phones that
+  froze the roster at the draw and phones that read it later derived two
+  different brackets, and a table's result was invalid on half of them (a
+  "stuck" table until the 50-minute stall). Ahead, it dealt or called a walkover
+  before the others arrived, and stamped results in the future, holding the next
+  stage back. Now all tournament timing reads `tourNow()` = `Date.now()` plus the
+  offset measured against the game server's `GET /api/time` (same origin, no
+  token; best of up to three round trips, middle of the round trip; at boot, on
+  the first bracket load, every 10 minutes, and fresh before every
+  (de)registration). A registration row carries its stamp `t` on that clock, and
+  `tourDerive` drops rows stamped at or after the draw on every phone alike (rows
+  from older builds have no stamp and count). A phone that could not read the
+  server clock closes registration 5 minutes before the draw instead of 10 s.
+  Durations measured inside one phone (the turn clock, the 3-minute dead-table
+  check) never depended on it.
 - **Capacity.** Built for up to ~200 entrants: one 64 KB record of `{id, n, a}`
   rows (avatar urls over 200 chars are dropped) holds them, 50 tables of four.
 - **Polling.** Usion allows 60 shared-storage ops a minute per user. The screen
@@ -265,7 +315,7 @@ can never hang.
 - **Invitation.** Opening the app while registration is open and you are not
   registered shows «Өнөөдөр тэмцээнтэй! Оролцох уу?» (`showTourInvite()`):
   «ОРОЛЦОЁ» registers and opens the tournament, «Үгүй» leaves the home page and
-  is remembered for that event. Not shown to chat invites or after 20:50.
+  is remembered for that event. Not shown to chat invites or after the draw.
 - **Coming back.** Opening the app with a live table (or a drawn table you have
   not reached yet) goes straight to it (`tourResumeOnLaunch()`), and the tournament
   screen auto-enters it (`tourMaybeAutoEnter()`) — except a table you left on
@@ -298,12 +348,12 @@ modified client could forge a registration or a result — same trust model as t
 rest of 13; real stakes would need a server. The bucket's 200-key cap is why
 events older than three days are pruned.
 
-**Reminder 3 minutes before the start (20:57).** `Usion.notify` reaches only the
+**Reminder 3 minutes before the start (18:57).** `Usion.notify` reaches only the
 current user and only while the app runs, so the push comes from 13's own small
 server ([server/](server/index.mjs), on the Amazon game host):
 
 - *Each player:* after registering, the tournament screen offers «Тэмцээн
-  эхлэхээс 3 минутын өмнө (20:57) сануулга авах уу? Асаах / Дараа». «Асаах» asks
+  эхлэхээс 3 минутын өмнө (18:57) сануулга авах уу? Асаах / Дараа». «Асаах» asks
   Usion's notification permission on that tap, unmutes the app, and only then
   saves `PUT /api/reminder {enabled:true}`; «Дараа» saves `enabled:false`. A
   one-line switch stays afterwards; it says so when the permission was revoked.

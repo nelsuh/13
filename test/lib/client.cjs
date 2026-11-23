@@ -107,9 +107,11 @@ class Client {
       removeItem: (k) => store.delete(k),
     };
 
+    // c.skew (ms) = this phone's clock is that far off the real (server) time.
+    this.skew = 0;
     class VDate extends Date {
-      constructor(...a) { if (!a.length) super(clock.now); else super(...a); }
-      static now() { return clock.now; }
+      constructor(...a) { if (!a.length) super(clock.now + self.skew); else super(...a); }
+      static now() { return clock.now + self.skew; }
     }
 
     const sandbox = {

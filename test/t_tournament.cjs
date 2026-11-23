@@ -84,6 +84,7 @@ test("register → stage 1 → final → one champion everybody agrees on", asyn
   ok(cs.every(c => shown(c, "onlineOverlay")), "everyone waits at the table");
   await w.advance(startAt - w.clock.now + 4000);
   ok(cs.every(c => c.snap().dealActive), "dealt at the start time, every table full");
+  ok(cs.every(c => c.read("turnSeconds()") === 60 && c.read("turnLeft") <= 60), "60 s a turn at a tournament table");
   const r = await playOut(w, { done: () => cs.every(c => shown(c, "winnerOverlay")), consistency: false });
   ok(r.ok, "stage 1 finishes: " + (r.reason || ""));
   cs.forEach(c => c.click("playAgainBtn"));
@@ -92,7 +93,9 @@ test("register → stage 1 → final → one champion everybody agrees on", asyn
   eq(qualified.length, 2, "two table winners go through");
   const out = cs.filter(c => status(c) === "eliminated");
   eq(out.length, 3, "three are out");
-  await w.advance(31000);                                    // the break
+  const st = derived(cs[0]).stages;
+  eq(st[1].startAt, Math.max(...st[0].matches.map(m => m.at)) + 20000, "the final starts 20 s after the last table");
+  await w.advance(21000);                                    // the break
   eq(derived(cs[0]).phase, "playing", "the final is on");
   ok(derived(cs[0]).stages[1].isFinal, "one table left = the final");
   await playStage(w, cs);
@@ -333,6 +336,20 @@ test("polling stays well under Usion's 60 shared-storage ops a minute", async ()
   ops = 0;
   await playOut(w, { done: () => false, consistency: false, budget: MIN, stallMs: 10 * MIN });
   ok(ops <= 30, "at the table mid-match: " + ops + " ops/min");
+});
+
+test("the bracket during play, dead-table checks included, stays under 30 ops a minute", async () => {
+  const { w, cs, startAt } = await registered(6, 15 * MIN);
+  const guest = launch(w, "g1", "Gan", startAt);
+  await w.advance(500);
+  guest.click("menuTourBtn");
+  await w.advance(startAt - w.clock.now + 2 * MIN);
+  let ops = 0;
+  const shared = guest.sandbox.Usion.cloud.shared;
+  ["get", "set", "keys", "remove"].forEach(k => { const f = shared[k]; shared[k] = (...a) => { ops++; return f(...a); }; });
+  await playOut(w, { done: () => false, consistency: false, budget: MIN, stallMs: 10 * MIN });
+  ok(shown(guest, "tourOverlay"), "on the bracket");
+  ok(ops <= 30, "bracket, two tables at play: " + ops + " ops/min");
 });
 
 test("a no-show is cut after the 30 s grace; alone at the table = walkover", async () => {
@@ -650,6 +667,212 @@ test("real rooms: a failed join is said out loud, never a silent bounce", async 
   ok(shown(c, "tourOverlay"), "back on the tournament screen");
   ok(/холбогдож чадсангүй/.test(c.el("toast").textContent), "with a message: " + c.el("toast").textContent);
   eq(c.el("tourPrimary").dataset.act, "enter", "and «Ширээндээ орох» to try again");
+});
+
+// The table that held up every evening: its players sat down early (auto-entry
+// after the 20:50 draw), so it has a room, and then they were gone by the start —
+// app closed, phone locked. Nobody at the table runs any javascript, so nobody
+// files anything, and the empty-table close skips it because it has a room. The
+// whole event waited for the 50-minute stall.
+async function stageWithDeadTable() {
+  const { w, cs, startAt } = await registered(6, 15 * MIN);
+  const guest = launch(w, "g1", "Gan", startAt);          // somebody watching the bracket
+  await w.advance(500);
+  guest.click("menuTourBtn");
+  const st1 = cs[0].read("tourDerive(tour.startsAt, tour.roster, {}, tour.startsAt)").stages[0];
+  eq(st1.matches.length, 2, "two tables of three");
+  const byId = id => cs.find(c => c.id === id);
+  const t1 = st1.matches[0].playerIds.map(byId), t2 = st1.matches[1].playerIds.map(byId);
+  await w.advance(startAt - OPEN - w.clock.now + 30000);  // drawn: everybody is auto-entered
+  ok(t2.every(c => c.read("tourCtx") !== null), "table 2 sat down early");
+  const rooms = await cs[0].sandbox.Usion.cloud.shared.get(cs[0].read("tourRoomKey(tour.startsAt, 1)"));
+  ok(rooms && rooms.t && typeof rooms.t[2] === "string", "so table 2 has a room");
+  t2.forEach(c => { c.netDrop(); c.freeze(); });          // …then both phones go dark
+  return { w, cs, startAt, guest, t1, t2 };
+}
+
+test("a table whose players sat down early and then went dark closes in minutes, not 50", async () => {
+  const { w, startAt, guest, t1 } = await stageWithDeadTable();
+  await w.advance(startAt - w.clock.now + 4000);
+  ok(t1.every(c => c.snap().dealActive), "table 1 is dealt");
+  const r = await playOut(w, { done: () => derived(guest).stages[0].matches[1].done, consistency: false,
+                               budget: 10 * MIN, stallMs: 20 * MIN });
+  ok(r.ok, "the dead table is closed: " + (r.reason || ""));
+  const m2 = derived(guest).stages[0].matches[1];
+  eq(m2.winnerId, null, "without a winner");
+  ok(m2.at < startAt + 8 * MIN, "within minutes of the start: +" + ((m2.at - startAt) / 1000) + " s");
+  const m1 = derived(guest).stages[0].matches[0];
+  ok(!m1.done || m1.winnerId !== null, "the table at play is left alone");
+});
+
+test("players who wake up at a table that was closed under them are told and sent back", async () => {
+  const { w, startAt, guest, t2 } = await stageWithDeadTable();
+  await w.advance(startAt - w.clock.now + 4000);
+  await playOut(w, { done: () => derived(guest).stages[0].matches[1].done, consistency: false, budget: 10 * MIN, stallMs: 20 * MIN });
+  ok(derived(guest).stages[0].matches[1].done, "closed");
+  const a = t2[0];
+  a.thaw(); a.netRestore();
+  await eventually(w, () => shown(a, "tourOverlay"), 60000);
+  ok(shown(a, "tourOverlay") && !a.read("tourCtx"), "back on the bracket");
+  ok(/хаагдсан/.test(a.el("toast").textContent), "told the table was closed: " + a.el("toast").textContent);
+});
+
+test("the table's lead locks the phone: scores and the picture keep coming, and the table is not closed", async () => {
+  const { w, cs, startAt } = await registered(3, 15 * MIN);
+  const guest = launch(w, "g1", "Gan", startAt);
+  await w.advance(500);
+  guest.click("menuTourBtn");
+  await w.advance(startAt - OPEN - w.clock.now + 6000);
+  cs.forEach(c => { if (shown(c, "tourOverlay")) c.click("tourPrimary"); });
+  await w.advance(startAt - w.clock.now + 4000);
+  ok(cs.every(c => c.snap().dealActive), "dealt");
+  const lead = cs.find(c => c.read("isPrimaryAuthority()"));
+  ok(!!lead, "one client is the lead");
+  lead.freeze();                                            // locked: still in the room, runs nothing
+  const shared = guest.sandbox.Usion.cloud.shared;
+  const wkey = guest.read("tourWatchKey(tour.startsAt, 1, 1)"), lkey = guest.read("tourLiveKey(tour.startsAt, 1)");
+  await w.advance(5000);
+  const w0 = await shared.get(wkey);
+  const l0 = await shared.get(lkey);
+  await playOut(w, { done: () => false, consistency: false, budget: 6 * MIN, stallMs: 20 * MIN });
+  const w1 = await shared.get(wkey);
+  ok(w1 && (!w0 || w1.at !== w0.at), "the picture is still being posted");
+  ok(!derived(guest).stages[0].matches[0].done, "6 minutes in, the table is still open (not closed as dead)");
+  // Every turn of the sleeping lead takes its full clock, so a round is slow:
+  // the bracket must still show the scores move when it ends.
+  const liveSig = () => guest.read("JSON.stringify(((tour.live[1] || {})[1] || {}).s || null)");
+  const s0 = liveSig();
+  const r = await playOut(w, { done: () => liveSig() !== s0 || derived(guest).stages[0].matches[0].done,
+                               consistency: false, budget: 40 * MIN, stallMs: 20 * MIN });
+  ok(r.ok && liveSig() !== s0, "the bracket's scores move with the lead asleep: " + s0 + " → " + liveSig() + " " + (r.reason || ""));
+  const m = derived(guest).stages[0].matches[0];
+  ok(!m.done || m.winnerId !== null, "and the table is never closed as dead");
+});
+
+test("watching a table still gathering shows who is there, not an endless 'waiting'", async () => {
+  const { w, cs, startAt } = await registered(4, 15 * MIN);
+  const guest = launch(w, "g1", "Gan", startAt);
+  await w.advance(500);
+  guest.click("menuTourBtn");
+  const st1 = cs[0].read("tourDerive(tour.startsAt, tour.roster, {}, tour.startsAt)").stages[0];
+  const t1 = st1.matches[0].playerIds.map(id => cs.find(c => c.id === id));
+  cs.filter(c => !t1.includes(c)).forEach(c => c.click("tourBackBtn"));   // table 2 never comes
+  await w.advance(startAt - OPEN - w.clock.now + 30000);    // drawn: table 1 is auto-entered
+  ok(t1[0].read("tourCtx") !== null, "at the table");
+  t1[0].click("lobbyTourBtn");                              // table 1: one of the four walks out
+  await w.advance(startAt - w.clock.now + 5000);            // started, still inside the 30 s grace
+  const btn = () => guest.sandbox.document.querySelector('.tour-watch-btn[data-watch-table="1"]');
+  await eventually(w, () => !!btn(), 10000);
+  guest.el("tourBody").dispatch("click", { target: btn() });
+  await w.advance(4000);
+  ok(guest.sandbox.document.body.classList.contains("spectating"), "spectating");
+  ok(/3\/4/.test(guest.el("turnLine").textContent), "the watcher sees 3 of 4 at the table: " + guest.el("turnLine").textContent);
+});
+
+// ── Phone clocks set by hand (c.skew) ──
+// The tests above read Date.now() through the page; a skewed phone's own idea of
+// the bracket has to be read on its corrected clock.
+const derivedT = c => c.read("tourDerive(tour.startsAt, tour.roster, tour.results, tourNow())");
+const regList = async (c) => {
+  const rec = await c.sandbox.Usion.cloud.shared.get(c.read("tourRegKey(tour.startsAt)"));
+  return (rec && rec.list || []).map(p => p.id);
+};
+
+test("a phone whose clock is behind cannot register after the draw and split the bracket", async () => {
+  const { w, cs, startAt } = await registered(4, 15 * MIN);
+  const late = launch(w, "p5", "Erdene", startAt);
+  late.skew = -3 * MIN;                                   // set by hand, three minutes slow
+  await w.advance(startAt - OPEN - w.clock.now + 30000);  // the others froze the roster at the draw
+  late.click("menuTourBtn");
+  await w.advance(1000);
+  eq(late.read("clockSync.synced"), true, "the phone read the server clock");
+  ok(Math.abs(late.read("clockSync.offset") - 3 * MIN) < 1000, "…and knows it is three minutes slow: " + late.read("clockSync.offset"));
+  late.el("tourPrimary").dataset.act = "register";        // its own clock still says 20:47:30
+  late.click("tourPrimary");
+  await w.advance(8000);
+  ok(!(await regList(late)).includes("p5"), "registration was refused: closed on the server's clock");
+  const fresh = launch(w, "g1", "Gan", startAt);          // somebody opening the bracket now
+  await w.advance(500);
+  fresh.click("menuTourBtn");
+  await eventually(w, () => derivedT(fresh).stages.length > 0, 20000);
+  eq(JSON.stringify(derivedT(fresh).stages), JSON.stringify(derivedT(cs[0]).stages), "one bracket for early and late readers alike");
+});
+
+test("a registration stamped after the draw counts for nobody", async () => {
+  const { w, cs, startAt } = await registered(4, 15 * MIN);
+  await w.advance(startAt - OPEN - w.clock.now + 30000);
+  // A write that got in anyway (raced the close, or an older build), stamped late.
+  const key = cs[0].read("tourRegKey(tour.startsAt)");
+  const rec = await cs[0].sandbox.Usion.cloud.shared.get(key);
+  rec.list.push({ id: "p9", n: "Late", a: null, t: startAt - OPEN + 20000 });
+  await cs[0].sandbox.Usion.cloud.shared.set(key, rec);
+  const fresh = launch(w, "g1", "Gan", startAt);
+  await w.advance(500);
+  fresh.click("menuTourBtn");
+  await eventually(w, () => derivedT(fresh).stages.length > 0, 20000);
+  eq(derivedT(fresh).people.length, 4, "the late row is not in the draw");
+  eq(JSON.stringify(derivedT(fresh).stages), JSON.stringify(derivedT(cs[0]).stages), "same bracket as the phones that froze the list");
+});
+
+test("a phone whose clock is ahead neither deals nor calls a walkover before the start", async () => {
+  const w = new World({ strictRooms: true });
+  const startAt = w.clock.now + 11 * MIN;
+  const a = launch(w, "p1", "Alice", startAt);
+  a.skew = 2 * MIN;                                       // two minutes fast
+  const b = launch(w, "p2", "Bob", startAt);
+  await w.advance(500);
+  [a, b].forEach(c => c.click("menuTourBtn"));
+  await w.advance(500);
+  [a, b].forEach(c => c.click("tourPrimary"));
+  await eventually(w, () => derivedT(a).people.length === 2 && derivedT(b).people.length === 2, 30000);
+  b.click("tourBackBtn");                                 // Bob comes at the start, by the real clock
+  await w.advance(startAt - OPEN - w.clock.now + 6000);
+  if (!a.read("tourCtx")) a.click("tourPrimary");
+  await w.advance(startAt - w.clock.now - 60000);         // real 20:59 — Alice's phone says 21:01
+  ok(a.read("tourCtx") && !a.read("tourCtx.walkover"), "no walkover: the grace has not even begun");
+  ok(!a.snap().dealActive, "nothing dealt before the start");
+  eq(derivedT(a).stages[0].matches[0].done, false, "the table is open");
+  b.click("menuTourBtn");
+  await w.advance(70000);                                 // real 21:00:10, inside the grace
+  if (!b.read("tourCtx")) { b.click("tourPrimary"); }
+  await eventually(w, () => a.snap().dealActive && b.snap().dealActive, 30000);
+  ok(a.snap().dealActive && b.snap().dealActive, "both are dealt in");
+});
+
+// ── The schedule: 21:00 UB through 2026-11-23, 19:00 UB from 2026-11-24 ──
+test("the event moves to 19:00 from 2026-11-24, and players are told before and on the day", async () => {
+  const w = new World();
+  const at = iso => Date.parse(iso);
+  // No ?tourStart override: the real schedule.
+  const c = w.add("s1", "Alice", { mode: "single", roomId: "standalone_s1", pick: "none" });
+  c.start({ userId: "s1", userName: "Alice", roomId: "standalone_s1", playerIds: ["s1"] });
+  await w.advance(500);
+  const start = iso => c.read("tourCurrentStart(" + at(iso) + ")");
+  eq(start("2026-11-23T05:00:00Z"), at("2026-11-23T13:00:00Z"), "tonight: 21:00 UB");
+  eq(start("2026-11-23T18:00:00Z"), at("2026-11-23T13:00:00Z"), "…still tonight's while it may be running");
+  eq(start("2026-11-23T20:00:00Z"), at("2026-11-24T11:00:00Z"), "after it: tomorrow 19:00 UB");
+  eq(start("2026-11-24T05:00:00Z"), at("2026-11-24T11:00:00Z"), "2026-11-24: 19:00 UB");
+  eq(start("2026-11-25T12:00:00Z"), at("2026-11-25T11:00:00Z"), "and every day after");
+  eq(start("2026-11-20T05:00:00Z"), at("2026-11-20T13:00:00Z"), "past events keep their keys (21:00)");
+
+  const hm = ms => c.read("tourFmtClock(" + ms + ")");
+  const noticeAt = iso => { c.skew = at(iso) - w.clock.now; c.run("tour.startsAt = 0; showMenu()"); return c.el("menuTourNotice"); };
+  let n = noticeAt("2026-11-23T05:00:00Z");
+  ok(!n.hidden, "today, the menu says the time is moving");
+  ok(n.textContent.includes(hm(at("2026-11-24T11:00:00Z"))) && /Маргаашаас/.test(n.textContent), "…to tomorrow, at the new time: " + n.textContent);
+  n = noticeAt("2026-11-24T05:00:00Z");
+  ok(!n.hidden && n.textContent.includes(hm(at("2026-11-23T13:00:00Z"))), "on the day: the new time, and what it was: " + n.textContent);
+  n = noticeAt("2026-11-26T05:00:00Z");
+  ok(n.hidden, "after that, no notice");
+
+  c.skew = at("2026-11-23T05:00:00Z") - w.clock.now;
+  c.run("tour.startsAt = 0");
+  c.click("menuTourBtn");
+  await w.advance(1500);
+  const tn = c.el("tourNotice");
+  ok(!tn.hidden && /Маргаашаас/.test(tn.textContent), "the tournament screen says it too: " + tn.textContent);
+  ok(c.el("tourWhen").textContent.includes(hm(at("2026-11-23T13:00:00Z"))), "while tonight's event is still at 21:00");
+  ok(c.el("tourRulesList").children[0].textContent.includes(hm(at("2026-11-23T13:00:00Z"))), "the rules name tonight's time");
 });
 
 if (require.main === module) run("TOURNAMENT").then(r => process.exit(r.fails.length ? 1 : 0));

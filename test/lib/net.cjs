@@ -104,6 +104,13 @@ class Server {
       this.clock.setTimeout(null, () => {
         const m = /\/games\/rooms(?:\/([^/?]+)\/join)?$/.exec(String(url));
         let status = 200, body;
+        if (String(url) === "/api/time") {
+          // 13's own server: the true time, read mid-flight (the reply's latency follows).
+          if (this.opts.noTimeApi) { status = 404; body = { error: "not_found" }; }
+          else body = { now: this.clock.now };
+          this.restLog.push({ userId, url: String(url), status });
+          return this.clock.setTimeout(null, () => resolve({ ok: status < 300, status, json: () => Promise.resolve(body) }), this.opts.latency);
+        }
         if (!m || (init && init.method) !== "POST") { status = 404; body = { detail: "Not Found" }; }
         else if (!m[1]) {
           const r = this.createRoom(userId);

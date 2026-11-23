@@ -1,12 +1,12 @@
 {
   "daily_reminder": {
     "enabled": true,
-    "hour_utc": 12,
+    "hour_utc": 10,
     "minute_utc": 40,
     "default_locale": "mn",
     "messages": {
-      "mn": { "title": "Өдрийн тэмцээн 21:00-д эхэлнэ! 🏆", "body": "Тэмцээн рүү орохын тулд дарна уу." },
-      "en": { "title": "Today's tournament starts at 21:00! 🏆", "body": "Tap to open the tournament." }
+      "mn": { "title": "Өдрийн тэмцээн 19:00-д эхэлнэ! 🏆", "body": "Тэмцээн рүү орохын тулд дарна уу." },
+      "en": { "title": "Today's tournament starts at 19:00! 🏆", "body": "Tap to open the tournament." }
     },
     "path": "/tournament"
   }

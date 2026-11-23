@@ -8,6 +8,7 @@
 //   PUT    /api/reminder            { enabled, locale }   on/off (after Usion's permission prompt)
 //   POST   /api/reminder/event      { startsAt }          "I registered for this event"
 //   DELETE /api/reminder/event      { startsAt }          "I withdrew"
+//   GET    /api/time                → { now }   server clock, no token (tournament timing)
 //
 // Every /api call carries the Usion iframe token (Authorization: Bearer …); the
 // player id comes from Usion's verify-token, never from the client.
@@ -92,6 +93,10 @@ export function createApp({ store, identity, notifier, leadMs = 180000, now = ()
     const { pathname } = new URL(req.url, 'http://x');
     try {
       if (pathname === '/health' || pathname === '/healthz') return json(res, 200, { ok: true, store: store.kind, notify: notifier.enabled });
+      // The tournament's clock. Every phone runs the event on its own clock, and a
+      // phone set by hand can be minutes off: it registers after the draw, deals
+      // early, stamps results in the future. The page measures its offset from this.
+      if (pathname === '/api/time' && (req.method === 'GET' || req.method === 'HEAD')) return json(res, 200, { now: now() });
       if (pathname.startsWith('/api/')) return await api(req, res, pathname);
       if ((req.method === 'GET' || req.method === 'HEAD') && await serveStatic(req, res, pathname)) return;
       res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Not found');
