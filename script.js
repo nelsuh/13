@@ -5432,6 +5432,17 @@ function tourCleanup() {
 // the event files it closed without a winner, at the moment the grace ended, so
 // every client derives the same next-stage time. It only adds entries, never
 // replaces one, and a table at play keeps its room in the record (tourCheckRoom).
+//
+// 2026-11-23: three tables that were dealt and playing (stage 1 table 6, stage 2
+// tables 1 and 4) were filed as empty and their players thrown out mid-match.
+// The room record is ONE blob every table read-modify-writes, so a crossed write
+// drops another table's room for a few seconds, and one read in that window was
+// enough. So the room record alone never condemns a table: it must be missing on
+// two reads TOUR_EMPTY_CONFIRM_MS apart, and the table must also show none of
+// the per-table signs of life nobody else's write can wipe — its live scores
+// (l<stage>, read by tourLoad) and its picture key (w<stage>.<table>), which
+// every phone at the table posts from the lobby on.
+const TOUR_EMPTY_CONFIRM_MS = 12 * 1000;
 let tourEmptyDone = {};
 function tourCloseEmptyTables() {
   const shared = tourShared();
@@ -5446,11 +5457,27 @@ function tourCloseEmptyTables() {
   if (!open.length) return;
   tourEmptyDone[doneKey] = true;                    // once per stage per client; others cover a failure
   const closeAt = stage.startAt + TOUR_GRACE_MS;
-  Promise.resolve().then(() => shared.get(tourRoomKey(tour.startsAt, stage.number))).then(rooms => {
-    const has = n => !!rooms && !!rooms.t && typeof rooms.t[n] === "string";
-    const empty = open.filter(m => !has(m.number)).map(m => m.number);
+  const startsAt = tour.startsAt, roomKey = tourRoomKey(startsAt, stage.number);
+  const live = n => !!(tour.live[stage.number] || {})[n];
+  const mine = n => !!tourCtx && tourCtx.startsAt === startsAt && tourCtx.stage === stage.number && tourCtx.table === n;
+  const roomless = (rooms, list) => list.filter(n => !(rooms && rooms.t && typeof rooms.t[n] === "string") && !live(n) && !mine(n));
+  Promise.resolve().then(() => shared.get(roomKey)).then(rooms => {
+    const first = roomless(rooms, open.map(m => m.number));
+    if (!first.length) return;
+    return new Promise(r => setTimeout(r, TOUR_EMPTY_CONFIRM_MS)).then(() => Promise.all([
+      shared.get(roomKey),
+      typeof shared.keys === "function" ? Promise.resolve(shared.keys()) : null,
+    ])).then(got => got.concat([first]));
+  }).then(got => {
+    if (!got || tour.startsAt !== startsAt) return;
+    const [rooms, keys, first] = got;
+    if (!Array.isArray(keys)) throw new Error("no key list to check the tables' pictures against");
+    const seen = new Set(keys);
+    const res = tour.results[stage.number] || {};
+    const empty = roomless(rooms, first)
+      .filter(n => res[n] === undefined && !seen.has(tourWatchKey(startsAt, stage.number, n)));
     if (!empty.length) return;
-    const key = tourStageKey(tour.startsAt, stage.number);
+    const key = tourStageKey(startsAt, stage.number);
     return tourUpdate(key, cur => {
       const t0 = Object.assign({}, cur && cur.t);
       let changed = false;

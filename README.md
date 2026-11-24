@@ -276,6 +276,16 @@ can never hang.
   play on with frozen scores and nothing to watch. Now the others post the
   picture every 15 s, and the live scores 10 s after they change if the lead's
   post has not shown up (`TOUR_LIVE_COVER_MS`; a read first, no write when it has).
+- **Live tables filed as empty (2026-11-24).** On 2026-11-23 three tables that
+  were dealt and playing (stage 1 table 6, stage 2 tables 1 and 4) were filed
+  `{w: null, at: start + 30 s}` and their players sent back to the bracket as
+  eliminated mid-match. The room record `.r<N>` is one blob that every table
+  read-modify-writes, so a crossed write drops another table's room for a few
+  seconds, and the empty-table close condemned on a single read. Now a table is
+  closed as empty only if its room is missing on two reads 12 s apart
+  (`TOUR_EMPTY_CONFIRM_MS`) and it shows no per-table sign of life that other
+  tables' writes cannot wipe: no live scores in `.l<N>` and no picture key
+  `.w<stage>.<table>` in `shared.keys()`.
 - **Start time (2026-11-24).** The event moved from 21:00 to 19:00 UB.
   `TOUR_SCHEDULE` lists the UTC day each start hour applies from;
   `tourCurrentStart` reads it per day, so 2026-11-23 stayed at 21:00 and every

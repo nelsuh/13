@@ -416,6 +416,39 @@ test("a table at play is never closed as empty, even if its room drops out of th
   ok(!m.done || m.winnerId !== null, "and was not closed as empty");
 });
 
+test("a live table whose room is missing when somebody else checks is not closed as empty", async () => {
+  // 2026-11-23: table 6 (and stage-2 tables 1 and 4) were dealt and playing, but
+  // their room had dropped out of the shared r<stage> record — a crossed
+  // read-modify-write — at the moment another client ran the empty-table check.
+  // Filed {w: null, at: start+30 s}; the players were thrown out mid-match.
+  const { w, cs, startAt } = await registered(6, 15 * MIN);
+  const st1 = cs[0].read("tourDerive(tour.startsAt, tour.roster, {}, tour.startsAt)").stages[0];
+  eq(st1.matches.length, 2, "two tables of three");
+  const byId = id => cs.find(c => c.id === id);
+  const t1 = st1.matches[0].playerIds.map(byId);
+  // Somebody looking at the bracket never sees table 1 in the room record.
+  const guest = launch(w, "g1", "Gan", startAt);
+  await w.advance(500);
+  guest.click("menuTourBtn");
+  const key = cs[0].read("tourRoomKey(tour.startsAt, 1)");
+  [guest].forEach(c => {
+    const shared = c.sandbox.Usion.cloud.shared, get = shared.get;
+    shared.get = k => Promise.resolve(get(k)).then(rec => {
+      if (k !== key || !rec || !rec.t) return rec;
+      const t = Object.assign({}, rec.t); delete t[1];
+      return Object.assign({}, rec, { t });
+    });
+  });
+  await w.advance(startAt - OPEN - w.clock.now + 6000);
+  cs.forEach(c => { if (shown(c, "tourOverlay")) c.click("tourPrimary"); });   // everybody sits down
+  await w.advance(startAt - w.clock.now + 4000);
+  ok(cs.every(c => c.snap().dealActive), "both tables are dealt");
+  await w.advance(3 * MIN);                                // nobody hurries: the tables are still at play at +60 s
+  const m1 = derived(guest).stages[0].matches[0];
+  ok(!m1.done || m1.winnerId !== null, "table 1 was not filed as a table nobody came to: " + JSON.stringify(m1));
+  ok(t1.every(c => !shown(c, "tourOverlay")), "table 1's players are still at their table");
+});
+
 test("arriving late and alone is not a walkover: the table closes without a winner", async () => {
   // 2026-11-17: somebody sat down 18 minutes in, alone, and went through.
   const { w, cs, startAt } = await registered(2, 11 * MIN);
