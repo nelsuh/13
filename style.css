@@ -191,6 +191,14 @@ body {
 }
 .opp.turn .opp-fan { border-color: var(--gold); box-shadow: 0 0 16px rgba(212,175,55,.5); }
 .opp.done { opacity: .5; }
+/* Weak connection (relay "reconnecting") / a bot playing a dropped player's seat. */
+.opp.weak .opp-profile-timer { opacity: .55; filter: grayscale(.6); }
+.opp-net {
+  max-width: 100%; margin-top: 2px; padding: 1px 6px; border-radius: 8px;
+  font-size: 10px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: #ffd9a0; background: rgba(0,0,0,.55); pointer-events: none;
+}
+.opp.away .opp-net { color: #cfe3ff; }
 .mini-back {
   width: 17px; height: 24px; border-radius: 3px; flex: 0 0 auto;
   margin-left: -10px;

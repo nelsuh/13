@@ -9,7 +9,7 @@ const { test, ok, eq, run } = require("./lib/tap.cjs");
 
 const NAMES = ["Alice", "Bob", "Chuck", "Dana", "Erdene", "Fiona", "Gan"];
 const MIN = 60 * 1000;
-const OPEN = 10 * MIN;   // registration closes / tables drawn this long before the start
+const OPEN = 0;          // tables are drawn at the start (10 min before, until 2026-11-25)
 
 function launch(w, id, name, startAt) {
   const c = w.add(id, name, { mode: "single", roomId: "standalone_" + id, pick: "none" });
@@ -69,21 +69,39 @@ test("the bracket is the same on every client, seated from registrations alone",
   const a = JSON.stringify(derived(cs[0]).stages);
   cs.forEach(c => eq(JSON.stringify(derived(c).stages), a, c.id + " sees the same draw"));
   eq(derived(cs[0]).stages[0].matches.map(m => m.playerIds.length).join("+"), "3+2");
-  eq(derived(cs[0]).phase, "waiting", "drawn, not dealt before the start time");
+  eq(derived(cs[0]).phase, "playing", "drawn at the start time, and on");
+});
+
+test("registration is open until 10 s before the start; the draw is at the start", async () => {
+  const { w, cs, startAt } = await registered(2, 11 * MIN);
+  const late = launch(w, "p3", "Chuck", startAt);
+  await w.advance(500);
+  late.click("menuTourBtn");
+  await w.advance(startAt - w.clock.now - 12000);          // 18:59:48
+  eq(derived(late).phase, "registration", "still registration at 18:59:48");
+  late.click("tourPrimary");                               // РЕГИСТЕР, two seconds before it closes
+  await eventually(w, () => status(late) === "registered", 15000);
+  eq(status(late), "registered", "a registration at 18:59:48 counts");
+  await w.advance(startAt - w.clock.now + 2000);
+  eq(derived(cs[0]).people.length, 3, "…and is in everybody's draw");
+  const guest = launch(w, "p4", "Dana", startAt);
+  await w.advance(500);
+  guest.click("menuTourBtn");
+  await w.advance(500);
+  guest.run("tourRegister()");                             // even a tap that slips through
+  await w.advance(8000);
+  eq(status(guest), "guest", "after the close nobody can register");
+  eq(derived(cs[0]).people.length, 3, "the draw is unchanged");
 });
 
 test("register → stage 1 → final → one champion everybody agrees on", async () => {
   const { w, cs, startAt } = await registered(5);
-  await w.advance(startAt - OPEN - w.clock.now + 6000);
-  // Sit down early: nothing is dealt before the start time.
-  const firstLive = cs.filter(c => status(c) === "waiting");
-  eq(firstLive.length, 5);
-  firstLive.forEach(c => c.click("tourPrimary"));
-  await w.advance(60000);
-  ok(cs.every(c => !c.snap().dealActive), "no cards before 21:00");
-  ok(cs.every(c => shown(c, "onlineOverlay")), "everyone waits at the table");
-  await w.advance(startAt - w.clock.now + 4000);
-  ok(cs.every(c => c.snap().dealActive), "dealt at the start time, every table full");
+  await w.advance(startAt - w.clock.now - 60000);
+  ok(cs.every(c => !c.read("tourCtx") && !c.snap().dealActive), "no tables and no cards before the start");
+  await w.advance(startAt - w.clock.now + 2000);           // the draw is at the start
+  cs.forEach(c => { if (!c.read("tourCtx") && status(c) === "playing") c.click("tourPrimary"); });
+  await eventually(w, () => cs.every(c => c.snap().dealActive), 20000);
+  ok(cs.every(c => c.snap().dealActive), "dealt as soon as every table is full");
   ok(cs.every(c => c.read("turnSeconds()") === 60 && c.read("turnLeft") <= 60), "60 s a turn at a tournament table");
   const r = await playOut(w, { done: () => cs.every(c => shown(c, "winnerOverlay")), consistency: false });
   ok(r.ok, "stage 1 finishes: " + (r.reason || ""));
@@ -155,7 +173,8 @@ test("closing the app mid-match: reopening it puts you straight back at your tab
 
 test("leaving the table lobby on purpose is not undone by auto-entry", async () => {
   const { w, cs, startAt } = await registered(2, 11 * MIN);
-  await w.advance(startAt - OPEN - w.clock.now + 25000);   // drawn; both auto-enter the lobby
+  cs[1].click("tourBackBtn");                             // Bob is late, so Alice's table gathers
+  await w.advance(startAt - w.clock.now + 3000);           // drawn at the start; Alice is auto-entered
   ok(shown(cs[0], "onlineOverlay"), "Alice was taken to her table");
   cs[0].click("lobbyTourBtn");
   await w.advance(8000);
@@ -488,8 +507,8 @@ test("withdrawing removes you; registration closes before the draw", async () =>
 
 test("a forged opening deal (stranger, or seats off the list) is refused", async () => {
   const { w, cs, startAt } = await registered(2, 11 * MIN);
-  await w.advance(startAt - w.clock.now - 30000);
-  cs.forEach(c => c.click("tourPrimary"));
+  await w.advance(startAt - w.clock.now + 2000);
+  cs.forEach(c => { if (!c.read("tourCtx")) c.click("tourPrimary"); });
   await w.advance(3000);
   const a = cs[0];
   eq(a.read('tourOpeningDealOk({order:["zz","p1"],open:false,loseAt:20}, "zz")'), false, "stranger");
@@ -627,7 +646,7 @@ test("the 1 s redraw leaves the screen alone: rules stay open, rows are not rebu
   await w.advance(5000);                                    // five redraw ticks
   ok(c.el("tourRules") === rules && rules.open, "the rules are untouched");
   ok(c.el("tourBody").children[1] && c.el("tourBody").children[1].__mark === 1, "same row node: nothing rebuilt without a change");
-  eq(c.el("tourRulesList").children.length, 7, "seven rules");
+  eq(c.el("tourRulesList").children.length, 8, "eight rules");
 });
 
 test("opening the app: «Оролцоё» on the invitation registers you", async () => {
@@ -658,7 +677,7 @@ test("opening the app: «Үгүй» leaves you on the home page, and it isn't as
 test("no invitation once registered, after registration closes, or for a chat invite", async () => {
   const { w, cs, startAt } = await registered(1, 3 * 3600e3);
   const again = launch(w, "p1", "Alice", startAt);         // already registered, opens the app again
-  const late = launch(w, "i3", "Chuck", w.clock.now + 5 * MIN);   // past the 20:50 close
+  const late = launch(w, "i3", "Chuck", w.clock.now + 5000);   // past the 18:59:50 close
   const chat = w.add("i4", "Dana", { mode: "multiplayer", roomId: w.roomId });
   chat.run("window.T13_TOUR_START_AT = " + startAt);
   chat.start({ userId: "i4", userName: "Dana", roomId: w.roomId, playerIds: [] });
@@ -790,10 +809,9 @@ test("watching a table still gathering shows who is there, not an endless 'waiti
   const st1 = cs[0].read("tourDerive(tour.startsAt, tour.roster, {}, tour.startsAt)").stages[0];
   const t1 = st1.matches[0].playerIds.map(id => cs.find(c => c.id === id));
   cs.filter(c => !t1.includes(c)).forEach(c => c.click("tourBackBtn"));   // table 2 never comes
-  await w.advance(startAt - OPEN - w.clock.now + 30000);    // drawn: table 1 is auto-entered
+  t1[3].click("tourBackBtn");                               // table 1: one of the four is late
+  await w.advance(startAt - w.clock.now + 18000);           // drawn at the start, still inside the 30 s grace
   ok(t1[0].read("tourCtx") !== null, "at the table");
-  t1[0].click("lobbyTourBtn");                              // table 1: one of the four walks out
-  await w.advance(startAt - w.clock.now + 5000);            // started, still inside the 30 s grace
   const btn = () => guest.sandbox.document.querySelector('.tour-watch-btn[data-watch-table="1"]');
   await eventually(w, () => !!btn(), 10000);
   guest.el("tourBody").dispatch("click", { target: btn() });
@@ -858,15 +876,18 @@ test("a phone whose clock is ahead neither deals nor calls a walkover before the
   await w.advance(500);
   [a, b].forEach(c => c.click("tourPrimary"));
   await eventually(w, () => derivedT(a).people.length === 2 && derivedT(b).people.length === 2, 30000);
-  b.click("tourBackBtn");                                 // Bob comes at the start, by the real clock
-  await w.advance(startAt - OPEN - w.clock.now + 6000);
+  b.click("tourBackBtn");                                 // Bob comes after the start, by the real clock
+  await w.advance(startAt - w.clock.now - 60000);         // real 18:59 — Alice's phone says 19:01
+  ok(!a.read("tourCtx") && !a.snap().dealActive, "no table and no cards before the start");
+  eq(derivedT(a).phase, "registration", "on the server's clock the draw has not happened");
+  await w.advance(62000);                                 // real 19:00:02 — her phone says 19:02, past the grace
   if (!a.read("tourCtx")) a.click("tourPrimary");
-  await w.advance(startAt - w.clock.now - 60000);         // real 20:59 — Alice's phone says 21:01
-  ok(a.read("tourCtx") && !a.read("tourCtx.walkover"), "no walkover: the grace has not even begun");
-  ok(!a.snap().dealActive, "nothing dealt before the start");
+  await w.advance(4000);
+  ok(a.read("tourCtx") && !a.read("tourCtx.walkover"), "no walkover: the grace is still running");
+  ok(!a.snap().dealActive, "nothing dealt: Bob is not here yet");
   eq(derivedT(a).stages[0].matches[0].done, false, "the table is open");
   b.click("menuTourBtn");
-  await w.advance(70000);                                 // real 21:00:10, inside the grace
+  await w.advance(4000);                                  // real 19:00:10, inside the grace
   if (!b.read("tourCtx")) { b.click("tourPrimary"); }
   await eventually(w, () => a.snap().dealActive && b.snap().dealActive, 30000);
   ok(a.snap().dealActive && b.snap().dealActive, "both are dealt in");
@@ -906,6 +927,91 @@ test("the event moves to 19:00 from 2026-11-24, and players are told before and 
   ok(!tn.hidden && /Маргаашаас/.test(tn.textContent), "the tournament screen says it too: " + tn.textContent);
   ok(c.el("tourWhen").textContent.includes(hm(at("2026-11-23T13:00:00Z"))), "while tonight's event is still at 21:00");
   ok(c.el("tourRulesList").children[0].textContent.includes(hm(at("2026-11-23T13:00:00Z"))), "the rules name tonight's time");
+});
+
+// ── A player who drops mid-match (2026-11-24) ──
+// The final that evening: tsedo's connection went, and 15 s later the walk-out
+// fold put them out of the final mid-round. Now a bot plays their seat to the end
+// of the round they dropped in; back by then, they carry on; still gone, they are
+// out from the next round. A table the bot wins sends nobody through.
+const awayMoves = (c, seat) => c.read("moveLog").filter(m => m && m.away === true && Number(m.seat) === seat);
+
+test("a player who drops mid-round: a bot plays their seat to the end of the round, then they are out", async () => {
+  const { w, cs, startAt } = await registered(3, 11 * MIN);
+  await w.advance(startAt - w.clock.now + 4000);
+  const [a, , c] = cs;
+  ok(cs.every(x => x.snap().dealActive), "the final is dealt");
+  const cSeat = a.snap().order.indexOf("p3");
+  const r0 = await playOut(w, { done: () => a.snap().roundMoveNo >= 2, consistency: false, budget: 5 * MIN });
+  ok(r0.ok, "a couple of moves in");
+  c.netDrop();                                             // Carol's network goes, for good
+  const epoch = a.snap().dealEpoch;
+  let foldedMidRound = null, sawAway = 0, forced = 0;
+  const r = await playOut(w, {
+    done: () => a.snap().outs[cSeat] && a.snap().dealEpoch > epoch || a.snap().overlays.winner,
+    consistency: false, budget: 30 * MIN,
+    each: (x, s) => {
+      if (x !== a) return;
+      if (s.outs[cSeat] && foldedMidRound === null) foldedMidRound = s.dealActive && s.counts[cSeat] > 0;
+      sawAway = Math.max(sawAway, awayMoves(a, cSeat).length);
+      forced = Math.max(forced, a.read("moveLog").filter(m => m && m.auto === true && Number(m.seat) === cSeat).length);
+    },
+  });
+  ok(r.ok, "the match moves on without her: " + (r.reason || "") + (r.dump ? "\n" + r.dump : ""));
+  ok(sawAway > 0, "the bot played her turns (" + sawAway + " moves)");
+  eq(forced, 0, "no 60 s wait and forced pass on her turns");
+  ok(a.snap().outs[cSeat], "she is out");
+  eq(foldedMidRound, false, "…from the next round, not in the middle of the one she dropped in");
+  eq(w.errors().length, 0, "no script errors: " + w.errors().join("\n"));
+});
+
+test("back before the round ends: the seat is theirs again and they play the next round", async () => {
+  const { w, cs, startAt } = await registered(3, 11 * MIN);
+  await w.advance(startAt - w.clock.now + 4000);
+  const [a, , c] = cs;
+  const cSeat = a.snap().order.indexOf("p3");
+  c.netDrop();
+  const epoch = a.snap().dealEpoch;
+  const r0 = await playOut(w, { done: () => awayMoves(a, cSeat).length > 0 || a.snap().dealEpoch > epoch, consistency: false, budget: 10 * MIN });
+  ok(r0.ok && a.snap().dealEpoch === epoch, "the bot took one of her turns in the same round: " + (r0.reason || ""));
+  c.netRestore();                                          // she is back
+  await w.advance(3000);
+  const r = await playOut(w, { done: () => a.snap().dealEpoch > epoch || a.snap().overlays.winner, consistency: false, budget: 20 * MIN });
+  ok(r.ok, "the round finishes: " + (r.reason || ""));
+  if (!a.snap().overlays.winner) {
+    ok(!a.snap().outs[cSeat] || a.snap().totals[cSeat] >= 20, "she is not folded out");
+    if (!a.snap().outs[cSeat]) eq(a.snap().counts[cSeat], 13, "and is dealt the next round");
+  }
+});
+
+test("a table the bot wins sends nobody to the next stage", async () => {
+  const { w, cs, startAt } = await registered(2, 11 * MIN);
+  await w.advance(startAt - w.clock.now + 4000);
+  const [a] = cs;
+  const bSeat = a.snap().order.indexOf("p2");
+  a.run("moveLog = [{kind:'play', seat:" + bSeat + ", cards:[3], ti:0}, {kind:'play', seat:" + bSeat + ", cards:[4], ti:1, away:true}]");
+  ok(a.read("tourBotWon(" + bSeat + ")"), "the seat's last play was the bot's");
+  a.run("moveLog.push({kind:'pass', seat:" + bSeat + ", ti:2})");
+  ok(!a.read("tourBotWon(" + bSeat + ")"), "…not once they played again themselves");
+  a.run("moveLog.push({kind:'play', seat:" + bSeat + ", cards:[5], ti:3, away:true})");
+  a.run("tourMatchOver(" + bSeat + ")");
+  await eventually(w, () => derived(a).stages[0].matches[0].done, 20000);
+  eq(derived(a).stages[0].matches[0].winnerId, null, "the table is filed without a winner");
+});
+
+test("a dropped connection shows on that player's seat until they are back", async () => {
+  const { w, cs, startAt } = await registered(3, 11 * MIN);
+  await w.advance(startAt - w.clock.now + 4000);
+  const [a, , c] = cs;
+  const cSeat = a.snap().order.indexOf("p3");
+  const seatEl = () => a.doc.querySelectorAll(".opp").find(e => Number(e.dataset.seat) === cSeat);
+  ok(seatEl() && !seatEl().classList.contains("weak"), "a healthy seat has no mark");
+  c.netDrop();
+  await w.advance(1500);
+  ok(seatEl().classList.contains("weak"), "her seat says the connection is weak");
+  c.netRestore();
+  await w.advance(1500);
+  ok(!seatEl().classList.contains("weak"), "and stops saying it once she is back");
 });
 
 if (require.main === module) run("TOURNAMENT").then(r => process.exit(r.fails.length ? 1 : 0));

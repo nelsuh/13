@@ -57,7 +57,7 @@ test("open room: a dropped player's seat goes back to a bot", async () => {
   eq(w.clients[0].snap().order.indexOf("u2"), -1, "u2 is no longer at the table");
 });
 
-test("tournament: a player who closes the app mid-match is folded and the table finishes", async () => {
+test("tournament: a player whose connection goes mid-match is folded at the round's end and the table finishes", async () => {
   const w = new World({ strictRooms: true });
   const startAt = w.clock.now + 11 * MIN;
   const cs = ["Alice", "Bob", "Chuck"].map((name, i) => {
@@ -78,9 +78,12 @@ test("tournament: a player who closes the app mid-match is folded and the table 
   await playOut(w, { done: () => cs[0].snap().roundMoveNo > 4, consistency: false, budget: 5 * MIN });
   const bob = cs[1], seat = bob.snap().mySeat;
   bob.netDrop();
-  const folded = await eventually(w, () => cs[0].snap().outs[seat] === true, SETTLE, 500);
-  ok(folded, "Bob's seat must fold instead of holding the table every turn\n" + dump(w));
+  // Since 2026-11-24 a bot plays his seat to the end of the round he dropped in,
+  // and the fold comes before the next deal — never a table held on his turns.
   const stay = [cs[0], cs[2]];
+  const r0 = await playOut(w, { done: () => cs[0].snap().outs[seat] === true || stay.every(c => c.el("winnerOverlay").classList.contains("show")),
+                                consistency: false, budget: 20 * MIN });
+  ok(r0.ok, "Bob's seat is folded by the end of the round, not held every turn: " + (r0.reason || "") + "\n" + dump(w));
   const r = await playOut(w, { done: () => stay.every(c => c.el("winnerOverlay").classList.contains("show")), consistency: false, budget: 60 * MIN });
   ok(r.ok, "the table finishes without him: " + (r.reason || ""));
 });

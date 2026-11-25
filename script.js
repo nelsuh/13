@@ -203,7 +203,7 @@ const STR = {
     tourStEliminated: "Хасагдсан",
     tourStChampion: "Аварга",
     tourStCancelled: "Цуцлагдсан",
-    tourNoteReg: hm => "Бүртгэл " + hm + "-д хаагдаж, ширээ хуваарилагдана.",
+    tourNoteReg: (close, start) => "Бүртгэл " + close + "-д хаагдана. " + start + "-д ширээ хуваарилагдаж, тэмцээн эхэлнэ.",
     tourNoteRegDone: hm => "Та бүртгэгдсэн. " + hm + "-д ширээ тань нээгдэнэ.",
     tourNoteClosed: when => "Бүртгэл хаагдсан. Дараагийн тэмцээн: " + when + ".",
     tourNoteWaiting: "Ширээ тань нээгдлээ. Эхлэх цагт хөзөр тарна.",
@@ -239,11 +239,12 @@ const STR = {
     tourChampion: "АВАРГА",
     tourRules: "ДҮРЭМ",
     tourRulesList: [
-      (hm, close) => "Өдөр бүр " + hm + "-д эхэлнэ. Бүртгэл " + close + "-д хаагдаж, ширээ хуваарилагдана.",
+      (hm, close) => "Өдөр бүр " + hm + "-д эхэлнэ. Бүртгэл " + close + " хүртэл нээлттэй, ширээ " + hm + "-д хуваарилагдана.",
       "Бүртгүүлсэн бүх хүнийг санамсаргүйгээр 2–4 хүнтэй ширээнд аль болох тэнцүү хуваарилна.",
       "Ширээ бүр 20 оноо хүртэл тоглож, ганц ялагч нь дараагийн шатанд гарна. Нэг нүүдэлд 60 секунд.",
       "Бүх ширээ дуусахаас өмнө дараагийн шат эхлэхгүй; шат хооронд 20 секунд. Ганц ширээ үлдвэл тэр нь финал.",
       "Эхлэх цагаас 30 секундийн дотор ширээндээ ороогүй хүн хасагдана. Бот нөхөхгүй.",
+      "Тоглолтын дундуур холболт тасарвал тухайн тойргийг бот дуусгана. Тойрог дуусахад буцаж ирээгүй бол хасагдана. Бот хожсон ширээнээс хэн ч шалгарахгүй.",
       "Цагтаа ганцаараа ирвэл шууд шалгарна. Хоцорч ирсэн бол шалгарахгүй. Хэн ч ирээгүй, эсвэл 3 минут хэн ч идэвхгүй ширээ ялагчгүй хаагдана.",
       "2-оос цөөн хүн бүртгүүлбэл тэмцээн цуцлагдана."
     ],
@@ -262,6 +263,9 @@ const STR = {
     tourQualifiedMsg: "Та дараагийн шатанд шалгарлаа!",
     tourChampionMsg: "Та тэмцээнд түрүүллээ! 🏆",
     tourEliminatedMsg: "Та тэмцээнээс хасагдлаа.",
+    tourBotWonMsg: "Ширээг бот хожсон тул хэн ч дараагийн шатанд гарсангүй.",
+    netWeak: "Холболт сул",
+    awayBot: "Бот тоглож байна",
     tourRegFail: "Бүртгэж чадсангүй. Дахин оролдоно уу.",
     tourNoCloud: "Тэмцээн зөвхөн Usion апп дотор ажиллана.",
     tourLate: "Таны ширээ эхэлчихсэн тул энэ шатанд оролцох боломжгүй.",
@@ -413,7 +417,7 @@ const STR = {
     tourStEliminated: "Eliminated",
     tourStChampion: "Champion",
     tourStCancelled: "Cancelled",
-    tourNoteReg: hm => "Registration closes and tables are drawn at " + hm + ".",
+    tourNoteReg: (close, start) => "Registration closes at " + close + ". Tables are drawn and play starts at " + start + ".",
     tourNoteRegDone: hm => "You're in. Your table opens at " + hm + ".",
     tourNoteClosed: when => "Registration is closed. Next tournament: " + when + ".",
     tourNoteWaiting: "Your table is open. Cards are dealt at the start time.",
@@ -448,11 +452,12 @@ const STR = {
     tourChampion: "CHAMPION",
     tourRules: "RULES",
     tourRulesList: [
-      (hm, close) => "Starts every day at " + hm + ". Registration closes and tables are drawn at " + close + ".",
+      (hm, close) => "Starts every day at " + hm + ". Registration is open until " + close + "; tables are drawn at " + hm + ".",
       "Everyone registered is seated at random at tables of 2–4, as evenly as possible.",
       "Each table plays to 20 points; its single winner moves on. 60 seconds a turn.",
       "The next stage waits for every table; 20 s break between stages. One table left is the final.",
       "Not at your table within 30 seconds of the start = out. No bots fill in.",
+      "Lose your connection mid-match and a bot finishes that round for you; not back when it ends = out. Nobody goes through from a table the bot wins.",
       "Alone at the table on time = you go through. Late = you don't. A table nobody came to, or nobody was active at for 3 minutes, closes without a winner.",
       "Fewer than 2 registrations cancels the tournament."
     ],
@@ -471,6 +476,9 @@ const STR = {
     tourQualifiedMsg: "You're through to the next stage!",
     tourChampionMsg: "You won the tournament! 🏆",
     tourEliminatedMsg: "You're out of the tournament.",
+    tourBotWonMsg: "The bot won this table, so nobody goes through.",
+    netWeak: "Weak connection",
+    awayBot: "Bot playing",
     tourRegFail: "Couldn't register. Please try again.",
     tourNoCloud: "Tournaments only work inside the Usion app.",
     tourLate: "Your table already started, so you can't play this stage.",
@@ -835,6 +843,62 @@ function scheduleProxyMove(seat) {
     autoMove(seat, true);
   }, extra + PROXY_GRACE_MS + rank * PROXY_STAGGER_MS);
 }
+// ── A tournament player who drops mid-round (2026-11-24) ──
+// tsedo's connection went in that evening's final and the walk-out fold put them
+// out 15 s later, mid-round. Now, at a tournament table, a player who is gone
+// (relay "gone", or they left) has their seat played by the engine — the same
+// choice a bot seat makes — straight away, to the end of the round they dropped
+// in. Back before then, the seat is theirs again. Still gone when the round ends,
+// they are folded before the next deal (forfeit timer, scheduleNextDeal). No
+// clock is involved: the round decides. And a table the bot wins sends nobody
+// through (tourBotWon).
+const AWAY_MOVE_MS = 1500;
+let awayTimer = null;
+function awaySeat(seat) {
+  if (!tourCtx || !online || !dealActive) return false;
+  const id = roomPlayerIds[seat];
+  const p = id != null ? pendingLeaves.get(id) : null;
+  return !!p && p.epoch === dealEpoch;   // only the round they dropped in
+}
+function scheduleAwayMove(seat) {
+  if (replayingSync || turn !== seat || !awaySeat(seat)) return false;
+  const rank = proxyRank(seat);
+  if (rank < 0) return false;
+  if (awayTimer) clearTimeout(awayTimer);
+  const epoch = dealEpoch, moveNo = roundMoveNo;
+  awayTimer = setTimeout(() => {
+    awayTimer = null;
+    if (!online || !dealActive || netPaused) return;
+    if (epoch !== dealEpoch || moveNo !== roundMoveNo || turn !== seat || !awaySeat(seat)) return;
+    const d = botDecision(seat);
+    if (!d) return;
+    sendMove(d.kind === "pass" ? { kind: "pass", away: true }
+                               : { kind: "play", cards: d.combo.cards.map(cardWire), away: true }, seat, true);
+  }, AWAY_MOVE_MS + rank * PROXY_STAGGER_MS);
+  return true;
+}
+// Seats still held by somebody who is gone, at a tournament table between rounds.
+function tourAbsentSeats() {
+  if (!tourCtx) return [];
+  return roomPlayerIds.map((id, s) => s).filter(s => players[s] && !players[s].out &&
+      roomPlayerIds[s] !== myId && pendingLeaves.has(roomPlayerIds[s]));
+}
+// Did the engine make this seat's last play or pass? Read from the round's move
+// log, so every client — and a replay — reaches the same answer.
+function tourBotWon(seat) {
+  for (let i = moveLog.length - 1; i >= 0; i--) {
+    const m = moveLog[i];
+    if (!m || Number(m.seat) !== seat || (m.kind !== "play" && m.kind !== "pass")) continue;
+    return m.away === true;
+  }
+  return false;
+}
+// ── Weak connections ──
+// The relay says "reconnecting" the moment a player's socket drops. Their seat
+// says so until they are heard from again, so everybody knows why the table is
+// waiting.
+const weakIds = new Set();
+
 // `proxy` = we are acting on behalf of a seat that isn't ours. Every client holds
 // every hand (same seed → same deal), so the forced move is identical whoever
 // generates it; `seat` on the wire tells receivers who it belongs to and `ti`
@@ -845,7 +909,7 @@ function autoMove(seat, proxy) {
     if (online) sendMove({ kind: "pass" }, seat, proxy);
     else doPass(seat);
   } else {                                            // leading → can't pass, so play a forced minimal lead
-    const combo = botLead(hands[seat], firstPlay);
+    const combo = botLead(sortCards(hands[seat] || []), firstPlay);   // canonical order: see botDecision
     if (!combo) return;
     if (online) sendMove({ kind: "play", cards: combo.cards.map(cardWire) }, seat, proxy);
     else doPlay(seat, combo);
@@ -868,8 +932,11 @@ function renderOpponents() {
     const cnt = (hands[seat] || []).length;   // hands may be empty before the first deal
     const pos = positions[i - 1] || "top";
     const live = turn === seat && dealActive;
+    const pid = online ? roomPlayerIds[seat] : null;
+    const away = pid != null && !!tourCtx && pendingLeaves.has(pid) && !(p && p.out);
+    const weak = pid != null && !(p && p.out) && (away || weakIds.has(pid));
     const div = document.createElement("div");
-    div.className = "opp opp--" + pos + (live ? " turn" : "") + (cnt === 0 ? " done" : "");
+    div.className = "opp opp--" + pos + (live ? " turn" : "") + (cnt === 0 ? " done" : "") + (weak ? " weak" : "") + (away ? " away" : "");
     div.dataset.seat = seat;
     const profileTimer = document.createElement("span");
     profileTimer.className = "profile-timer opp-profile-timer";
@@ -887,6 +954,12 @@ function renderOpponents() {
         '<span class="opp-pname">' + escapeHtml(shortName(p.name)) + "</span>" +
         '<span class="opp-score">' + p.total + "</span>";
     div.appendChild(nameRow);
+    if (weak) {
+      const net = document.createElement("div");
+      net.className = "opp-net";
+      net.textContent = (away ? "🤖 " + t("awayBot") : "📶 " + t("netWeak"));
+      div.appendChild(net);
+    }
     const fan = document.createElement("div");
     fan.className = "opp-fan";
     fan.innerHTML = '<div class="mini-back"></div>'.repeat(cnt);
@@ -1134,6 +1207,21 @@ function reorderHandTo(keys, targetIndex) {
   const to = Math.max(0, Math.min(targetIndex, rest.length));
   mine.length = 0;
   rest.slice(0, to).concat(dragged, rest.slice(to)).forEach(c => mine.push(c));
+  handOrder = mine.map(cardKey); handOrderSeed = dealSeed;
+}
+// The player's own arrangement, kept for the deal it was made in (2026-11-25:
+// "the hand I sorted was in a different order on my next turn"). A resync, a
+// checkpoint catch-up or the state push sent when somebody rejoins rebuilds the
+// round from the deal seed, which deals the hand back in its dealt order. The
+// same seed is the same round, so the arrangement is put back; a new deal starts
+// from scratch. Cards are only ever removed mid-round, in place, so nothing else
+// disturbs it.
+let handOrder = null, handOrderSeed = null, dealSeed = null;
+function keepHandOrder(hand) {
+  if (!handOrder || handOrderSeed !== dealSeed || !Array.isArray(hand)) return hand;
+  const at = new Map(handOrder.map((k, i) => [k, i]));
+  return hand.map((c, i) => [c, at.has(cardKey(c)) ? at.get(cardKey(c)) : handOrder.length + i])
+    .sort((x, y) => x[1] - y[1]).map(x => x[0]);
 }
 
 window.addEventListener("pointermove", updateHandDrag, { passive: false });
@@ -1193,6 +1281,8 @@ function startDeal(seed) {
   const dealt = dealHands(seed, active.length);
   hands = players.map(() => []);
   active.forEach((s, i) => { hands[s] = dealt[i]; });
+  dealSeed = seed;
+  if (mySeat >= 0 && hands[mySeat]) hands[mySeat] = keepHandOrder(hands[mySeat]);
   table = null;
   passed = new Set();
   passStreak = 0;
@@ -1227,6 +1317,7 @@ function beginTurn() {
   turnTrusted = !replayingSync;   // replay → we're reconstructing, not observing
   startTurnTimer();
   if (!dealActive) return;
+  if (!replayingSync && online && tourCtx) scheduleAwayMove(turn);
   if (!online) {
     if (players[turn].isBot) botTimer = setTimeout(botAct, 750 + Math.floor(Math.random() * 500));
     return;
@@ -1251,7 +1342,11 @@ function botAct() {
 // what makes a broadcast bot move verifiable: the sender does not get to pick
 // the cards, the engine does — the same rule that guards a proxy cover.
 function botDecision(seat) {
-  const hand = hands[seat] || [];
+  // Canonical (dealt) order, never the owner's own arrangement: the planner can
+  // break a tie differently on a reordered hand (about 1 in 3000), and every
+  // client must reach the same move for a seat — including the owner's phone,
+  // which holds that hand in the order they dragged it into.
+  const hand = sortCards(hands[seat] || []);
   if (!hand.length) return null;
   const others = activeSeats().filter(s => s !== seat);
   const opponentMin = others.length ? Math.min(...others.map(s => (hands[s] || []).length)) : 13;
@@ -1478,6 +1573,7 @@ function isPrimaryAuthority() {
   if (!seats.length) return isHostPlayer();
   return seats[0] === mySeat;
 }
+const tourFoldTries = {};   // dealEpoch → folds tried before that round's next deal
 function scheduleNextDeal() {
   if (srvMode) return;                    // the server deals the next hand
   if (dealTimer) { clearTimeout(dealTimer); dealTimer = null; }
@@ -1485,8 +1581,22 @@ function scheduleNextDeal() {
   awaitingDeal = true;
   const rank = authorityRank();
   if (rank < 0) return;
-  if (rank === 0) { handOverlay.classList.remove("show"); hostDeal(); return; }
   const epoch = dealEpoch;
+  // Tournament: somebody who dropped during the round and is still gone is out
+  // before the next deal — the bot played their last round, it plays no more.
+  // A fold that never lands (it has to come from the elected writer) must not
+  // hold the table up for good, so after a few tries the deal goes ahead.
+  const absent = tourAbsentSeats();
+  if (absent.length && (tourFoldTries[epoch] || 0) < 4) {
+    tourFoldTries[epoch] = (tourFoldTries[epoch] || 0) + 1;
+    absent.forEach(s => sendHostLeaveOutcome(s, activeSeats().filter(x => x !== s).length <= 1));
+    dealTimer = setTimeout(() => {
+      dealTimer = null;
+      if (online && gameStarted && !dealActive && epoch === dealEpoch) scheduleNextDeal();
+    }, 1500);
+    return;
+  }
+  if (rank === 0) { handOverlay.classList.remove("show"); hostDeal(); return; }
   dealTimer = setTimeout(() => {
     dealTimer = null;
     if (!online || dealActive || epoch !== dealEpoch) return;   // someone dealt — stand down
@@ -2772,7 +2882,7 @@ function noteOpenWait() { if (!openWaitSince) openWaitSince = Date.now(); }
 // somebody joins, so anybody who is really here is heard from within a second of
 // our arrival. The set is per-room — resetRoomState() clears it.
 const heardFrom = new Set();
-function noteHeardFrom(id) { if (id != null && id !== myId) heardFrom.add(id); }
+function noteHeardFrom(id) { if (id != null && id !== myId) { heardFrom.add(id); weakIds.delete(id); } }
 function isLivePeer(id) {
   if (id == null) return false;
   return id === myId || heardFrom.has(id);
@@ -3625,6 +3735,7 @@ function onPlayerJoined(data) {
   isHost = roomPlayerIds[0] === myId;
   // Cancel only the ID explicitly named by this join event. `player_ids` is a
   // roster, not evidence that every listed player just reconnected.
+  if (joinedId != null) weakIds.delete(joinedId);
   if (joinedId != null && pendingLeaves.has(joinedId)) {
     clearForfeitGrace(joinedId);
     if (pendingLeaves.size) renderForfeitGrace();
@@ -3664,6 +3775,7 @@ function clearForfeitGrace(playerId) {
 
 function renderForfeitGrace() {
   if (!pendingLeaves.size || !turnLine) return;
+  if (tourCtx) { render(); return; }   // no countdown: a bot plays the seat, the seat says so
   let nearest = FORFEIT_GRACE_MS;
   pendingLeaves.forEach(p => { nearest = Math.min(nearest, Math.max(0, p.deadline - Date.now())); });
   turnLine.textContent = t("leftGrace", Math.max(1, Math.ceil(nearest / 1000)));
@@ -3720,7 +3832,7 @@ function sendHostLeaveOutcome(seat, endMatch) {
 function startForfeitGrace(seat, playerId, graceMs) {
   if (seat < 0 || playerId == null) return;
   const ms = graceMs == null ? FORFEIT_GRACE_MS : graceMs;
-  pendingLeaves.set(playerId, { seat, deadline: Date.now() + ms });
+  pendingLeaves.set(playerId, { seat, deadline: Date.now() + ms, epoch: dealEpoch });
   renderForfeitGrace();
   if (forfeitTimer) return;
   forfeitTimer = setInterval(() => {
@@ -3735,7 +3847,7 @@ function startForfeitGrace(seat, playerId, graceMs) {
     pendingLeaves.forEach((pending, id) => {
       if (presentIds.has(id) || (players[pending.seat] && players[pending.seat].out)) {
         pendingLeaves.delete(id);
-      } else if (now >= pending.deadline) {
+      } else if (now >= pending.deadline || (tourCtx && !dealActive)) {
         expired.push([id, pending.seat]);
       }
     });
@@ -3745,6 +3857,9 @@ function startForfeitGrace(seat, playerId, graceMs) {
     // Chat invite: the roster is fixed, so the seat folds out of the match and
     // the last player standing wins by forfeit.
     expired.forEach(([id, seat]) => {
+      // Tournament: a bot plays the seat to the end of the round; the fold waits
+      // for the round to end, however long that takes.
+      if (tourCtx && dealActive) return;
       pendingLeaves.delete(id);
       if (openTable) { sendSeatRelease(seat); return; }
       sendHostLeaveOutcome(seat, activeSeats().filter(s => s !== seat).length <= 1);
@@ -3767,9 +3882,12 @@ function startForfeitGrace(seat, playerId, graceMs) {
 // seated forever: avatar on the table, the turn stopping on them each round.
 // "gone" is a departure like any other — same grace, same fold/release.
 function onPlayerConnection(data) {
-  if (!data || data.state !== "gone" || data.player_id == null || data.player_id === myId) return;
+  if (!data || data.player_id == null || data.player_id === myId) return;
   const current = window.Usion && Usion.game && Usion.game.roomId;
   if (data.room_id && current && data.room_id !== current) return;   // a room we already left
+  if (data.state === "reconnecting") { weakIds.add(data.player_id); if (gameStarted) render(); return; }
+  if (data.state === "connected") { if (weakIds.delete(data.player_id) && gameStarted) render(); return; }
+  if (data.state !== "gone") return;
   onPlayerLeft({ room_id: data.room_id, player_id: data.player_id, reason: "gone" });
 }
 
@@ -3814,6 +3932,7 @@ function onPlayerLeft(data) {
   // EVERY client runs the countdown (it's also the on-screen "left — 15s" line);
   // exactly one elected live client writes each expired outcome.
   startForfeitGrace(seat, data.player_id, RELAY_WAITED[data.reason] ? 0 : FORFEIT_GRACE_MS);
+  if (tourCtx && dealActive && turn === seat) scheduleAwayMove(seat);
 }
 // number of seats this online match has: an open room is always 4; a chat-invite
 // match seats exactly the people who were invited (2–4).
@@ -3847,6 +3966,8 @@ function resetRoomState() {
   table = null; trickPlays = []; lastAction = {};
   roomPlayerIds = [];
   presentIds.clear(); presentIds.add(myId); releasedIds.clear();
+  weakIds.clear();
+  if (awayTimer) { clearTimeout(awayTimer); awayTimer = null; }
   lastSeq = 0; appliedBaseSeq = 0; appliedSequences = new Set();
   checkpointVersion = 0;
   sawRoomCheckpoint = false; lastRoomActivityAt = 0;
@@ -4580,7 +4701,7 @@ function sendMove(move, seat, proxy) {
   move.ti = roundMoveNo;          // the move index this was built for → duplicate covers collapse
   // A bot seat's move is already marked `bot` and validated against the engine's
   // own choice; only a cover for a HUMAN seat is an `auto` forced move.
-  if (proxy && move.bot !== true) move.auto = true;
+  if (proxy && move.bot !== true && move.away !== true) move.auto = true;
   if (!proxy) { pendingAction = true; renderControls(); }
   // Only our OWN play/pass goes onto our board immediately. A bot move or a cover
   // for somebody else waits for its echo and is validated in sequence order like
@@ -4699,7 +4820,7 @@ function applyRemoteMove(move, fromId) {
       // The content check further down is the real guard — the sender does not
       // get to choose the cards, the engine does.
       if (seat === senderSeat) return false;
-    } else if (move.auto === true) {
+    } else if (move.auto === true || move.away === true) {
       // Any seated client but the target may cover — the same rule as a bot
       // move, and for the same reasons: the covers are staggered by seat, and
       // presence is not replayable. What a cover may contain is fixed below.
@@ -4707,7 +4828,7 @@ function applyRemoteMove(move, fromId) {
     } else if (seat !== senderSeat) {
       return false;
     }
-  } else if (move.auto !== true && move.bot !== true && senderSeat >= 0 && seat !== senderSeat) {
+  } else if (move.auto !== true && move.bot !== true && move.away !== true && senderSeat >= 0 && seat !== senderSeat) {
     return false;
   }
 
@@ -4732,8 +4853,11 @@ function applyRemoteMove(move, fromId) {
   // recomputed here from state every client already shares. Same principle as a
   // proxy cover, except the engine gets its full choice instead of a forced
   // minimal one — so relaying a bot can never smuggle in a chosen discard.
-  if (move.bot === true) {
-    if (!replayTrusted && (!players[seat] || !players[seat].isBot)) return false;
+  // A tournament seat whose player dropped is played by the engine to the end of
+  // the round (see scheduleAwayMove): exactly the bot's choice, like a bot seat.
+  if (move.away === true && (!tourCtx || move.bot === true || move.auto === true)) return false;
+  if (move.bot === true || move.away === true) {
+    if (move.bot === true && !replayTrusted && (!players[seat] || !players[seat].isBot)) return false;
     if (fromId != null && (roomPlayerIds.indexOf(fromId) < 0 || fromId === roomPlayerIds[seat])) return false;
     const want = botDecision(seat);
     if (!want || want.kind !== move.kind) return false;
@@ -4748,7 +4872,7 @@ function applyRemoteMove(move, fromId) {
     if (table) {
       if (move.kind !== "pass") return false;
     } else {
-      const forced = botLead(hands[seat], firstPlay);
+      const forced = botLead(sortCards(hands[seat] || []), firstPlay);
       const want = forced ? forced.cards.map(cardWire).sort((a, b) => a - b).join(",") : "";
       const got = Array.isArray(move.cards) ? move.cards.map(Number).sort((a, b) => a - b).join(",") : "";
       if (move.kind !== "play" || !want || want !== got) return false;
@@ -5034,7 +5158,8 @@ function refreshNames() {
 //   registration ─(20:50)→ tables drawn ─(21:00)→ stage 1 ─→ … ─→ final ─→ champion
 //
 // * Every day at 21:00 Asia/Ulaanbaatar. Registration closes and tables are
-//   drawn TOUR_OPEN_MS (10 min) before; players can sit down and wait, but
+//   drawn TOUR_OPEN_MS before (0 since 2026-11-25: registration is open until
+//   10 s before the start, the draw is at the start); players can sit down and wait, but
 //   nothing is dealt before the start time.
 // * Tables of 2–4, as even as possible (tourTableSizes). One winner per table
 //   moves on. A stage never starts before every table of the previous one is
@@ -5061,7 +5186,11 @@ const TOUR_UTC_HOUR = 13;                 // 21:00 Asia/Ulaanbaatar (UTC+8, no D
 // Never rewrite a past entry: every phone derives an event's key (t13.v1.<startsAt>)
 // from it, so a change to a day that already happened orphans that event's records.
 const TOUR_SCHEDULE = [{ from: Date.UTC(2026, 10, 24), hour: 11 }];
-const TOUR_OPEN_MS = 10 * 60 * 1000;      // registration closes / tables drawn 10 min before the start
+// Tables are drawn AT the start (2026-11-25: registration open until 18:59:50).
+// Registration itself closes TOUR_REG_GUARD_MS earlier, so every write has
+// landed before anybody derives the draw; players sit down in the 30 s grace.
+// Until 2026-11-25 the draw was 10 minutes before the start.
+const TOUR_OPEN_MS = 0;
 const TOUR_BREAK_MS = 20 * 1000;          // between stages (30 s until 2026-11-23)
 const TOUR_GRACE_MS = 30 * 1000;          // no-show cut-off after a table's start, every stage (was 60 s until 2026-11-20)
 const TOUR_EMPTY_SETTLE_MS = 30 * 1000;   // after the grace: a table that never got a room had nobody — close it
@@ -5346,8 +5475,11 @@ async function tourRegister() {
   if (!tourShared() || !myId) { toast(t("tourNoCloud")); return; }
   if (tour.busy) return;
   tour.busy = true; tourRender();
+  // Judged at the TAP, on the corrected clock: waiting up to 4 s for a fresh
+  // reading must not turn a tap at 18:59:49 into a refusal.
+  const tapRaw = Date.now();
   await syncClockSoon(4000, true);   // a fresh reading: this is the write the draw depends on
-  if (tourNow() >= tour.startsAt - TOUR_OPEN_MS - tourRegGuardMs()) { tour.busy = false; tourRender(); return; }
+  if (tapRaw + clockSync.offset >= tour.startsAt - TOUR_OPEN_MS - tourRegGuardMs()) { tour.busy = false; tourRender(); return; }
   try {
     const has = rec => !!rec && Array.isArray(rec.list) && rec.list.some(p => p && p.id === myId);
     await tourUpdate(tourRegKey(tour.startsAt), cur => {
@@ -5366,8 +5498,9 @@ async function tourRegister() {
 async function tourWithdraw() {
   if (tour.busy) return;
   tour.busy = true; tourRender();
+  const tapRaw = Date.now();
   await syncClockSoon(4000, true);
-  if (tourNow() >= tour.startsAt - TOUR_OPEN_MS - tourRegGuardMs()) { tour.busy = false; tourRender(); return; }
+  if (tapRaw + clockSync.offset >= tour.startsAt - TOUR_OPEN_MS - tourRegGuardMs()) { tour.busy = false; tourRender(); return; }
   try {
     const gone = rec => !rec || !Array.isArray(rec.list) || !rec.list.some(p => p && p.id === myId);
     await tourUpdate(tourRegKey(tour.startsAt), cur => {
@@ -5535,6 +5668,12 @@ function tourCloseDeadTables() {
 }
 // ── Screen ──
 var tourCtx = null;   // while at a tournament table: {startsAt, stage, table, roster, startAt, isFinal, walkover}
+// The moment the register button stops working (the draw minus the guard).
+function tourRegClosesAt(tt) { return tt.closesAt - tourRegGuardMs(); }
+function tourFmtClockS(ms) {
+  const d = new Date(ms);
+  return tourFmtClock(ms) + ":" + String(d.getSeconds()).padStart(2, "0");
+}
 function tourFmtClock(ms) {
   const d = new Date(ms);
   return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
@@ -5625,7 +5764,7 @@ function tourRender() {
   const regOpen = now < tt.closesAt - tourRegGuardMs();
   const stage = tt.stages[tt.stages.length - 1];
   if (tt.phase === "registration") {
-    if (st === "guest") { act = regOpen ? "register" : null; note = regOpen ? t("tourNoteReg", tourFmtClock(tt.closesAt)) : t("tourNoteClosed", tourWhen(tourNextStart(tt.startsAt), now)); }
+    if (st === "guest") { act = regOpen ? "register" : null; note = regOpen ? t("tourNoteReg", tourFmtClockS(tourRegClosesAt(tt)), tourFmtClock(tt.startsAt)) : t("tourNoteClosed", tourWhen(tourNextStart(tt.startsAt), now)); }
     else { note = t("tourNoteRegDone", tourFmtClock(tt.closesAt)); sec = regOpen ? "withdraw" : null; }
   } else if (tt.phase === "cancelled") {
     note = tt.reason === "few" ? t("tourNoteFew") : t("tourNoteEmpty"); act = "menu";
@@ -5751,7 +5890,7 @@ function tourFillRules() {
   title.textContent = t("tourRules");
   list.innerHTML = "";
   t("tourRulesList").forEach(line => list.appendChild(tourEl("li", null,
-    typeof line === "function" ? line(tourFmtClock(at), tourFmtClock(at - TOUR_OPEN_MS)) : line)));
+    typeof line === "function" ? line(tourFmtClock(at), tourFmtClockS(at - TOUR_OPEN_MS - TOUR_REG_GUARD_MS)) : line)));
 }
 
 // ── At the table ──
@@ -6022,11 +6161,16 @@ function tourMatchOver(champSeat) {
   tourCtx.over = true;
   // This table is finished for us, even before its result reaches the board.
   tourSkip[tourTableKey(tourCtx.stage, tourCtx.table)] = true;
-  tourReport(tourCtx.startsAt, tourCtx.stage, tourCtx.table, champId);
-  tourPublishWatch(true, champId);
-  const iWon = champId === myId;
+  // The engine played the winning seat's last move: the bot may win a table, but
+  // a bot does not go through — nobody does from this table.
+  const botWon = tourBotWon(champSeat);
+  const filed = botWon ? null : champId;
+  tourReport(tourCtx.startsAt, tourCtx.stage, tourCtx.table, filed);
+  tourPublishWatch(true, filed);
+  const iWon = filed === myId;
   const rs = document.getElementById("rematchStatus");
-  if (rs) rs.textContent = iWon ? (tourCtx.isFinal ? t("tourChampionMsg") : t("tourQualifiedMsg")) : t("tourEliminatedMsg");
+  if (rs) rs.textContent = botWon ? t("tourBotWonMsg")
+    : iWon ? (tourCtx.isFinal ? t("tourChampionMsg") : t("tourQualifiedMsg")) : t("tourEliminatedMsg");
   const btn = document.getElementById("playAgainBtn");
   if (btn) btn.textContent = t("tourBackToTour");
   tourRenderShareButtons();
@@ -6523,7 +6667,7 @@ function showTourInvite(tt) {
   const inv = document.getElementById("tourInviteNotice");
   if (inv) { const txt = tourScheduleNotice(tourNow()); inv.textContent = txt; inv.hidden = !txt; }
   set("tourInviteCount", tt.people.length ? t("tourRegistered", tt.people.length) : t("tourInviteFirst"));
-  set("tourInviteClose", t("tourInviteClose", tourFmtClock(tt.closesAt)));
+  set("tourInviteClose", t("tourInviteClose", tourFmtClockS(tourRegClosesAt(tt))));
   set("tourInviteYes", t("tourInviteYes"));
   set("tourInviteNo", t("tourInviteNo"));
   const tick = () => set("tourInviteLeft", t("tourStartsIn", tourFmtLeft(tt.startsAt - tourNow())));

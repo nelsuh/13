@@ -902,5 +902,45 @@ test("open room: a search finds somebody already playing against bots", async ()
   eq(consistency(w), null, dump(w));
 });
 
+// 2026-11-25: "the hand I had sorted myself was in a different order on my next
+// turn". A resync rebuilds the round from the deal seed, which dealt the hand
+// back in its original order.
+test("your own arrangement of your hand survives a reconnect and resync", async () => {
+  const w = await onlineWorld(3);
+  await startMatch(w);
+  const r0 = await playOut(w, { done: () => w.clients[0].snap().roundMoveNo >= 2, budget: 5 * 60 * 1000 });
+  ok(r0.ok, "a couple of moves in: " + r0.reason);
+  const a = w.clients[0];
+  const before = a.read("hands[mySeat].map(cardKey)");
+  // Arrange it: the last two cards to the front, the first one to the end.
+  a.run("reorderHandTo(" + JSON.stringify(before.slice(-2)) + ", 0); render();");
+  a.run("reorderHandTo(" + JSON.stringify([before[0]]) + ", 99); render();");
+  const mine = a.read("hands[mySeat].map(cardKey)");
+  ok(mine.join() !== before.join(), "the hand is in the player's own order");
+  const epoch = a.snap().dealEpoch;
+  // What a resync, a catch-up past the log, or the state push sent when a
+  // lagging player rejoins all do: rebuild the round from a checkpoint.
+  a.run("applyCheckpoint(currentCheckpoint())");
+  await w.advance(1000);
+  ok(a.snap().dealEpoch > epoch, "the round was rebuilt from the room's checkpoint");
+  const held = new Set(a.read("hands[mySeat].map(cardKey)"));
+  eq(a.read("hands[mySeat].map(cardKey)").join(), mine.filter(k => held.has(k)).join(), "…and the cards are still where the player put them");
+  ok(a.doc.querySelectorAll("#hand .card, #hand > *").length > 0, "the hand is on screen");
+});
+
+test("a cover or bot move for a seat is the same whatever order its owner arranged the hand in", async () => {
+  // A hand where the planner breaks a tie by card order (found by search): the
+  // owner's phone holds it rearranged, everybody else in dealt order.
+  const w = await onlineWorld(2);
+  await startMatch(w);
+  const a = w.clients[0];
+  const dealt = [14, 13, 15, 12, 16, 27, 47, 44, 50, 49, 59, 60];
+  const arranged = [49, 59, 15, 12, 16, 50, 44, 14, 47, 27, 13, 60];
+  const pick = order => a.read("(() => { const s = mySeat; hands[s] = " + JSON.stringify(order) + ".map(wireCard);" +
+    " hands[1 - s] = [wireCard(3), wireCard(4)]; table = null; firstPlay = false;" +
+    " const d = botDecision(s); return d.kind + ':' + d.combo.cards.map(cardWire).sort((x, y) => x - y).join(','); })()");
+  eq(pick(arranged), pick(dealt), "the engine's choice does not depend on the hand's order");
+});
+
 if (require.main === module) run("ADVERSITY").then(r => process.exit(r.fails.length ? 1 : 0));
 module.exports = { run: () => run("ADVERSITY") };

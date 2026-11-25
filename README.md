@@ -191,8 +191,12 @@ nearly over anyway; a room two people can close is worse.
 Цэсний **Тэмцээн** товчоор орно. Муушигийн өдөр тутмын тэмцээнтэй ижил дүрэмтэй:
 
 - Өдөр бүр Улаанбаатарын **19:00**-д эхэлнэ (2026-11-23 хүртэл 21:00). Бүртгэл
-  **18:50**-д хаагдаж, ширээ хуваарилагдана; тоглогчид ширээндээ орж хүлээнэ,
-  19:00 хүртэл хөзөр тарахгүй.
+  **18:59:50** хүртэл нээлттэй; ширээ **19:00**-д хуваарилагдаж, тэмцээний дэлгэц дээр
+  байгаа хүн ширээндээ автоматаар орно. Ширээний бүх хүн ирмэгц хөзөр тарна.
+  (2026-11-25 хүртэл бүртгэл 18:50-д хаагдаж, ширээ 10 минутын өмнө хуваарилагддаг
+  байсан. `TOUR_OPEN_MS = 0`; бүртгэл `TOUR_REG_GUARD_MS` = 10 секундын өмнө хаагдана,
+  ингэснээр бүх бичилт хуваарилалтаас өмнө хүрнэ. Товчлуурыг дарсан мөчөөр шүүнэ,
+  цаг тулгах 4 секундын хүлээлтээр биш.)
 - Бүртгүүлсэн бүх хүнийг санамсаргүйгээр **2–4 хүнтэй** ширээнд аль болох тэнцүү
   хуваарилна (5 → 3+2, 7 → 4+3, 9 → 3+3+3). Ширээ бүр **20 оноо** хүртэл тоглоно.
   Нэг нүүдэлд **60 секунд** (энгийн тоглолтод 90); хугацаа дуусвал автоматаар pass.
@@ -286,6 +290,22 @@ can never hang.
   (`TOUR_EMPTY_CONFIRM_MS`) and it shows no per-table sign of life that other
   tables' writes cannot wipe: no live scores in `.l<N>` and no picture key
   `.w<stage>.<table>` in `shared.keys()`.
+- **A player who drops mid-match (2026-11-24).** In that evening's final tsedo's
+  connection went and the walk-out fold put them out 15 s later, mid-round, while
+  the others had been waiting on their turns. Now, at a tournament table only:
+  - the moment the relay says a player is gone (or they leave), the engine plays
+    their seat — the same choice a bot seat makes, sent as `{away: true}` by the
+    lowest present seat after 1.5 s (`scheduleAwayMove`) and checked against
+    `botDecision` on every client, live and replayed;
+  - back before the round ends, the seat is theirs again;
+  - still gone when the round ends, they are folded before the next deal
+    (`tourAbsentSeats` in `scheduleNextDeal`, and the forfeit timer). The round
+    decides, not a clock;
+  - a table whose winning seat's last move was the engine's is filed without a
+    winner (`tourBotWon`): the bot may win a table, but nobody goes through.
+  - The relay's "reconnecting" marks that player's seat «📶 Холболт сул» until
+    they are heard from again; a seat the engine is playing says «🤖 Бот тоглож
+    байна».
 - **Start time (2026-11-24).** The event moved from 21:00 to 19:00 UB.
   `TOUR_SCHEDULE` lists the UTC day each start hour applies from;
   `tourCurrentStart` reads it per day, so 2026-11-23 stayed at 21:00 and every
