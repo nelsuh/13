@@ -191,8 +191,13 @@ const STR = {
     tourTomorrow: hm => "Маргааш " + hm,
     tourStartsIn: s => "Эхлэхэд " + s,
     tourRegistered: n => n + " бүртгүүлсэн",
-    tourRegister: "БҮРТГҮҮЛЭХ",
+    tourRegister: "ЗӨВХӨН ӨНӨӨДӨР",
     tourWithdraw: "Бүртгэлээ цуцлах",
+    tourRegDaily: "ОРОЙ БҮР",
+    tourMakeDaily: "Орой бүр болгох",
+    tourStopDaily: "Орой бүрийн бүртгэлээ цуцлах",
+    tourDailyFromTomorrow: "Орой бүрийн тэмцээнд бүртгэгдлээ — дараагийн тэмцээнээс эхэлнэ.",
+    tourNoteRegDaily: hm => "Та орой бүр бүртгэлтэй. " + hm + "-д ширээ тань нээгдэнэ.",
     tourEnter: "ШИРЭЭНДЭЭ ОРОХ",
     tourToMenu: "ЦЭС РҮҮ",
     tourStGuest: "Бүртгүүлээгүй",
@@ -246,7 +251,8 @@ const STR = {
       "Эхлэх цагаас 30 секундийн дотор ширээндээ ороогүй хүн хасагдана. Бот нөхөхгүй.",
       "Тоглолтын дундуур холболт тасарвал тухайн тойргийг бот дуусгана. Тойрог дуусахад буцаж ирээгүй бол хасагдана. Бот хожсон ширээнээс хэн ч шалгарахгүй.",
       "Цагтаа ганцаараа ирвэл шууд шалгарна. Хоцорч ирсэн бол шалгарахгүй. Хэн ч ирээгүй, эсвэл 3 минут хэн ч идэвхгүй ширээ ялагчгүй хаагдана.",
-      "2-оос цөөн хүн бүртгүүлбэл тэмцээн цуцлагдана."
+      "2-оос цөөн хүн бүртгүүлбэл тэмцээн цуцлагдана.",
+      "«Орой бүр» бүртгэл цаашдын бүх тэмцээнд хүчинтэй, цуцлах хүртэл. Долоо хоног апп нээгээгүй бол автоматаар цуцлагдана."
     ],
     tourLobbyTitle: (st, k) => st + " · Ширээ " + k,
     tourLobbyStartsIn: s => "Эхлэхэд " + s,
@@ -273,7 +279,8 @@ const STR = {
     tourInviteWhen: hm => "Өнөөдөр " + hm + "-д эхэлнэ",
     tourInviteFirst: "Хамгийн түрүүнд бүртгүүлээрэй",
     tourInviteClose: hm => "Бүртгэл " + hm + "-д хаагдана",
-    tourInviteYes: "ОРОЛЦОЁ",
+    tourInviteYes: "ЗӨВХӨН ӨНӨӨДӨР",
+    tourInviteDaily: "ОРОЙ БҮР",
     tourInviteNo: "Үгүй",
     tourJoinFail: "Ширээнд холбогдож чадсангүй. «Ширээндээ орох» дээр дахин дарна уу.",
     tourRemindOffer: (hm, min) => "Тэмцээн эхлэхээс " + min + " минутын өмнө (" + hm + ") сануулга авах уу?",
@@ -405,8 +412,13 @@ const STR = {
     tourTomorrow: hm => "Tomorrow " + hm,
     tourStartsIn: s => "Starts in " + s,
     tourRegistered: n => n + " registered",
-    tourRegister: "REGISTER",
+    tourRegister: "TONIGHT ONLY",
     tourWithdraw: "Withdraw",
+    tourRegDaily: "EVERY EVENING",
+    tourMakeDaily: "Make it every evening",
+    tourStopDaily: "Stop every-evening registration",
+    tourDailyFromTomorrow: "Registered for every evening — from the next tournament.",
+    tourNoteRegDaily: hm => "You're in every evening. Your table opens at " + hm + ".",
     tourEnter: "GO TO MY TABLE",
     tourToMenu: "MENU",
     tourStGuest: "Not registered",
@@ -486,7 +498,8 @@ const STR = {
     tourInviteWhen: hm => "Starts today at " + hm,
     tourInviteFirst: "Be the first to register",
     tourInviteClose: hm => "Registration closes at " + hm,
-    tourInviteYes: "COUNT ME IN",
+    tourInviteYes: "TONIGHT ONLY",
+    tourInviteDaily: "EVERY EVENING",
     tourInviteNo: "No thanks",
     tourJoinFail: "Couldn't connect to your table. Tap «Go to my table» again.",
     tourRemindOffer: (hm, min) => "Get a reminder " + min + " minutes before the start (" + hm + ")?",
@@ -5324,6 +5337,29 @@ function tourShuffle(ids, seed) {
   }
   return list;
 }
+// Who is in an event: today's rows and the «every evening» rows, as of the draw.
+//   t13.v1.<startsAt>.reg  {v, list:[{id, n, a, t}]}              tonight only
+//   t13.v1.daily           {v, list:[{id, n, a, t, seen, u}]}     every evening
+// A standing row counts for every event whose registration closed after its
+// `t`. Leaving stamps it `u` instead of deleting it, and the row stops counting
+// only for events whose registration closes after `u`: nothing written after
+// a draw can change that draw on a phone that reads the list late. The result
+// is a plain roster (no `t`), what tourDerive has always taken.
+function tourPeople(startsAt, reg, daily) {
+  const cut = startsAt - TOUR_OPEN_MS - TOUR_REG_GUARD_MS;
+  const byId = {};
+  (reg || []).forEach(p => {
+    if (!p || typeof p.id !== "string" || (Number.isFinite(p.t) && p.t >= startsAt - TOUR_OPEN_MS) || byId[p.id]) return;
+    byId[p.id] = { id: p.id, n: p.n, a: p.a };
+  });
+  (daily || []).forEach(p => {
+    if (!p || typeof p.id !== "string" || !Number.isFinite(p.t) || p.t >= cut) return;
+    if (Number.isFinite(p.u) && p.u < cut) return;
+    const was = byId[p.id];
+    byId[p.id] = { id: p.id, n: (was && was.n) || p.n, a: (was && was.a) || p.a, daily: true };
+  });
+  return Object.keys(byId).sort().map(k => byId[k]);
+}
 // roster: [{id, n, a}] · results: {stageNo: {tableNo: {w, at}}} → the whole event.
 function tourDerive(startsAt, roster, results, now) {
   const seen = new Set();
@@ -5381,8 +5417,9 @@ function tourMyStatus(tt, id) {
 }
 
 // ── Shared storage ──
-const tour = { startsAt: 0, roster: [], results: {}, live: {}, loaded: false, busy: false, pollTimer: null, tickTimer: null,
-               rosterFinal: false, stageFinal: {}, pollN: 0,
+// roster = tourPeople(reg, daily): today's rows and the standing ones, merged.
+const tour = { startsAt: 0, roster: [], reg: [], daily: [], results: {}, live: {}, loaded: false, busy: false, pollTimer: null, tickTimer: null,
+               rosterFinal: false, stageFinal: {}, pollN: 0, dailyFixAt: 0,
                reported: {} };   // results we still owe the board: key#table → {stage, table, w}
 function tourShared() {
   const s = window.Usion && Usion.cloud && Usion.cloud.shared;
@@ -5390,6 +5427,11 @@ function tourShared() {
 }
 // One record: ~200 rows of {id, n, a} (avatar url capped) fit its 64 KB.
 function tourRegKey(startsAt) { return TOUR_PREFIX + startsAt + ".reg"; }
+const TOUR_DAILY_KEY = TOUR_PREFIX + "daily";
+const TOUR_DAILY_STALE_MS = 7 * 24 * 3600 * 1000;   // a week without opening the game signs a standing row out
+function tourRebuildRoster() { tour.roster = tourPeople(tour.startsAt, tour.reg, tour.daily); }
+function tourIsDaily(id) { return tour.daily.some(p => p.id === id && !Number.isFinite(p.u)); }
+function tourIsToday(id) { return tour.reg.some(p => p.id === id); }
 function tourStageKey(startsAt, n) { return TOUR_PREFIX + startsAt + ".s" + n; }
 function tourLiveKey(startsAt, n) { return TOUR_PREFIX + startsAt + ".l" + n; }
 function tourListOf(rec) { return rec && Array.isArray(rec.list) ? rec.list.filter(x => x && typeof x.id === "string") : []; }
@@ -5402,7 +5444,7 @@ async function tourLoad() {
   const now = tourNow();
   const startsAt = tourCurrentStart(now);
   if (startsAt !== tour.startsAt) {
-    tour.startsAt = startsAt; tour.roster = []; tour.results = {}; tour.live = {};
+    tour.startsAt = startsAt; tour.roster = []; tour.reg = []; tour.results = {}; tour.live = {};
     tour.rosterFinal = false; tour.stageFinal = {}; tour.loaded = false;
   }
   // Outside the Usion app there is no signed-in player and no server to read:
@@ -5410,8 +5452,12 @@ async function tourLoad() {
   if (!shared || !myId) { tour.loaded = true; return; }
   try {
     if (!tour.rosterFinal) {
-      tour.roster = tourListOf(await shared.get(tourRegKey(startsAt)));
+      const got = await Promise.all([shared.get(tourRegKey(startsAt)), shared.get(TOUR_DAILY_KEY)]);
+      tour.reg = tourListOf(got[0]);
+      tour.daily = tourListOf(got[1]);
+      tourRebuildRoster();
       if (now >= startsAt - TOUR_OPEN_MS + TOUR_REG_SETTLE_MS) tour.rosterFinal = true;
+      tourDailyUpkeep();
     }
     for (let n = 1; n <= 12; n++) {
       const d = tourDerive(startsAt, tour.roster, tour.results, tourNow());
@@ -5471,7 +5517,11 @@ function tourMe() {
   const a = myAvatar && String(myAvatar).length <= 200 ? myAvatar : null;
   return { id: myId, n: String(myName || t("you")).slice(0, 24), a };
 }
-async function tourRegister() {
+// daily: false = tonight's event only, true = every evening from now on.
+// Tonight's row is refused once registration has closed; a standing row never
+// is (it counts from the next event on: tourPeople).
+async function tourRegister(daily) {
+  daily = daily === true;
   if (!tourShared() || !myId) { toast(t("tourNoCloud")); return; }
   if (tour.busy) return;
   tour.busy = true; tourRender();
@@ -5479,39 +5529,94 @@ async function tourRegister() {
   // reading must not turn a tap at 18:59:49 into a refusal.
   const tapRaw = Date.now();
   await syncClockSoon(4000, true);   // a fresh reading: this is the write the draw depends on
-  if (tapRaw + clockSync.offset >= tour.startsAt - TOUR_OPEN_MS - tourRegGuardMs()) { tour.busy = false; tourRender(); return; }
+  const open = tapRaw + clockSync.offset < tour.startsAt - TOUR_OPEN_MS - tourRegGuardMs();
+  if (!daily && !open) { tour.busy = false; tourRender(); return; }
   try {
-    const has = rec => !!rec && Array.isArray(rec.list) && rec.list.some(p => p && p.id === myId);
-    await tourUpdate(tourRegKey(tour.startsAt), cur => {
-      if (has(cur)) return null;
-      const list = tourListOf(cur);
-      list.push(Object.assign(tourMe(), { t: tourNow() }));
-      return { v: 1, list };
-    }, has);
-    tour.roster = tour.roster.filter(x => x.id !== myId).concat([tourMe()]);
+    if (daily) {
+      const has = rec => tourListOf(rec).some(p => p.id === myId && !Number.isFinite(p.u));
+      await tourUpdate(TOUR_DAILY_KEY, cur => {
+        if (has(cur)) return null;
+        const now = tourNow();
+        return { v: 1, list: tourListOf(cur).concat([Object.assign(tourMe(), { t: now, seen: now })]) };
+      }, has);
+      if (!open) toast(t("tourDailyFromTomorrow"));
+    } else {
+      const has = rec => !!rec && Array.isArray(rec.list) && rec.list.some(p => p && p.id === myId);
+      await tourUpdate(tourRegKey(tour.startsAt), cur => {
+        if (has(cur)) return null;
+        const list = tourListOf(cur);
+        list.push(Object.assign(tourMe(), { t: tourNow() }));
+        return { v: 1, list };
+      }, has);
+      tour.reg = tour.reg.filter(x => x.id !== myId).concat([Object.assign(tourMe(), { t: tourNow() })]);
+      tourRebuildRoster();
+    }
+    tour.rosterFinal = false;
     await tourLoad();   // and everybody else who registered meanwhile
     tourRemindLoad(true);   // → the reminder offer, unless they already decided
     tourCleanup();
   } catch (e) { console.warn(e); toast(t("tourRegFail")); }
   tour.busy = false; tourRender();
 }
+// Leaving: a standing registration is stamped (it stops counting from the next
+// draw, whenever you tap); tonight's row comes out while registration is open.
 async function tourWithdraw() {
   if (tour.busy) return;
   tour.busy = true; tourRender();
   const tapRaw = Date.now();
   await syncClockSoon(4000, true);
-  if (tapRaw + clockSync.offset >= tour.startsAt - TOUR_OPEN_MS - tourRegGuardMs()) { tour.busy = false; tourRender(); return; }
+  const open = tapRaw + clockSync.offset < tour.startsAt - TOUR_OPEN_MS - tourRegGuardMs();
+  const wasDaily = tourIsDaily(myId);
+  if (!wasDaily && !open) { tour.busy = false; tourRender(); return; }
   try {
-    const gone = rec => !rec || !Array.isArray(rec.list) || !rec.list.some(p => p && p.id === myId);
-    await tourUpdate(tourRegKey(tour.startsAt), cur => {
-      if (gone(cur)) return null;
-      return { v: 1, list: tourListOf(cur).filter(x => x.id !== myId) };
-    }, gone);
-    tour.roster = tour.roster.filter(x => x.id !== myId);
-    tourRemindWithdrawn(tour.startsAt);
+    if (wasDaily) {
+      const gone = rec => !tourListOf(rec).some(p => p.id === myId && !Number.isFinite(p.u));
+      await tourUpdate(TOUR_DAILY_KEY, cur => {
+        if (gone(cur)) return null;
+        const now = tourNow();
+        return { v: 1, list: tourListOf(cur).map(p => p.id === myId && !Number.isFinite(p.u) ? Object.assign({}, p, { u: now }) : p) };
+      }, gone);
+    }
+    if (open && tourIsToday(myId)) {
+      const gone = rec => !rec || !Array.isArray(rec.list) || !rec.list.some(p => p && p.id === myId);
+      await tourUpdate(tourRegKey(tour.startsAt), cur => {
+        if (gone(cur)) return null;
+        return { v: 1, list: tourListOf(cur).filter(x => x.id !== myId) };
+      }, gone);
+      tour.reg = tour.reg.filter(x => x.id !== myId);
+    }
+    tour.rosterFinal = false;
     await tourLoad();
+    tourRemindWithdrawn(tour.startsAt, wasDaily);
   } catch (e) { console.warn(e); toast(t("tourRegFail")); }
   tour.busy = false; tourRender();
+}
+// Keeping the standing list honest, at most once an hour per phone: our own
+// row says we are still around; a row nobody has opened the game with for a
+// week is signed out; rows signed out days ago are dropped. Every change is a
+// stamp taken now, so no event already drawn can see it.
+function tourDailyUpkeep() {
+  const now = tourNow();
+  if (now - tour.dailyFixAt < 3600 * 1000 || !tour.daily.length) return;
+  const mine = tour.daily.some(p => p.id === myId && !Number.isFinite(p.u) && now - (p.seen || p.t || 0) > 12 * 3600 * 1000);
+  const stale = tour.daily.some(p => p.id !== myId && !Number.isFinite(p.u) && now - Math.max(p.seen || 0, p.t || 0) > TOUR_DAILY_STALE_MS);
+  const old = tour.daily.some(p => Number.isFinite(p.u) && p.u < now - 2 * TOUR_DAY_MS);
+  tour.dailyFixAt = now;
+  if (!mine && !stale && !old) return;
+  tourUpdate(TOUR_DAILY_KEY, cur => {
+    const at = tourNow();
+    let changed = false;
+    const list = tourListOf(cur).filter(p => {
+      if (Number.isFinite(p.u) && p.u < at - 2 * TOUR_DAY_MS) { changed = true; return false; }
+      return true;
+    }).map(p => {
+      if (Number.isFinite(p.u)) return p;
+      if (p.id === myId && at - (p.seen || p.t || 0) > 12 * 3600 * 1000) { changed = true; return Object.assign({}, p, tourMe(), { seen: at }); }
+      if (p.id !== myId && at - Math.max(p.seen || 0, p.t || 0) > TOUR_DAILY_STALE_MS) { changed = true; return Object.assign({}, p, { u: at }); }
+      return p;
+    });
+    return changed ? { v: 1, list } : null;
+  }, () => true).catch(() => {});
 }
 // File a table's winner (null = nobody). The first result filed stands; we keep
 // owing ours until the board shows one, so a write lost in a race comes back.
@@ -5760,12 +5865,21 @@ function tourRender() {
   // The one next thing to do.
   const primary = document.getElementById("tourPrimary");
   const secondary = document.getElementById("tourSecondary");
-  let note = "", act = null, sec = null;
+  const dailyBtn = document.getElementById("tourDaily");
+  const daily = tourIsDaily(myId);
+  let note = "", act = null, sec = null, dly = null;
   const regOpen = now < tt.closesAt - tourRegGuardMs();
   const stage = tt.stages[tt.stages.length - 1];
   if (tt.phase === "registration") {
-    if (st === "guest") { act = regOpen ? "register" : null; note = regOpen ? t("tourNoteReg", tourFmtClockS(tourRegClosesAt(tt)), tourFmtClock(tt.startsAt)) : t("tourNoteClosed", tourWhen(tourNextStart(tt.startsAt), now)); }
-    else { note = t("tourNoteRegDone", tourFmtClock(tt.closesAt)); sec = regOpen ? "withdraw" : null; }
+    if (st === "guest") {
+      act = regOpen ? "register" : null;
+      note = regOpen ? t("tourNoteReg", tourFmtClockS(tourRegClosesAt(tt)), tourFmtClock(tt.startsAt)) : t("tourNoteClosed", tourWhen(tourNextStart(tt.startsAt), now));
+      if (!daily) dly = "daily";
+    } else {
+      note = daily ? t("tourNoteRegDaily", tourFmtClock(tt.closesAt)) : t("tourNoteRegDone", tourFmtClock(tt.closesAt));
+      if (!daily) dly = "make";
+      sec = daily ? "stop" : regOpen ? "withdraw" : null;
+    }
   } else if (tt.phase === "cancelled") {
     note = tt.reason === "few" ? t("tourNoteFew") : t("tourNoteEmpty"); act = "menu";
   } else if (st === "guest") { note = tt.phase === "complete" ? "" : t("tourNoteLive", tourWhen(tourNextStart(tt.startsAt), now)); act = "menu"; }
@@ -5779,7 +5893,11 @@ function tourRender() {
              rest.length && rest.length <= 3 ? rest.map(m => t("tourTable", m.number)).join(", ") : "");
   } else if (st === "eliminated") { note = t("tourNoteEliminated"); act = "menu"; }
   else if (st === "champion") { note = t("tourNoteChampion"); act = null; }   // the share button is their next step
-  if (!tourShared() || !myId) note = t("tourNoCloud");
+  // After the event, or out of it: the standing registration is still on offer.
+  if (tt.phase !== "registration" && (st === "guest" || st === "eliminated" || st === "champion" || tt.phase === "cancelled")) {
+    if (daily) sec = "stop"; else dly = "daily";
+  }
+  if (!tourShared() || !myId) { note = t("tourNoCloud"); sec = null; dly = null; }
   set("tourNote", note);
   if (primary) {
     primary.style.display = act ? "block" : "none";
@@ -5790,7 +5908,12 @@ function tourRender() {
   if (secondary) {
     secondary.style.display = sec ? "block" : "none";
     secondary.disabled = tour.busy;
-    secondary.textContent = t("tourWithdraw");
+    secondary.textContent = sec === "stop" ? t("tourStopDaily") : t("tourWithdraw");
+  }
+  if (dailyBtn) {
+    dailyBtn.style.display = dly ? "block" : "none";
+    dailyBtn.disabled = tour.busy || !tour.loaded;
+    dailyBtn.textContent = dly === "make" ? t("tourMakeDaily") : t("tourRegDaily");
   }
 
   // Champion banner
@@ -6199,6 +6322,7 @@ function tourBackToScreen() {
   on("menuTourBtn", openTournament);
   on("tourBackBtn", closeTournament);
   on("tourSecondary", tourWithdraw);
+  on("tourDaily", function () { tourRegister(true); });
   on("specExit", function () { tourStopWatch(); });
   const tb = document.getElementById("tourBody");
   if (tb) tb.addEventListener("click", function (e) {
@@ -6669,6 +6793,7 @@ function showTourInvite(tt) {
   set("tourInviteCount", tt.people.length ? t("tourRegistered", tt.people.length) : t("tourInviteFirst"));
   set("tourInviteClose", t("tourInviteClose", tourFmtClockS(tourRegClosesAt(tt))));
   set("tourInviteYes", t("tourInviteYes"));
+  set("tourInviteDaily", t("tourInviteDaily"));
   set("tourInviteNo", t("tourInviteNo"));
   const tick = () => set("tourInviteLeft", t("tourStartsIn", tourFmtLeft(tt.startsAt - tourNow())));
   tick();
@@ -6687,6 +6812,12 @@ function hideTourInvite() {
 }
 (function wireTourInvite() {
   const yes = document.getElementById("tourInviteYes"), no = document.getElementById("tourInviteNo");
+  const daily = document.getElementById("tourInviteDaily");
+  if (daily) daily.addEventListener("click", () => {
+    hideTourInvite();
+    openTournament();
+    tourRegister(true);
+  });
   if (yes) yes.addEventListener("click", () => {
     hideTourInvite();
     openTournament();
@@ -7075,14 +7206,23 @@ async function tourRemindLoad(force) {
   if (!force && tourNow() - tourRemind.loadedAt < 60000) return;
   tourRemind.loadedAt = tourNow();
   let d = await tourRemindCall("GET");
-  if (tourRemindNeedsEvent(d)) d = (await tourRemindCall("POST", { startsAt: tour.startsAt }, "/event")) || d;
+  const daily = tourIsDaily(myId);
+  if (d && !daily && d.daily) d = (await tourRemindCall("DELETE", { startsAt: tour.startsAt, daily: false }, "/event")) || d;
+  if (tourRemindNeedsEvent(d) || (d && d.configured && daily && !d.daily))
+    d = (await tourRemindCall("POST", { startsAt: tour.startsAt, daily }, "/event")) || d;
   if (d) { tourRemind.state = d; if (d.enabled) await tourRemindCheckBlocked(); }
   tourRenderRemind();
 }
 // Withdrawing takes the event back, so a player who left gets no push.
-function tourRemindWithdrawn(startsAt) {
+function tourRemindWithdrawn(startsAt, wasDaily) {
   if (!tourRemind.state || !tourRemind.state.configured) return;
-  tourRemindCall("DELETE", { startsAt }, "/event").then(d => { if (d) { tourRemind.state = d; tourRenderRemind(); } });
+  // Takes «every evening» too; still in tonight (a standing row stamped after the
+  // draw) → tourRemindLoad files tonight's event again.
+  const body = { startsAt, daily: wasDaily ? false : undefined };
+  tourRemindCall("DELETE", body, "/event").then(d => {
+    if (d) { tourRemind.state = d; tourRenderRemind(); }
+    if (tourRemindRegistered()) tourRemindLoad(true);
+  });
 }
 async function tourRemindSet(on) {
   if (tourRemind.busy) return;
@@ -7100,7 +7240,8 @@ async function tourRemindSet(on) {
       try { if (Usion.notify && typeof Usion.notify.setMuted === "function") await Usion.notify.setMuted(false); } catch (_) {}
     }
     let d = await tourRemindCall("PUT", { enabled: !!on, locale: LANG });
-    if (d && tourRemindNeedsEvent(d)) d = (await tourRemindCall("POST", { startsAt: tour.startsAt }, "/event")) || d;
+    if (d && (tourRemindNeedsEvent(d) || (d.configured && tourIsDaily(myId) && !d.daily)))
+      d = (await tourRemindCall("POST", { startsAt: tour.startsAt, daily: tourIsDaily(myId) }, "/event")) || d;
     if (d) { tourRemind.state = d; tourRemind.blocked = false; if (on) toast(t("tourRemindOnToast")); }
     else toast(t("tourRemindFail"));
   } finally {

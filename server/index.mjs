@@ -4,10 +4,11 @@
 // come from a server: players who allowed notifications and registered for an event
 // get a push REMIND_LEAD_MS (3 min) before it starts, app closed or not.
 //
-//   GET    /api/reminder            → { configured, decided, enabled, events, lead_ms }
+// «Every evening» registrants are reminded for every event (store.dailyUsers).
+//   GET    /api/reminder            → { configured, decided, enabled, daily, events, lead_ms }
 //   PUT    /api/reminder            { enabled, locale }   on/off (after Usion's permission prompt)
-//   POST   /api/reminder/event      { startsAt }          "I registered for this event"
-//   DELETE /api/reminder/event      { startsAt }          "I withdrew"
+//   POST   /api/reminder/event      { startsAt, daily? }  "I registered for this event (every evening)"
+//   DELETE /api/reminder/event      { startsAt, daily? }  "I withdrew (from every evening too)"
 //   GET    /api/time                → { now }   server clock, no token (tournament timing)
 //
 // Every /api call carries the Usion iframe token (Authorization: Bearer …); the
@@ -19,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { createIdentity, createNotifier } from './usion.mjs';
 import { memoryStore, mongoStore } from './store.mjs';
 import { attachSockets } from './sockets.mjs';
+import { tourCurrentStart } from './schedule.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Only the game itself is public: never the server code, tests or .git.
@@ -58,7 +60,7 @@ export function createApp({ store, identity, notifier, leadMs = 180000, now = ()
   }
   async function view(userId) {
     const p = await store.getPref(userId);
-    return { configured: notifier.enabled, decided: !!p?.decided, enabled: !!p?.enabled,
+    return { configured: notifier.enabled, decided: !!p?.decided, enabled: !!p?.enabled, daily: !!p?.daily,
       events: await store.upcomingEvents(userId, now()), lead_ms: leadMs };
   }
   // An event a client may register: today's or tomorrow's, nothing far off or long past.
@@ -72,7 +74,12 @@ export function createApp({ store, identity, notifier, leadMs = 180000, now = ()
     if (!user) return json(res, 401, { error: 'unauthorized' });
     const body = ['PUT', 'POST', 'DELETE'].includes(req.method) ? await readBody(req) : {};
 
-    if (pathname === '/api/reminder' && req.method === 'GET') return json(res, 200, await view(user.id));
+    if (pathname === '/api/reminder' && req.method === 'GET') {
+      // Opening the tournament keeps an «every evening» subscription alive.
+      const p = await store.getPref(user.id);
+      if (p?.daily) await store.setPref(user.id, { dailySeen: now() });
+      return json(res, 200, await view(user.id));
+    }
     if (pathname === '/api/reminder' && req.method === 'PUT') {
       if (typeof body.enabled !== 'boolean') return json(res, 400, { error: 'enabled must be boolean' });
       if (body.enabled && !notifier.enabled) return json(res, 409, { error: 'not_configured' });
@@ -82,8 +89,13 @@ export function createApp({ store, identity, notifier, leadMs = 180000, now = ()
     if (pathname === '/api/reminder/event' && (req.method === 'POST' || req.method === 'DELETE')) {
       const startsAt = Number(body.startsAt);
       if (!validStart(startsAt)) return json(res, 400, { error: 'bad startsAt' });
-      if (req.method === 'POST') await store.addEvent(user.id, startsAt);
-      else await store.removeEvent(user.id, startsAt);
+      if (req.method === 'POST') {
+        await store.addEvent(user.id, startsAt);
+        if (body.daily === true) await store.setPref(user.id, { daily: true, dailySeen: now() });
+      } else {
+        await store.removeEvent(user.id, startsAt);
+        if (body.daily === false) await store.setPref(user.id, { daily: false });
+      }
       return json(res, 200, await view(user.id));
     }
     return json(res, 404, { error: 'not_found' });
@@ -107,15 +119,20 @@ export function createApp({ store, identity, notifier, leadMs = 180000, now = ()
   }
 
   // ── The reminder clock ────────────────────────────────────────────────
-  // Each event is claimed atomically before sending, so a restart or a second
-  // replica never pushes the same reminder twice. A failed push is retried every
-  // minute until the event starts; after that it would be useless.
+  // «Every evening» subscribers get tonight's event filed for them once it is
+  // due. Each event is claimed atomically before sending, so a restart or a
+  // second replica never pushes the same reminder twice. A failed push is
+  // retried every minute until the event starts; after that it would be useless.
   let running = false;
   async function runDue() {
     if (running || !notifier.enabled) return { sent: 0 };
     running = true;
     let sent = 0;
     try {
+      const t0 = now(), start = tourCurrentStart(t0);
+      if (start > t0 && start - leadMs <= t0) {
+        for (const id of await store.dailyUsers(t0)) await store.addEvent(id, start);
+      }
       for (;;) {
         const t = now();
         const batch = await store.claimDue(t, leadMs, 8);

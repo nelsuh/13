@@ -1,11 +1,14 @@
 // Reminder records. MongoDB when MONGODB_URI is set (the game host container is
 // read-only and replaced on every deploy), otherwise memory (local runs and tests).
 //
-//   prefs  { _id: userId, enabled, decided, locale, updatedAt }
+//   prefs  { _id: userId, enabled, decided, locale, daily, dailySeen, updatedAt }
+//          daily: registered «every evening» — reminded for every event while
+//          they keep opening the game (dailySeen within DAILY_STALE_MS)
 //   events { _id: "<startsAt>:<userId>", userId, startsAt, status, retryAt, claimedAt }
 //          status: pending → sending → sent | skipped   (one reminder per player per event)
 
-const CLAIM_STALE_MS = 2 * 60 * 1000;   // a send that never finished (crash) becomes claimable again
+const CLAIM_STALE_MS = 2 * 60 * 1000;
+export const DAILY_STALE_MS = 7 * 24 * 3600 * 1000;   // same week as the client's standing list   // a send that never finished (crash) becomes claimable again
 
 export function memoryStore() {
   const prefs = new Map(), events = new Map();
@@ -19,6 +22,9 @@ export function memoryStore() {
     async addEvent(userId, startsAt) {
       const id = `${startsAt}:${userId}`;
       if (!events.has(id)) events.set(id, { _id: id, userId, startsAt, status: 'pending', retryAt: 0, claimedAt: 0 });
+    },
+    async dailyUsers(now) {
+      return [...prefs.values()].filter(p => p.enabled && p.daily && p.dailySeen > now - DAILY_STALE_MS).map(p => p._id);
     },
     async removeEvent(userId, startsAt) {
       const e = events.get(`${startsAt}:${userId}`);
@@ -54,6 +60,7 @@ export async function mongoStore(uri, dbName = 't13') {
   const prefs = db.collection('reminder_prefs'), events = db.collection('reminder_events');
   await events.createIndex({ status: 1, startsAt: 1 });
   await events.createIndex({ userId: 1, startsAt: 1 });
+  await prefs.createIndex({ daily: 1, enabled: 1 });
   return {
     kind: 'mongo',
     async getPref(userId) { return prefs.findOne({ _id: userId }); },
@@ -66,6 +73,10 @@ export async function mongoStore(uri, dbName = 't13') {
         { $setOnInsert: { userId, startsAt, status: 'pending', retryAt: 0, claimedAt: 0 } }, { upsert: true });
     },
     async removeEvent(userId, startsAt) { await events.deleteOne({ _id: `${startsAt}:${userId}`, status: 'pending' }); },
+    async dailyUsers(now) {
+      const list = await prefs.find({ enabled: true, daily: true, dailySeen: { $gt: now - DAILY_STALE_MS } }, { projection: { _id: 1 } }).limit(5000).toArray();
+      return list.map(p => p._id);
+    },
     async upcomingEvents(userId, now) {
       const list = await events.find({ userId, startsAt: { $gt: now } }, { projection: { startsAt: 1 } }).sort({ startsAt: 1 }).toArray();
       return list.map(e => e.startsAt);

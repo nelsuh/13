@@ -921,3 +921,11 @@ body.spectating .skin-toggle, body.spectating .chat-toggle, body.spectating .voi
 }
 .tour-notice { margin: 0 0 12px; }
 .tour-notice[hidden], .menu-notice[hidden] { display: none; }
+/* «Орой бүр»: the standing registration, next to tonight-only */
+.tour-daily {
+  display: block; width: 100%; margin: 10px 0 0; padding: 13px 14px; border-radius: 14px; cursor: pointer;
+  background: rgba(255,200,61,.08); border: 1.5px solid var(--gold); color: var(--gold-hi);
+  font-size: 14px; font-weight: 800; letter-spacing: 1px;
+}
+.tour-daily:disabled { opacity: .55; cursor: default; }
+.tour-invite-card .tour-daily { margin-top: 8px; }

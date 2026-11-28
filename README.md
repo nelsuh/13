@@ -210,18 +210,34 @@ nearly over anyway; a room two people can close is worse.
   суугаад дараа нь алга болсон ширээ** (апп хаасан, утас түгжигдсэн) 3 минут ямар ч
   идэвхгүй бол ялагчгүй хаагдана. Дараагийн шат 50 минут хүлээхгүй.
 - 2-оос цөөн хүн бүртгүүлбэл цуцлагдана.
+- **Бүртгэл хоёр янз** (даалуутай адил). Апп нээхэд «Өнөөдөр тэмцээнтэй!» цонх:
+  **Зөвхөн өнөөдөр** / **Орой бүр** / Үгүй; тэмцээний дэлгэц дээр ч мөн адил хоёр товч.
+  Өнөөдрийнхийг «Орой бүр болгох» боломжтой. «Орой бүр» нь цаашдын бүх тэмцээнд
+  хүчинтэй, «Орой бүрийн бүртгэлээ цуцлах» хүртэл (бүртгэл хаагдсан ч дарж болно —
+  дараагийн тэмцээнээс эхэлнэ/зогсоно). Долоо хоног апп нээгээгүй хүний орой бүрийн
+  бүртгэл автоматаар цуцлагдана. Сануулга ч орой бүр очно (сервер `dailyUsers`).
 
 **How it works without a server.** 13 has no backend of its own, so unlike
 Muushig the tournament is not run by one. These records live in
 `Usion.cloud.shared`:
 
 ```
-t13.v1.<startsAt>.reg        {v, list:[{id, n, a}]}           registrations
+t13.v1.<startsAt>.reg        {v, list:[{id, n, a, t}]}        tonight-only registrations
+t13.v1.daily                 {v, list:[{id, n, a, t, seen, u}]}  every-evening registrations
 t13.v1.<startsAt>.s<N>        {v, t:{<table>: {w, at}}}        each table's winner in stage N
 t13.v1.<startsAt>.l<N>        {v, t:{<table>: {s, o, r, at}}}  live scores in stage N
 t13.v1.<startsAt>.r<N>        {v, t:{<table>: roomId}}         each table's platform room
 t13.v1.fame                   {v, events, list, latest}        champions: wins + the latest
 ```
+
+**Every evening without breaking a drawn bracket** (`tourPeople()`): a row in
+`t13.v1.daily` counts for every event whose registration closed (`startsAt − 10 s`)
+after its `t`. Leaving stamps it `u` instead of deleting it, and the row stops
+counting only for events whose cut-off is after `u`, so nothing written after a
+draw changes that draw on a phone that reads the list late. Upkeep (≤ hourly per
+phone, `tourDailyUpkeep()`): refresh your own `seen`, stamp out rows unseen for
+7 days, drop rows stamped out more than 2 days ago. `tour.roster` is the merged
+list, what `tourDerive()` has always taken.
 
 Everything else — every stage's seating, who plays whom, when the next stage
 starts — is *derived* (`tourDerive()`) from those records plus a seed made from the

@@ -646,7 +646,90 @@ test("the 1 s redraw leaves the screen alone: rules stay open, rows are not rebu
   await w.advance(5000);                                    // five redraw ticks
   ok(c.el("tourRules") === rules && rules.open, "the rules are untouched");
   ok(c.el("tourBody").children[1] && c.el("tourBody").children[1].__mark === 1, "same row node: nothing rebuilt without a change");
-  eq(c.el("tourRulesList").children.length, 8, "eight rules");
+  eq(c.el("tourRulesList").children.length, 9, "nine rules");
+});
+
+test("«Орой бүр»: a standing row counts for every event drawn after it, until it is stamped out", async () => {
+  const w = new World({ strictRooms: true });
+  const c = launch(w, "d0", "Alice", w.clock.now + MIN);
+  const ids = c.read(`(() => {
+    const E0 = 1e12, cut = E0 - TOUR_OPEN_MS - TOUR_REG_GUARD_MS;
+    const daily = [{ id: "x", t: cut - 5e5 }, { id: "y", t: cut - 5e5, u: cut - 4e5 }, { id: "z", t: cut - 5e5, u: cut + 5e5 }, { id: "w", t: cut + 10 }];
+    return tourPeople(E0, [{ id: "r", t: E0 - 1e6 }, { id: "late", t: E0 + 1 }], daily).map(p => p.id).join();
+  })()`);
+  eq(ids, "r,x,z", "tonight's rows + standing rows written before the cut-off and not stamped out before it");
+});
+
+test("«Орой бүр» on the tournament screen: in tonight and every evening after; stopping it stamps the row", async () => {
+  const w = new World({ strictRooms: true });
+  const startAt = w.clock.now + 15 * MIN;
+  const c = launch(w, "d1", "Dana", startAt);
+  await w.advance(500);
+  c.click("menuTourBtn");
+  await w.advance(500);
+  eq(c.el("tourPrimary").textContent, "ЗӨВХӨН ӨНӨӨДӨР");
+  ok(c.el("tourDaily").style.display !== "none", "an «Орой бүр» button next to it");
+  eq(c.el("tourDaily").textContent, "ОРОЙ БҮР");
+  c.click("tourDaily");
+  await eventually(w, () => status(c) === "registered", 30000);
+  eq(status(c), "registered", "in tonight's event");
+  ok(c.read("tourIsDaily(myId)"), "a standing row");
+  eq(c.read("tour.reg.length"), 0, "no tonight-only row");
+  ok(c.read("tourPeople(tour.startsAt + TOUR_DAY_MS, [], tour.daily).some(p => p.id === myId)"), "and tomorrow's");
+  ok(/орой бүр/i.test(c.el("tourNote").textContent), c.el("tourNote").textContent);
+  eq(c.el("tourDaily").style.display, "none", "nothing more to offer");
+  eq(c.el("tourSecondary").textContent, "Орой бүрийн бүртгэлээ цуцлах");
+  c.click("tourSecondary");
+  await eventually(w, () => status(c) === "guest", 30000);
+  eq(status(c), "guest", "out of tonight's event");
+  ok(!c.read("tourIsDaily(myId)"), "no longer every evening");
+  ok(c.read("tour.daily.some(p => p.id === myId && Number.isFinite(p.u))"), "stamped, not deleted");
+});
+
+test("tonight only, then «Орой бүр болгох»: one tap turns it into every evening", async () => {
+  const w = new World({ strictRooms: true });
+  const c = launch(w, "d2", "Erdene", w.clock.now + 15 * MIN);
+  await w.advance(500);
+  c.click("menuTourBtn");
+  await w.advance(500);
+  c.click("tourPrimary");                                   // ЗӨВХӨН ӨНӨӨДӨР
+  await eventually(w, () => status(c) === "registered", 30000);
+  ok(!c.read("tourIsDaily(myId)"), "tonight only");
+  ok(!c.read("tourPeople(tour.startsAt + TOUR_DAY_MS, [], tour.daily).some(p => p.id === myId)"), "not tomorrow");
+  eq(c.el("tourDaily").textContent, "Орой бүр болгох");
+  eq(c.el("tourSecondary").textContent, "Бүртгэлээ цуцлах");
+  c.click("tourDaily");
+  await eventually(w, () => c.read("tourIsDaily(myId)"), 30000);
+  ok(c.read("tourPeople(tour.startsAt + TOUR_DAY_MS, [], tour.daily).some(p => p.id === myId)"), "tomorrow too");
+  eq(derived(c).people.filter(p => p.id === "d2").length, 1, "counted once tonight");
+});
+
+test("the invitation: «Орой бүр» signs you up for every evening", async () => {
+  const w = new World({ strictRooms: true });
+  const c = launch(w, "d3", "Fiona", w.clock.now + 2 * 3600e3);
+  await w.advance(2000);
+  ok(shown(c, "tourInviteOverlay"), "the invitation is up");
+  eq(c.el("tourInviteYes").textContent, "ЗӨВХӨН ӨНӨӨДӨР");
+  eq(c.el("tourInviteDaily").textContent, "ОРОЙ БҮР");
+  c.click("tourInviteDaily");
+  await eventually(w, () => c.read("tourIsDaily(myId)"), 15000);
+  eq(status(c), "registered", "registered tonight");
+  ok(shown(c, "tourOverlay") && !shown(c, "tourInviteOverlay"), "on the tournament screen");
+});
+
+test("«Орой бүр» after registration closed: from the next tournament, tonight's draw untouched", async () => {
+  const w = new World({ strictRooms: true });
+  const startAt = w.clock.now + 6 * MIN;
+  const c = launch(w, "d4", "Gan", startAt);
+  await w.advance(500);
+  c.click("menuTourBtn");
+  await w.advance(startAt - w.clock.now - 5000);            // 18:59:55: registration closed
+  eq(c.el("tourPrimary").style.display, "none", "tonight only is closed");
+  ok(c.el("tourDaily").style.display !== "none", "every evening is still on offer");
+  c.click("tourDaily");
+  await eventually(w, () => c.read("tourIsDaily(myId)"), 30000);
+  eq(status(c), "guest", "not in tonight's draw");
+  ok(c.read("tourPeople(tour.startsAt + TOUR_DAY_MS, [], tour.daily).some(p => p.id === myId)"), "in tomorrow's");
 });
 
 test("opening the app: «Оролцоё» on the invitation registers you", async () => {

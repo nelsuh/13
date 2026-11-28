@@ -76,7 +76,7 @@ test('the api needs a real Usion token', async () => {
     assert.equal((await s.call('GET', '/api/reminder')).status, 401);
     const r = await s.call('GET', '/api/reminder', 'u1');
     assert.equal(r.status, 200);
-    assert.deepEqual(r.data, { configured: true, decided: false, enabled: false, events: [], lead_ms: 180000 });
+    assert.deepEqual(r.data, { configured: true, decided: false, enabled: false, daily: false, events: [], lead_ms: 180000 });
   } finally { await s.close(); }
 });
 
@@ -162,5 +162,40 @@ test('rejects nonsense event times', async () => {
   try {
     for (const startsAt of [0, 'x', s.clock - 2 * 60 * MIN, s.clock + 3 * 24 * 60 * MIN])
       assert.equal((await s.call('POST', '/api/reminder/event', 'u1', { startsAt })).status, 400, String(startsAt));
+  } finally { await s.close(); }
+});
+
+test('«every evening» registrants are reminded for every event, while they keep opening the game', async () => {
+  const s = await setup();
+  try {
+    // 19:00 Ulaanbaatar = 11:00 UTC from 2026-11-24 (server/schedule.mjs).
+    s.setClock(Date.parse('2026-12-01T09:00:00Z'));
+    const tonight = Date.parse('2026-12-01T11:00:00Z');
+    await s.call('PUT', '/api/reminder', 'dora', { enabled: true });
+    await s.call('POST', '/api/reminder/event', 'dora', { startsAt: tonight, daily: true });
+    await s.call('PUT', '/api/reminder', 'otto', { enabled: true });
+    await s.call('POST', '/api/reminder/event', 'otto', { startsAt: tonight });          // tonight only
+    assert.equal((await s.call('GET', '/api/reminder', 'dora')).data.daily, true);
+    s.setClock(tonight - 3 * MIN + 1000);
+    await s.app.runDue();
+    assert.deepEqual(s.pushes.map(p => p.body.user_id).sort(), ['dora', 'otto']);
+    // Tomorrow: nobody opened the game, dora is still reminded.
+    const tomorrow = tonight + 24 * 60 * MIN;
+    s.setClock(tomorrow - 3 * MIN + 1000);
+    await s.app.runDue();
+    assert.deepEqual(s.pushes.slice(2).map(p => p.body.user_id), ['dora']);
+    // A week without opening it: no more reminders.
+    const later = tonight + 9 * 24 * 60 * MIN;
+    s.setClock(later - 3 * MIN + 1000);
+    await s.app.runDue();
+    assert.equal(s.pushes.length, 3);
+    // Stopping «every evening» stops them.
+    s.setClock(later + 60 * MIN);
+    await s.call('GET', '/api/reminder', 'dora');
+    await s.call('DELETE', '/api/reminder/event', 'dora', { startsAt: later + 24 * 60 * MIN, daily: false });
+    assert.equal((await s.call('GET', '/api/reminder', 'dora')).data.daily, false);
+    s.setClock(later + 24 * 60 * MIN - 3 * MIN + 1000);
+    await s.app.runDue();
+    assert.equal(s.pushes.length, 3);
   } finally { await s.close(); }
 });
